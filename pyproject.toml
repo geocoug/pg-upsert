@@ -1,0 +1,20 @@
+[project]
+name = "pg_upsert"
+version = "0.0.2"
+authors = [{ name = "Caleb Grant", email = "grantcaleb22@gmail.com" }]
+description = "A Python library for upserting data into postgres."
+readme = "README.md"
+requires-python = ">=3.8"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+    "Intended Audience :: Developers",
+    "Topic :: Database",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "License :: OSI Approved :: GNU Lesser General Public License v3 (LGPLv3)",
+    "Programming Language :: Python :: 3",
+]
+
+[project.urls]
+Homepage = "https://github.com/geocoug/pg_upsert"
+Issues = "https://github.com/geocoug/pg_upsert/issues"

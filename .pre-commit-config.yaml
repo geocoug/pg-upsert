@@ -1,0 +1,54 @@
+---
+repos:
+  - repo: meta
+    hooks:
+      - id: identity
+      - id: check-hooks-apply
+  # Protect secrets using Gitleaks
+  - repo: https://github.com/zricethezav/gitleaks
+    rev: v8.18.1
+    hooks:
+      - id: gitleaks
+  # Supported base hooks
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.5.0
+    hooks:
+      - id: check-added-large-files
+      - id: check-ast
+      - id: check-case-conflict
+      - id: check-yaml
+      - id: end-of-file-fixer
+      - id: mixed-line-ending
+      - id: requirements-txt-fixer
+      - id: trailing-whitespace
+  # YAML linter
+  - repo: https://github.com/adrienverge/yamllint
+    rev: v1.33.0
+    hooks:
+      - id: yamllint
+        args: [--config-file, ./.github/linters/.yaml-lint.yml]
+  # Markdown lint
+  - repo: https://github.com/igorshubovych/markdownlint-cli
+    rev: v0.38.0
+    hooks:
+      - id: markdownlint
+        args: [-c, .github/linters/.markdownlint.yml]
+        types: [file]
+        files: .(md|qmd)$
+  # Add trailing commas to calls and literals.
+  - repo: https://github.com/asottile/add-trailing-comma
+    rev: v3.1.0
+    hooks:
+      - id: add-trailing-comma
+  # PEP 8 style guide, error and complexity checks
+  # Replaces Black, Flake8, isort, pydocstyle, pyupgrade, bandit, and autoflake
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    # Ruff version.
+    rev: v0.1.9
+    hooks:
+      # Run the Ruff linter.
+      - id: ruff
+        args: [--config=./.github/linters/.ruff.toml]
+      # Run the Ruff formatter.
+      - id: ruff-format
+        args: [--config=./.github/linters/.ruff.toml]

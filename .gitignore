@@ -1,0 +1,7 @@
+.venv/
+*logs*
+*cache*
+.coverage
+.env
+dist/
+*.egg-info

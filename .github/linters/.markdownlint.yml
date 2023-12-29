@@ -1,0 +1,13 @@
+---
+# Line length
+MD013:
+  line_length: 9999
+  heading_line_length: 200
+  code_blocks: false
+# Inline HTML
+MD033:
+  allowed_elements: [img, a, span, button, br, i, center]
+# Images should have alternate text
+MD045: false
+# Emphasis used instead of a heading
+MD036: false
