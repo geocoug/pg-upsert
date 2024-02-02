@@ -1,6 +1,7 @@
 VENV = .venv
 PYTHON = $(VENV)/bin/python
 PIP = $(VENV)/bin/pip
+TEST = pytest
 
 # Self documenting commands
 .DEFAULT_GOAL := help
@@ -28,6 +29,9 @@ clean: ## Remove temporary files
 	rm -rf build
 	rm -rf dist
 	rm -rf *.egg-info
+
+test: $(VENV)/bin/activate ## Run unit tests
+	$(PYTHON) -m $(TEST) -v tests/
 
 update: $(VENV)/bin/activate ## Update pip and pre-commit
 	$(PIP) install -U pip

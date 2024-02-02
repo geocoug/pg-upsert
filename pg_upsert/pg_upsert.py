@@ -48,7 +48,9 @@ class PostgresDB:
         self.host = host
         self.database = database
         self.user = user
-        if "passwd" in kwargs and kwargs["passwd"] is not None:
+        if ("passwd" in kwargs and kwargs["passwd"] is not None) or (
+            "password" in kwargs and kwargs["password"] is not None
+        ):
             self.passwd = kwargs["passwd"]
         else:
             self.passwd = self.get_password()
@@ -58,7 +60,8 @@ class PostgresDB:
         self.conn = None
 
     def __repr__(self: PostgresDB) -> str:
-        return "PostgreSQL(host={!r}, database={!r}, user={!r})".format(
+        return "{}(host={!r}, database={!r}, user={!r})".format(
+            self.__class__.__name__,
             self.host,
             self.database,
             self.user,
@@ -149,9 +152,11 @@ class PostgresDB:
             if row:
                 if self.encoding:
                     r = [
-                        c.decode(self.encoding, "backslashreplace")
-                        if isinstance(c, bytes)
-                        else c
+                        (
+                            c.decode(self.encoding, "backslashreplace")
+                            if isinstance(c, bytes)
+                            else c
+                        )
                         for c in row
                     ]
                 else:
@@ -541,9 +546,11 @@ def treeview_table(
         datawidthtbl = [
             [
                 len(
-                    rowset[i][j]
-                    if isinstance(rowset[i][j], str)
-                    else str(rowset[i][j]),
+                    (
+                        rowset[i][j]
+                        if isinstance(rowset[i][j], str)
+                        else str(rowset[i][j])
+                    ),
                 )
                 for i in nrows
             ]
@@ -1001,8 +1008,10 @@ def null_qa_one(
         ).format(
             base_schema=Literal(base_schema),
             table=Literal(table),
-            exclude_null_checks=SQL(",").join(
-                Literal(col) for col in exclude_null_checks.split(",")
+            exclude_null_checks=(
+                SQL(",").join(Literal(col) for col in exclude_null_checks.split(","))
+                if exclude_null_checks
+                else Literal("")
             ),
         ),
     )
@@ -2184,7 +2193,7 @@ def upsert(
         host=host,
         database=database,
         user=user,
-        passwd=kwargs["passwd"] if "passwd" in kwargs else None,
+        passwd=kwargs.get("passwd", None),
     )
     logging.debug(f"Connected to {db}")
 
