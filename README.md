@@ -2,7 +2,9 @@
 
 [![ci/cd](https://github.com/geocoug/pg_upsert/actions/workflows/ci-cd.yml/badge.svg)](https://github.com/geocoug/pg_upsert/actions/workflows/ci-cd.yml)
 
-Check data in a staging table or set of staging tables, then interactively update and insert (upsert) rows of a base table or base tables from the staging table(s) of the same name. Initial table checks include not-null, primary key, and foreign key checks. If any of these checks fail, the program will exit with an error message. If all checks pass, the program will display the number of rows to be inserted and updated, and ask for confirmation before proceeding. If the user confirms, the program will perform the upserts and display the number of rows inserted and updated. If the user does not confirm, the program will exit without performing any upserts.
+**pg_upsert** is a Python package that provides a method to *interactively* update and insert (upsert) rows of a base table or base tables from the staging table(s) of the same name. The package is designed to work exclusively with PostgreSQL databases.
+
+The program will perform initial table checks in the form of not-null, primary key, and foreign key checks. If any of these checks fail, the program will exit with an error message. If all checks pass, the program will display the number of rows to be inserted and updated, and ask for confirmation before proceeding. If the user confirms, the program will perform the upserts and display the number of rows inserted and updated. If the user does not confirm, the program will exit without performing any upserts.
 
 ## Installation
 
@@ -60,46 +62,22 @@ options:
 ### Python
 
 ```py
-import logging
-from pathlib import Path
-
 from pg_upsert import upsert
 
-logfile = Path("pg_upsert.log")
-if logfile.exists():
-    logfile.unlink()
-
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(message)s",
-    handlers=[
-        logging.FileHandler(logfile),
-        logging.StreamHandler(),
-    ],
-)
-
-tables = [
-    "customers",
-    "purchase_orders",
-]
-
-exclude_cols = [
-    "alias",
-]
 
 upsert(
     host="localhost",
     database="dbname",
     user="postgres",
-    # passwd=,  # if not provided, will prompt for password
-    tables=tables,
+    # passwd=,                                  # if not provided, will prompt for password
+    tables=["customers", "purchase_orders"],
     stg_schema="staging",
     base_schema="public",
-    upsert_method="upsert",  # "upsert" | "update" | "insert", default: "upsert"
-    commit=False,  # optional, default=False
-    interactive=False,  # optional, default=False
-    exclude_cols=exclude_cols,  # optional
-    exclude_null_check_columns=exclude_cols,  # optional
+    upsert_method="upsert",                     # "upsert" | "update" | "insert", default: "upsert"
+    commit=False,                               # optional, default=False
+    interactive=True,                           # optional, default=False
+    exclude_cols=["alias"],                     # optional
+    exclude_null_check_columns=["alias"],       # optional
 )
 ```
 

@@ -60,12 +60,7 @@ class PostgresDB:
         self.conn = None
 
     def __repr__(self: PostgresDB) -> str:
-        return "{}(host={!r}, database={!r}, user={!r})".format(
-            self.__class__.__name__,
-            self.host,
-            self.database,
-            self.user,
-        )
+        return f"{self.__class__.__name__}(host={self.host}, database={self.database}, user={self.user})"  # noqa: E501
 
     def __del__(self: PostgresDB) -> None:
         """Delete the instance."""
