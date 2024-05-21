@@ -1,6 +1,8 @@
 # pg_upsert
 
 [![ci/cd](https://github.com/geocoug/pg_upsert/actions/workflows/ci-cd.yml/badge.svg)](https://github.com/geocoug/pg_upsert/actions/workflows/ci-cd.yml)
+[![PyPI Latest Release](https://img.shields.io/pypi/v/pg_upsert.svg)](https://pypi.org/project/pg_upsert/)
+[![PyPI Downloads](https://img.shields.io/pypi/dm/pg_upsert.svg?label=pypi%20downloads)](https://pypi.org/project/pg_upsert/)
 
 **pg_upsert** is a Python package that provides a method to *interactively* update and insert (upsert) rows of a base table or base tables from the staging table(s) of the same name. The package is designed to work exclusively with PostgreSQL databases.
 
@@ -197,7 +199,7 @@ This example will demonstrate how to use `pg_upsert` to upsert data from staging
         ('B002', 'JSmith');
     ```
 
-2. Create a Python script called `load_data.py` that calls `pg_upsert` to upsert data from staging tables to base tables.
+2. Create a Python script called `upsert_data.py` that calls `pg_upsert` to upsert data from staging tables to base tables.
 
     ```py
     import logging
@@ -233,7 +235,7 @@ This example will demonstrate how to use `pg_upsert` to upsert data from staging
     )
     ```
 
-3. Run the script: `python load_data.py`
+3. Run the script: `python upsert_data.py`
 
     ```txt
     The script pg_upsert.py wants the password for PostgresDB(host=localhost, database=dev, user=docker):
@@ -285,7 +287,7 @@ This example will demonstrate how to use `pg_upsert` to upsert data from staging
     update staging.books set book_title = 'The Great Novel 2' where book_id = 'B001';
     ```
 
-5. Run the script again, but this time set `interactive=True` in the `upsert` function call in `load_data.py`.
+5. Run the script again, but this time set `interactive=True` in the `upsert` function call in `upsert_data.py`.
 
     The script will display GUI dialogs during the upsert process to show which rows will be added and which rows will be updated. The user can chose to confirm, skip, or cancel the upsert process at any time. The script will not commit any changes to the database until all of the upserts have been completed successfully.
 
@@ -298,7 +300,7 @@ This example will demonstrate how to use `pg_upsert` to upsert data from staging
    values ('B003', null, 'Mystery', 'A book with no name!');
     ```
 
-    Run the script again: `python load_data.py`
+    Run the script again: `python upsert_data.py`
 
     ```txt
     The script pg_upsert.py wants the password for PostgresDB(host=localhost, database=dev, user=docker):
