@@ -289,7 +289,7 @@ This example will demonstrate how to use `pg_upsert` to upsert data from staging
 
     The script will display GUI dialogs during the upsert process to show which rows will be added and which rows will be updated. The user can chose to confirm, skip, or cancel the upsert process at any time. The script will not commit any changes to the database until all of the upserts have been completed successfully.
 
-    ![screenshot](./screenshot.png)
+    ![screenshot](https://github.com/geocoug/pg_upsert/blob/main/screenshot.png)
 
 6. Let's modify the `staging.books` table to include a row with a missing value in the `book_title` and `Mystery` value in the `genre` column to see what happens.
 
