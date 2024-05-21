@@ -30,9 +30,6 @@ clean: ## Remove temporary files
 	rm -rf dist
 	rm -rf *.egg-info
 
-test: $(VENV)/bin/activate ## Run unit tests
-	$(PYTHON) -m $(TEST) -v tests/
-
 update: $(VENV)/bin/activate ## Update pip and pre-commit
 	$(PIP) install -U pip
 	$(PYTHON) -m pre_commit autoupdate

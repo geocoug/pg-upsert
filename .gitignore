@@ -1,5 +1,5 @@
 .venv/
-*logs*
+*log*
 *cache*
 .coverage
 .env

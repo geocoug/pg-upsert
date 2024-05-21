@@ -1,6 +1,6 @@
 [project]
 name = "pg_upsert"
-version = "0.0.3"
+dynamic = ["version"]
 authors = [{ name = "Caleb Grant", email = "grantcaleb22@gmail.com" }]
 description = "A Python library for upserting data into postgres."
 readme = "README.md"
@@ -15,11 +15,82 @@ classifiers = [
     "Programming Language :: Python :: 3",
 ]
 dependencies = [
-    "psycopg2-binary >= 2.9.7",
     "polars >= 0.19.3",
+    "psycopg2-binary >= 2.9.7",
     "tabulate >= 0.9.0",
 ]
+keywords = ["postgresql", "postgres", "dbms", "etl", "upsert", "database"]
+
+[tool.setuptools.dynamic]
+version = { attr = "pg_upsert.pg_upsert.__version__" }
 
 [project.urls]
 Homepage = "https://github.com/geocoug/pg_upsert"
 Issues = "https://github.com/geocoug/pg_upsert/issues"
+
+[tool.ruff]
+# Exclude a variety of commonly ignored directories.
+exclude = [
+    ".bzr",
+    ".direnv",
+    ".eggs",
+    ".git",
+    ".hg",
+    ".mypy_cache",
+    ".nox",
+    ".pants.d",
+    ".ruff_cache",
+    ".svn",
+    ".tox",
+    ".venv",
+    "__pypackages__",
+    "_build",
+    "buck-out",
+    "build",
+    "dist",
+    "node_modules",
+    "venv",
+    "*cache*",
+]
+# The line length to use when enforcing long-lines violations (like E501).
+line-length = 88
+# Assume Python 3.11.
+target-version = "py311"
+# Whether to automatically exclude files that are ignored by .ignore, .gitignore, .git/info/exclude, and global gitignore files.
+respect-gitignore = true
+# Default autofix behavior
+fix = false
+
+[tool.ruff.lint]
+# Allow unused variables when underscore-prefixed.
+dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
+# A list of rule codes or prefixes to enable.
+# Prefixes can specify exact rules (like F841), entire categories (like F), or anything in between.
+# Default = Pyflakes `E` and `F` codes.
+select = [
+    "E",
+    "F",
+    "Q",
+    "B",
+    "I",
+    "UP",
+    "N",
+    "S",
+    "C4",
+    "T20",
+    "RET",
+    "SIM",
+    "PD",
+    "RUF",
+]
+ignore = ["PD901"]
+
+[tool.ruff.format]
+# Like Black, use double quotes for strings.
+quote-style = "double"
+# Like Black, indent with spaces, rather than tabs.
+indent-style = "space"
+# Like Black, respect magic trailing commas.
+skip-magic-trailing-comma = false
+# Like Black, automatically detect the appropriate line ending.
+line-ending = "auto"

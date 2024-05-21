@@ -19,6 +19,8 @@ from psycopg2.extras import DictCursor
 from psycopg2.sql import SQL, Composable, Identifier, Literal
 from tabulate import tabulate
 
+__version__ = "0.0.4"
+
 description_long = """
 Check data in a staging table or set of staging tables, then update and insert (upsert)
 rows of a base table or base tables from the staging table(s) of the same name.
@@ -1986,7 +1988,6 @@ def upsert_one(
             ),
         )
         # Prompt user to examine new data and continue or quit.
-        # new_df = db.dataframe("select * from ups_newrows;")
         new_curs = db.execute("select * from ups_newrows;")
         new_cols = [col.name for col in new_curs.description]
         new_rowcount = new_curs.rowcount
@@ -2071,6 +2072,11 @@ def clparser() -> argparse.ArgumentParser:
         description=description_short,
         epilog=description_long,
         formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"%(prog)s {__version__}",
     )
     parser.add_argument(
         "-q",
