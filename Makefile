@@ -1,6 +1,7 @@
 VENV = .venv
-PYTHON = $(VENV)/bin/python
-PIP = $(VENV)/bin/pip
+BIN = $(VENV)/bin
+PYTHON = $(BIN)/python
+PIP = $(BIN)/pip
 TEST = pytest
 
 # Self documenting commands
@@ -29,6 +30,24 @@ clean: ## Remove temporary files
 	rm -rf build
 	rm -rf dist
 	rm -rf *.egg-info
+
+show-bump: ## Show the next version
+	@bump-my-version show-bump
+
+bump-patch: $(VENV)/bin/activate ## Bump patch version
+	@$(MAKE) show-bump
+	@printf "Applying patch bump\n"
+	@$(BIN)/bump-my-version bump patch
+
+bump-minor: $(VENV)/bin/activate ## Bump minor version
+	@$(MAKE) show-bump
+	@printf "Applying minor bump\n"
+	@$(BIN)/bump-my-version bump minor
+
+bump-major: $(VENV)/bin/activate ## Bump major version
+	@$(MAKE) show-bump
+	@printf "Applying major bump\n"
+	@$(BIN)/bump-my-version bump major
 
 update: $(VENV)/bin/activate ## Update pip and pre-commit
 	$(PIP) install -U pip

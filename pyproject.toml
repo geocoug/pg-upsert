@@ -94,3 +94,12 @@ indent-style = "space"
 skip-magic-trailing-comma = false
 # Like Black, automatically detect the appropriate line ending.
 line-ending = "auto"
+
+[tool.bumpversion]
+current_version = "0.0.6"
+commit = true
+commit_args = "--no-verify"
+tag = true
+
+[[tool.bumpversion.files]]
+filename = "pg_upsert/pg_upsert.py"
