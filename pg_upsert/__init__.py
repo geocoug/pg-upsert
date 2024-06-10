@@ -1,3 +1,3 @@
-import pg_upsert
+from .pg_upsert import upsert
 
-__all__ = ["pg_upsert"]
+__all__ = ["upsert"]
