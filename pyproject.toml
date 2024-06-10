@@ -96,7 +96,7 @@ skip-magic-trailing-comma = false
 line-ending = "auto"
 
 [tool.bumpversion]
-current_version = "0.0.8"
+current_version = "0.0.9"
 commit = true
 commit_args = "--no-verify"
 tag = true
