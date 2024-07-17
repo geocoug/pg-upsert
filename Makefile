@@ -57,11 +57,15 @@ lint: $(VENV)/bin/activate ## Run pre-commit hooks
 	$(PYTHON) -m pre_commit install --install-hooks
 	$(PYTHON) -m pre_commit run --all-files
 
+test: $(VENV)/bin/activate ## Run unit tests
+	$(PYTHON) -m $(TEST)
+
 build: $(VENV)/bin/activate ## Generate distrubition packages
 	$(PYTHON) -m build
 
 publish: $(VENV)/bin/activate ## Publish to PyPI
 	$(MAKE) lint
+	$(MAKE) test
 	$(MAKE) build
 	$(PYTHON) -m twine upload --repository pypi dist/*
 	$(MAKE) clean

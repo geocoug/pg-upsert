@@ -360,3 +360,41 @@ This example will demonstrate how to use `pg_upsert` to upsert data from staging
     ```
 
     The script failed to upsert data because there are non-null and foreign key checks that failed on the `staging.books` table, and primary key and check constraint that failed on the `staging.authors` table. The interactive GUI will display all values in the `books.genres` column that fail the foreign key check. No GUI dialogs are displayed for non-null checks, because there are no values to display. Similarly, if there is a primary key check that fails (like in the `staging.authors` table), a GUI dialog will be displayed with the primary keys in the table that are failing. No GUI dialogs are displayed for check constraint checks.
+
+## Contributing
+
+1. Fork the repository
+2. Create a new branch (`git checkout -b feature-branch`)
+3. Create a Python virtual environment (`python -m venv .venv`)
+4. Activate the virtual environment (`source .venv/bin/activate`)
+5. Install dependencies (`pip install -r requirements.txt`)
+6. Install pre-commit hooks (`python -m pre-commit install --install-hooks`)
+7. Make your changes and run tests (`make test`)
+8. Push your changes to the branch (`git push origin feature-branch`)
+9. Create a pull request
+
+### Running Tests Locally
+
+Running tests locally requires a PostgreSQL database. The easiest way to set up a PostgreSQL database is to use Docker. The following command will create a PostgreSQL database called `dev` with the user `docker` and password `docker`.
+
+```sh
+docker run --name postgres -e POSTGRES_USER=docker -e POSTGRES_PASSWORD=<passwd> -e POSTGRES_DB=dev -p 5432:5432 -d postgres
+```
+
+Once initialized, import the test data by running the following command.
+
+```sh
+docker exec -i postgres psql -U docker -d dev < tests/data.sql
+```
+
+Create a `.env` file in the root directory with the following content, modifying the values as needed.
+
+```sh
+POSTGRES_HOST=
+POSTGRES_PORT=5432
+POSTGRES_DB=dev
+POSTGRES_USER=docker
+POSTGRES_PASSWORD=
+```
+
+Now you can run the tests using `make test`.

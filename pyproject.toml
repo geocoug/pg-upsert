@@ -33,6 +33,14 @@ version = { attr = "pg_upsert.pg_upsert.__version__" }
 Homepage = "https://github.com/geocoug/pg_upsert"
 Issues = "https://github.com/geocoug/pg_upsert/issues"
 
+[tool.pytest.ini_options]
+addopts = ["--cov=pg_upsert", "-v"]
+testpaths = ["tests"]
+log_cli = true
+log_cli_level = "DEBUG"
+log_cli_format = "%(asctime)s - %(name)s - %(levelname)s: %(message)s"
+log_cli_date_format = "%Y-%m-%d %H:%M:%S"
+
 [tool.ruff]
 # Exclude a variety of commonly ignored directories.
 exclude = [
@@ -88,7 +96,7 @@ select = [
     "PD",
     "RUF",
 ]
-ignore = ["PD901"]
+ignore = ["PD901", "S101"]
 
 [tool.ruff.format]
 # Like Black, use double quotes for strings.
