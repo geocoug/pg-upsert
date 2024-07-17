@@ -6,7 +6,7 @@
 
 **pg_upsert** is a Python package that provides a method to *interactively* update and insert (upsert) rows of a base table or base tables from the staging table(s) of the same name. The package is designed to work exclusively with PostgreSQL databases.
 
-The program will perform initial table checks in the form of not-null, primary key, and foreign key checks. If any of these checks fail, the program will exit with an error message. If all checks pass, the program will display the number of rows to be inserted and updated, and ask for confirmation before proceeding. If the user confirms, the program will perform the upserts and display the number of rows inserted and updated. If the user does not confirm, the program will exit without performing any upserts.
+The program will perform initial table checks in the form of not-null, primary key, foreign key, and check constraint checks. If any of these checks fail, the program will exit with an error message. If all checks pass, the program will display the number of rows to be inserted and updated, and ask for confirmation before proceeding. If the user confirms, the program will perform the upserts and display the number of rows inserted and updated. If the user does not confirm, the program will exit without performing any upserts.
 
 ## Credits
 
@@ -136,7 +136,13 @@ This example will demonstrate how to use `pg_upsert` to upsert data from staging
     create table public.authors (
         author_id varchar(100) primary key,
         first_name varchar(100) not null,
-        last_name varchar(100) not null
+        last_name varchar(100) not null,
+        -- Check that the first and last name are not the same
+        constraint chk_authors check (first_name <> last_name),
+        -- Check that first_name only contains letters
+        constraint chk_authors_first_name check (first_name ~ '^[a-zA-Z]+$'),
+        -- Check that last_name only contains letters
+        constraint chk_authors_last_name check (last_name ~ '^[a-zA-Z]+$')
     );
 
     drop table if exists public.book_authors cascade;
@@ -241,10 +247,10 @@ This example will demonstrate how to use `pg_upsert` to upsert data from staging
     The script pg_upsert.py wants the password for PostgresDB(host=localhost, database=dev, user=docker):
     Upserting to public from staging
     Tables selected for upsert:
-        books
-        authors
-        genres
-        book_authors
+    books
+    authors
+    genres
+    book_authors
 
     ===Non-NULL checks===
     Conducting non-null QA checks on table staging.books
@@ -263,6 +269,12 @@ This example will demonstrate how to use `pg_upsert` to upsert data from staging
     Conducting foreign key QA checks on table staging.authors
     Conducting foreign key QA checks on table staging.genres
     Conducting foreign key QA checks on table staging.book_authors
+
+    ===Check Constraint checks===
+    Conducting check constraint QA checks on table staging.books
+    Conducting check constraint QA checks on table staging.authors
+    Conducting check constraint QA checks on table staging.genres
+    Conducting check constraint QA checks on table staging.book_authors
 
     ===QA checks passed. Starting upsert===
     Performing upsert on table public.genres
@@ -293,11 +305,14 @@ This example will demonstrate how to use `pg_upsert` to upsert data from staging
 
     ![Screenshot](https://raw.githubusercontent.com/geocoug/pg_upsert/main/screenshot.png)
 
-6. Let's modify the `staging.books` table to include a row with a missing value in the `book_title` and `Mystery` value in the `genre` column to see what happens.
+6. Let's test some of the QA checks. Modify the `staging.books` table to include a row with a missing value in the `book_title` and `Mystery` value in the `genre` column. The `book_title` column is a non-null column, and the `genre` column is a foreign key column. Let's also modify the `staging.authors` table by adding `JDoe` again as the `author_id` but this time we will set both the `first_name` and `last_name` to `Doe1`. This should trigger a primary key error and check constraint errors.
 
     ```sql
-   insert into staging.books (book_id, book_title, genre, notes)
-   values ('B003', null, 'Mystery', 'A book with no name!');
+    insert into staging.books (book_id, book_title, genre, notes)
+    values ('B003', null, 'Mystery', 'A book with no name!');
+
+    insert into staging.authors (author_id, first_name, last_name)
+    values ('JDoe', 'Doe1', 'Doe1');
     ```
 
     Run the script again: `python upsert_data.py`
@@ -305,6 +320,11 @@ This example will demonstrate how to use `pg_upsert` to upsert data from staging
     ```txt
     The script pg_upsert.py wants the password for PostgresDB(host=localhost, database=dev, user=docker):
     Upserting to public from staging
+    Tables selected for upsert:
+    books
+    authors
+    genres
+    book_authors
 
     ===Non-NULL checks===
     Conducting non-null QA checks on table staging.books
@@ -316,6 +336,7 @@ This example will demonstrate how to use `pg_upsert` to upsert data from staging
     ===Primary Key checks===
     Conducting primary key QA checks on table staging.books
     Conducting primary key QA checks on table staging.authors
+        Duplicate key error in columns author_id
     Conducting primary key QA checks on table staging.genres
     Conducting primary key QA checks on table staging.book_authors
 
@@ -326,7 +347,16 @@ This example will demonstrate how to use `pg_upsert` to upsert data from staging
     Conducting foreign key QA checks on table staging.genres
     Conducting foreign key QA checks on table staging.book_authors
 
-    QA checks failed. Aborting upsert.
-   ```
+    ===Check Constraint checks===
+    Conducting check constraint QA checks on table staging.books
+    Conducting check constraint QA checks on table staging.authors
+        Check constraint chk_authors has 1 failing rows
+        Check constraint chk_authors_first_name has 1 failing rows
+        Check constraint chk_authors_last_name has 1 failing rows
+    Conducting check constraint QA checks on table staging.genres
+    Conducting check constraint QA checks on table staging.book_authors
 
-   The script failed to upsert data because there are non-null and foreign key checks that failed on the `staging.books` table. The interactive GUI will display all values in the `books.genres` column that fail the foreign key check. No GUI dialogs are displayed for non-null checks, because there are no values to display. Similarly, if there is a primary key check that fails, a GUI dialog will be displayed with the primary keys in the table that are failing.
+    QA checks failed. Aborting upsert.
+    ```
+
+    The script failed to upsert data because there are non-null and foreign key checks that failed on the `staging.books` table, and primary key and check constraint that failed on the `staging.authors` table. The interactive GUI will display all values in the `books.genres` column that fail the foreign key check. No GUI dialogs are displayed for non-null checks, because there are no values to display. Similarly, if there is a primary key check that fails (like in the `staging.authors` table), a GUI dialog will be displayed with the primary keys in the table that are failing. No GUI dialogs are displayed for check constraint checks.
