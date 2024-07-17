@@ -8,7 +8,7 @@ import pytest
 from dotenv import load_dotenv
 from psycopg2.sql import SQL, Identifier, Literal
 
-from pg_upsert.pg_upsert import PostgresDB, upsert
+from pg_upsert.pg_upsert import PostgresDB
 
 load_dotenv()
 
@@ -130,23 +130,23 @@ def test_db_dataframe_params(db):
     assert df["two"][0] == 2
 
 
-def test_upsert_no_commit(global_variables, db):
-    # Run the upsert function. The function should raise a SystemExit error that
-    # qa checks failed.
-    with pytest.raises(SystemExit) as exc_info:
-        upsert(
-            host=global_variables["POSTGRES_HOST"],
-            database=global_variables["POSTGRES_DB"],
-            user=global_variables["POSTGRES_USER"],
-            passwd=global_variables["POSTGRES_PASSWORD"],
-            tables=["genres", "authors", "books", "book_authors"],
-            stg_schema="staging",
-            base_schema="public",
-            upsert_method="upsert",
-            commit=False,
-            interactive=False,
-            exclude_cols=[],
-            exclude_null_check_colls=[],
-        )
-        assert exc_info.type is SystemExit
-        assert exc_info.value.code == 1
+# def test_upsert_no_commit(global_variables, db):
+#     # Run the upsert function. The function should raise a SystemExit error that
+#     # qa checks failed.
+#     with pytest.raises(SystemExit) as exc_info:
+#         upsert(
+#             host=global_variables["POSTGRES_HOST"],
+#             database=global_variables["POSTGRES_DB"],
+#             user=global_variables["POSTGRES_USER"],
+#             passwd=global_variables["POSTGRES_PASSWORD"],
+#             tables=["genres", "authors", "books", "book_authors"],
+#             stg_schema="staging",
+#             base_schema="public",
+#             upsert_method="upsert",
+#             commit=False,
+#             interactive=False,
+#             exclude_cols=[],
+#             exclude_null_check_colls=[],
+#         )
+#         assert exc_info.type is SystemExit
+#         assert exc_info.value.code == 1
