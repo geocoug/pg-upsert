@@ -19,7 +19,7 @@ from psycopg2.extras import DictCursor
 from psycopg2.sql import SQL, Composable, Identifier, Literal
 from tabulate import tabulate
 
-__version__ = "1.1.3"
+__version__ = "1.1.4"
 
 description_long = """
 Check data in a staging table or set of staging tables, then update and insert (upsert)
