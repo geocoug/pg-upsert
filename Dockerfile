@@ -8,7 +8,7 @@ ENV PYTHONDONTWRITEBYTECODE 1
 ENV PYTHONUNBUFFERED 1
 
 RUN apt-get update -y && \
-    pip install --no-cache-dir --upgrade pip==24.0
+    pip install --no-cache-dir --upgrade pip==24.1.2
 
 COPY ./requirements.txt .
 
@@ -36,7 +36,7 @@ RUN addgroup --system app && \
 COPY --from=staging /app/wheels /wheels
 
 # hadolint ignore=DL3013
-RUN pip install --no-cache-dir --upgrade pip==24.0 && \
+RUN pip install --no-cache-dir --upgrade pip==24.1.2 && \
     pip install --no-cache-dir /wheels/*
 
 COPY . $HOME
