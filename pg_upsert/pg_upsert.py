@@ -36,6 +36,8 @@ description_short = (
     "Update and insert (upsert) data from staging tables to base tables."
 )
 
+logger = logging.getLogger(__name__)
+
 
 class PostgresDB:
     """Base database object."""
@@ -812,6 +814,7 @@ def staged_to_load(control_table: str, tables):
             null_errors text,
             pk_errors text,
             fk_errors text,
+            ck_errors text,
             rows_updated integer,
             rows_inserted integer
         );
@@ -856,6 +859,7 @@ def load_staging(base_schema: str, stg_schema: str, control_table: str):
         set null_errors = null,
             pk_errors = null,
             fk_errors = null,
+            ck_errors = null,
             rows_updated = null,
             rows_inserted = null;
         """,
@@ -865,9 +869,10 @@ def load_staging(base_schema: str, stg_schema: str, control_table: str):
 
 
 def qa_all(base_schema: str, stg_schema: str, control_table: str):
-    """Conducts null, primary key, and foreign key checks on multiple staging tables
-    containing new or revised data for staging tables, using the
-    NULLQA_ONE, PKQA_ONE, and FKQA_ONE functions.
+    """Conducts null, primary key, foreign key, and check constraint
+    checks on multiple staging tables containing new or revised data
+    for staging tables, using the NULLQA_ONE, PKQA_ONE, FKQA_ONE,
+    and CKQA_ONE functions.
     """
     # Create a list of the selected tables with a loop control flag.
     db.execute(
@@ -902,33 +907,43 @@ def qa_all(base_schema: str, stg_schema: str, control_table: str):
         0
     ]
     # Null checks
-    logging.info("")
+    logger.info("")
     qa_check = "Non-NULL"
-    logging.info(f"==={qa_check} checks===")
+    logger.info(f"==={qa_check} checks===")
     start_time = datetime.now()
     qa_all_nullloop(base_schema, stg_schema, control_table, interactive)
-    logging.debug(f"{qa_check} checks completed in {ellapsed_time(start_time)}")
-    logging.info("")
+    logger.debug(f"{qa_check} checks completed in {ellapsed_time(start_time)}")
+    logger.info("")
 
     # Reset the loop control flag.
     db.execute("update ups_proctables set processed = False;")
 
     qa_check = "Primary Key"
-    logging.info(f"==={qa_check} checks===")
+    logger.info(f"==={qa_check} checks===")
     start_time = datetime.now()
     qa_all_pkloop(base_schema, stg_schema, control_table, interactive)
-    logging.debug(f"{qa_check} checks completed in {ellapsed_time(start_time)}")
-    logging.info("")
+    logger.debug(f"{qa_check} checks completed in {ellapsed_time(start_time)}")
+    logger.info("")
 
     # Reset the loop control flag.
     db.execute("update ups_proctables set processed = False;")
 
     qa_check = "Foreign Key"
-    logging.info(f"==={qa_check} checks===")
+    logger.info(f"==={qa_check} checks===")
     start_time = datetime.now()
     qa_all_fkloop(base_schema, stg_schema, control_table, interactive)
-    logging.debug(f"{qa_check} checks completed in {ellapsed_time(start_time)}")
-    logging.info("")
+    logger.debug(f"{qa_check} checks completed in {ellapsed_time(start_time)}")
+    logger.info("")
+
+    # Reset the loop control flag.
+    db.execute("update ups_proctables set processed = False;")
+
+    qa_check = "Check Constraint"
+    logger.info(f"==={qa_check} checks===")
+    start_time = datetime.now()
+    qa_all_ckloop(base_schema, stg_schema, control_table, interactive)
+    logger.debug(f"{qa_check} checks completed in {ellapsed_time(start_time)}")
+    logger.info("")
 
 
 def qa_all_nullloop(
@@ -982,7 +997,7 @@ def null_qa_one(
     exclude_null_checks: str,
     interactive: bool,
 ):
-    logging.info(f"Conducting non-null QA checks on table {stg_schema}.{table}")
+    logger.info(f"Conducting non-null QA checks on table {stg_schema}.{table}")
     validate_table(base_schema, stg_schema, table)
     # Create a table listing the columns of the base table that must
     # be non-null and that do not have a default expression.
@@ -1046,7 +1061,7 @@ def null_qa_one(
         )
         null_df = db.dataframe("select * from ups_qa_nonnull_col;")
         if not null_df.is_empty():
-            logging.warning(
+            logger.warning(
                 f"    Column {df['column_name'][0]} has {null_df['nrows'][0]} null values",  # noqa: E501
             )
             db.execute(
@@ -1123,7 +1138,7 @@ def qa_all_pkloop(
 
 def pk_qa_one(base_schema: str, stg_schema: str, table: str, interactive: bool):
     pk_errors = []
-    logging.info(f"Conducting primary key QA checks on table {stg_schema}.{table}")
+    logger.info(f"Conducting primary key QA checks on table {stg_schema}.{table}")
     validate_table(base_schema, stg_schema, table)
     # Create a table of primary key columns on this table
     db.execute(
@@ -1152,7 +1167,7 @@ def pk_qa_one(base_schema: str, stg_schema: str, table: str, interactive: bool):
     df = db.dataframe("select * from ups_primary_key_columns;")
     if df.is_empty():
         return None
-    logging.debug(f"  Checking constraint {df['constraint_name'][0]}")
+    logger.debug(f"  Checking constraint {df['constraint_name'][0]}")
     # Get a comma-delimited list of primary key columns to build SQL selection
     # for duplicate keys
     pkcol_df = db.dataframe(
@@ -1182,7 +1197,7 @@ def pk_qa_one(base_schema: str, stg_schema: str, table: str, interactive: bool):
     )
     pk_check = db.dataframe("select * from ups_pk_check;")
     if not pk_check.is_empty():
-        logging.warning(f"    Duplicate key error in columns {pkcollist}")
+        logger.warning(f"    Duplicate key error in columns {pkcollist}")
         err_df = db.dataframe(
             """
             select count(*) as errcnt, sum(nrows) as total_rows
@@ -1192,8 +1207,8 @@ def pk_qa_one(base_schema: str, stg_schema: str, table: str, interactive: bool):
         pk_errors.append(
             f"{err_df['errcnt'][0]} duplicated keys ({int(err_df['total_rows'][0])} rows) in table {stg_schema}.{table}",  # noqa: E501
         )
-        logging.debug("")
-        logging.debug(
+        logger.debug("")
+        logger.debug(
             tabulate(
                 pk_check.iter_rows(),
                 headers=pk_check.columns,
@@ -1202,7 +1217,7 @@ def pk_qa_one(base_schema: str, stg_schema: str, table: str, interactive: bool):
                 colalign=["left"] * len(pk_check.columns),
             ),
         )
-        logging.debug("")
+        logger.debug("")
         if interactive:
             btn, return_value = TableUI(
                 "Duplicate key error",
@@ -1259,7 +1274,7 @@ def qa_all_fkloop(
 
 
 def fk_qa_one(base_schema: str, stg_schema: str, table: str, interactive: bool):
-    logging.info(f"Conducting foreign key QA checks on table {stg_schema}.{table}")
+    logger.info(f"Conducting foreign key QA checks on table {stg_schema}.{table}")
     # Create a table of *all* foreign key dependencies in this database.
     # Only create it once because it may slow the QA process down.
     if (
@@ -1361,7 +1376,7 @@ def fk_qa_one(base_schema: str, stg_schema: str, table: str, interactive: bool):
         )
         if df.is_empty():
             break
-        logging.debug(
+        logger.debug(
             f"  Checking constraint {df['constraint_name'][0]} for table {table}",
         )
         db.execute(
@@ -1461,9 +1476,20 @@ def fk_qa_one(base_schema: str, stg_schema: str, table: str, interactive: bool):
         fk_check_df = db.dataframe("select * from ups_fk_check;")
 
         if not fk_check_df.is_empty():
-            logging.warning(
+            logger.warning(
                 f"    Foreign key error referencing {const_df['uq_table'][0]}",
             )
+            logger.debug("")
+            logger.debug(
+                tabulate(
+                    fk_check_df.iter_rows(),
+                    headers=fk_check_df.columns,
+                    tablefmt="pipe",
+                    showindex=False,
+                    colalign=["left"] * len(fk_check_df.columns),
+                ),
+            )
+            logger.debug("")
             if interactive:
                 btn, return_value = TableUI(
                     "Foreign Key Error",
@@ -1477,17 +1503,6 @@ def fk_qa_one(base_schema: str, stg_schema: str, table: str, interactive: bool):
                 ).activate()
                 if btn != 0:
                     error_handler(["Script canceled by user."])
-            logging.debug("")
-            logging.debug(
-                tabulate(
-                    fk_check_df.iter_rows(),
-                    headers=fk_check_df.columns,
-                    tablefmt="pipe",
-                    showindex=False,
-                    colalign=["left"] * len(fk_check_df.columns),
-                ),
-            )
-            logging.debug("")
 
             db.execute(
                 SQL(
@@ -1534,6 +1549,217 @@ def fk_qa_one(base_schema: str, stg_schema: str, table: str, interactive: bool):
         ),
     )
     return err_df["fk_errors"][0]
+
+
+def qa_all_ckloop(
+    base_schema: str,
+    stg_schema: str,
+    control_table: str,
+    interactive: bool,
+):
+    ck_errors = []
+    while True:
+        df = db.dataframe(SQL("select * from ups_toprocess;"))
+        if df.is_empty():
+            break
+        ck_qa_one(
+            base_schema,
+            stg_schema,
+            table=df["table_name"][0],
+            errors=ck_errors,
+            interactive=interactive,
+        )
+        err_df = db.dataframe(
+            "select * from ups_ck_error_list where ck_errors is not null",
+        )
+        if not err_df.is_empty():
+            db.execute(
+                SQL(
+                    """
+                update {control_table}
+                set ck_errors = {ck_errors}
+                where table_name = {table};
+                """,
+                ).format(
+                    control_table=Identifier(control_table),
+                    ck_errors=Literal(err_df["ck_errors"][0]),
+                    table=Literal(df["table_name"][0]),
+                ),
+            )
+
+        db.execute(
+            SQL(
+                """update ups_proctables set processed = True
+                where table_name = {table_name};""",
+            ).format(table_name=Literal(df["table_name"][0])),
+        )
+
+
+def ck_qa_one(
+    base_schema: str,
+    stg_schema: str,
+    table: str,
+    errors: list,
+    interactive: bool,
+):
+    logger.info(f"Conducting check constraint QA checks on table {stg_schema}.{table}")
+    validate_table(base_schema, stg_schema, table)
+    # Create a table of *all* check constraints in this database.
+    # Because this may be an expensive operation (in terms of time), the
+    # table is not re-created if it already exists.  "Already exists"
+    # means that a table with the expected name exists.  No check is
+    # done to ensure that this table has the correct structure.  The
+    # goal is to create the table of all check constraints only once to
+    # minimize the time required if QA checks are to be run on multiple
+    # staging tables.
+    if (
+        db.execute(
+            SQL(
+                """select * from information_schema.tables
+                where table_name = {ups_check_constraints};""",
+            ).format(ups_check_constraints=Literal("ups_check_constraints")),
+        ).rowcount
+        == 0
+    ):
+        db.execute(
+            SQL(
+                """
+            drop table if exists ups_check_constraints cascade;
+            select
+                nspname as table_schema,
+                cast(conrelid::regclass as text) as table_name,
+                conname as constraint_name,
+                pg_get_constraintdef(pg_constraint.oid) AS consrc
+            into temporary table ups_check_constraints
+            from pg_constraint
+            inner join pg_class on pg_constraint.conrelid = pg_class.oid
+            inner join pg_namespace on pg_class.relnamespace=pg_namespace.oid
+            where contype = 'c' and nspname = {base_schema};
+        """,
+            ).format(base_schema=Literal(base_schema)),
+        )
+
+    # Create a temporary table of just the check constraints for the base
+    # table corresponding to the staging table to check. Include a
+    # column for the number of rows failing the check constraint, and a
+    # 'processed' flag to control looping.
+    db.execute(
+        SQL(
+            """
+        drop table if exists ups_sel_cks cascade;
+        select
+            constraint_name, table_schema, table_name, consrc,
+            0::integer as ckerror_values,
+            False as processed
+        into temporary table ups_sel_cks
+        from ups_check_constraints
+        where
+            table_schema = {base_schema}
+            and table_name = {table};
+        """,
+        ).format(base_schema=Literal(base_schema), table=Literal(table)),
+    )
+
+    # Process all check constraints.
+    while True:
+        df = db.dataframe(
+            """
+            select constraint_name, table_schema, table_name, consrc
+            from ups_sel_cks
+            where not processed
+            limit 1;
+            """,
+        )
+        if df.is_empty():
+            break
+        logger.debug(f"  Checking constraint {df['constraint_name'][0]}")
+        # Create a df with the check constraint sql and remove the 'CHECK' keyword
+        check_df = db.dataframe(
+            SQL(
+                """
+            select
+                regexp_replace(consrc, '^CHECK\\s*\\((.*)\\)$', '\\1') as check_sql
+            from ups_sel_cks
+            where
+                constraint_name = {constraint_name}
+                and table_schema = {table_schema}
+                and table_name = {table_name};
+            """,
+            ).format(
+                constraint_name=Literal(df["constraint_name"][0]),
+                table_schema=Literal(df["table_schema"][0]),
+                table_name=Literal(df["table_name"][0]),
+            ),
+        )
+        # Run the check_sql
+        db.execute(
+            SQL(
+                """
+            create or replace temporary view ups_ck_check_check as
+            select count(*) from {stg_schema}.{table}
+            where not ({check_sql})
+            """,
+            ).format(
+                stg_schema=Identifier(stg_schema),
+                table=Identifier(table),
+                check_sql=SQL(check_df["check_sql"][0]),
+            ),
+        )
+
+        ck_check = db.dataframe("select * from ups_ck_check_check;")
+        if ck_check["count"][0] > 0:
+            logger.warning(
+                f"    Check constraint {df['constraint_name'][0]} has {ck_check['count'][0]} failing rows",  # noqa: E501
+            )
+
+            db.execute(
+                SQL(
+                    """
+                update ups_sel_cks
+                set ckerror_values = {ckerror_count}
+                where
+                    constraint_name = {constraint_name}
+                    and table_schema = {table_schema}
+                    and table_name = {table_name};
+                """,
+                ).format(
+                    ckerror_count=Literal(ck_check["count"][0]),
+                    constraint_name=Literal(df["constraint_name"][0]),
+                    table_schema=Literal(df["table_schema"][0]),
+                    table_name=Literal(df["table_name"][0]),
+                ),
+            )
+
+        db.execute(
+            SQL(
+                """
+            update ups_sel_cks
+            set processed = True
+            where
+                constraint_name = {constraint_name}
+                and table_schema = {table_schema}
+                and table_name = {table_name};
+            """,
+            ).format(
+                constraint_name=Literal(df["constraint_name"][0]),
+                table_schema=Literal(df["table_schema"][0]),
+                table_name=Literal(df["table_name"][0]),
+            ),
+        )
+
+    # Update the control table with the number of rows failing the check constraint.
+    db.execute(
+        SQL(
+            """
+        create or replace temporary view ups_ck_error_list as
+        select string_agg(
+            constraint_name || ' (' || ckerror_values || ')', ', '
+            ) as ck_errors
+        from ups_sel_cks
+        where coalesce(ckerror_values, 0) > 0;
+        """,
+        ),
+    )
 
 
 def upsert_all(
@@ -1735,7 +1961,7 @@ def upsert_one(
     rows_updated = 0
     rows_inserted = 0
 
-    logging.info(f"Performing upsert on table {base_schema}.{table}")
+    logger.info(f"Performing upsert on table {base_schema}.{table}")
     validate_table(base_schema, stg_schema, table)
 
     # Populate a (temporary) table with the names of the columns
@@ -1958,7 +2184,7 @@ def upsert_one(
                     join_expr=SQL(join_expr),
                 )
         else:
-            logging.debug("  No data to update")
+            logger.debug("  No data to update")
 
     do_inserts = False
     insert_stmt = None
@@ -2027,30 +2253,30 @@ def upsert_one(
                     all_col_list=SQL(all_col_list),
                 )
         else:
-            logging.debug("  No new data to insert")
+            logger.debug("  No new data to insert")
 
     # Run the update and insert statements.
     if do_updates and update_stmt and upsert_method in ("upsert", "update"):
-        logging.info(f"  Updating {base_schema}.{table}")
-        logging.debug(f"    UPDATE statement for {base_schema}.{table}")
-        logging.debug(f"{update_stmt.as_string(db.conn)}")
+        logger.info(f"  Updating {base_schema}.{table}")
+        logger.debug(f"    UPDATE statement for {base_schema}.{table}")
+        logger.debug(f"{update_stmt.as_string(db.conn)}")
         db.execute(update_stmt)
         rows_updated = stg_rowcount
-        logging.info(f"    {rows_updated} rows updated")
+        logger.info(f"    {rows_updated} rows updated")
     if do_inserts and insert_stmt and upsert_method in ("upsert", "insert"):
-        logging.info(f"  Adding data to {base_schema}.{table}")
-        logging.debug(f"    INSERT statement for {base_schema}.{table}")
-        logging.debug(f"{insert_stmt.as_string(db.conn)}")
+        logger.info(f"  Adding data to {base_schema}.{table}")
+        logger.debug(f"    INSERT statement for {base_schema}.{table}")
+        logger.debug(f"{insert_stmt.as_string(db.conn)}")
         db.execute(insert_stmt)
         rows_inserted = new_rowcount
-        logging.info(f"    {rows_inserted} rows inserted")
+        logger.info(f"    {rows_inserted} rows inserted")
     return rows_updated, rows_inserted
 
 
 def error_handler(errors: list[str]):
     """Log errors and exit."""
     for error in errors:
-        logging.error(error)
+        logger.error(error)
     if errors:
         db.rollback()
         sys.exit(1)
@@ -2188,7 +2414,7 @@ def upsert(
     errors = []
     control_table = "ups_control"
     timer = datetime.now()
-    logging.debug(f"Starting upsert at {timer.strftime('%Y-%m-%d %H:%M:%S')}")
+    logger.debug(f"Starting upsert at {timer.strftime('%Y-%m-%d %H:%M:%S')}")
 
     db = PostgresDB(
         host=host,
@@ -2196,13 +2422,13 @@ def upsert(
         user=user,
         passwd=kwargs.get("passwd", None),
     )
-    logging.debug(f"Connected to {db}")
+    logger.debug(f"Connected to {db}")
 
     validate_schemas(base_schema, stg_schema)
     for table in tables:
         validate_table(base_schema, stg_schema, table)
 
-    logging.info(f"Upserting to {base_schema} from {stg_schema}")
+    logger.info(f"Upserting to {base_schema} from {stg_schema}")
     if interactive:
         btn, return_value = TableUI(
             "Upsert Tables",
@@ -2217,12 +2443,12 @@ def upsert(
         if btn != 0:
             error_handler(["Script canceled by user."])
     else:
-        logging.info("Tables selected for upsert:")
+        logger.info("Tables selected for upsert:")
         for table in tables:
-            logging.info(f"  {table}")
+            logger.info(f"  {table}")
 
     # Initialize the control table
-    logging.debug("Initializing control table")
+    logger.debug("Initializing control table")
     staged_to_load(control_table, tables)
 
     # Update the control table with the list of columns to exclude from null checks
@@ -2275,7 +2501,8 @@ def upsert(
             where
                 null_errors is not null
                 or pk_errors is not null
-                or fk_errors is not null;
+                or fk_errors is not null
+                or ck_errors is not null;
             """,
         ).format(control_table=Identifier(control_table)),
     )
@@ -2283,6 +2510,17 @@ def upsert(
     qa_pass = False
     # if errors in control table
     if not ctrl_df.is_empty():
+        logger.debug("QA Errors:")
+        logger.debug(
+            tabulate(
+                ctrl_df.iter_rows(),
+                headers=ctrl_df.columns,
+                tablefmt="pipe",
+                showindex=False,
+                colalign=["left"] * len(ctrl_df.columns),
+            ),
+        )
+        logger.debug("")
         if interactive:
             btn, return_value = TableUI(
                 "QA Errors",
@@ -2297,7 +2535,7 @@ def upsert(
         error_handler(["QA checks failed. Aborting upsert."])
     else:
         qa_pass = True
-        logging.info("===QA checks passed. Starting upsert===")
+        logger.info("===QA checks passed. Starting upsert===")
 
     if qa_pass:
         upsert_all(base_schema, stg_schema, control_table, upsert_method)
@@ -2322,28 +2560,28 @@ def upsert(
     else:
         btn = 0
 
-    logging.info("")
+    logger.info("")
 
     if btn == 0:
         if final_ctrl_df.filter(
             (pl.col("rows_updated") > 0) | (pl.col("rows_inserted") > 0),
         ).is_empty():
-            logging.info("No changes to commit")
+            logger.info("No changes to commit")
             db.rollback()
         else:
             if commit:
-                logging.info("Changes committed")
+                logger.info("Changes committed")
                 db.commit()
             else:
-                logging.info(
+                logger.info(
                     f"Commit set to {str(commit).upper()}, rolling back changes",
                 )
                 db.rollback()
     else:
-        logging.info("Rolling back changes")
+        logger.info("Rolling back changes")
         db.rollback()
 
-    logging.debug(f"Upsert completed in {ellapsed_time(timer)}")
+    logger.debug(f"Upsert completed in {ellapsed_time(timer)}")
 
 
 if __name__ == "__main__":
