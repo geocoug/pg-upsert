@@ -5,12 +5,11 @@ authors = [{ name = "Caleb Grant", email = "grantcaleb22@gmail.com" }]
 description = "A Python library for upserting data into postgres."
 readme = { file = "README.md", content-type = "text/markdown" }
 license = { file = "LICENSE" }
-requires-python = ">=3.10"
+requires-python = ">=3.10,<3.12"
 classifiers = [
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
-    "Programming Language :: Python :: 3.12",
     "Operating System :: OS Independent",
     "Intended Audience :: Developers",
     "Topic :: Database",
