@@ -18,18 +18,19 @@ $(VENV)/bin/activate: requirements.txt
 	$(PIP) install -r requirements.txt
 
 clean: ## Remove temporary files
-	rm -rf .ipynb_checkpoints
-	rm -rf **/.ipynb_checkpoints
-	rm -rf __pycache__
-	rm -rf **/__pycache__
-	rm -rf **/**/__pycache__
-	rm -rf .pytest_cache
-	rm -rf **/.pytest_cache
-	rm -rf .ruff_cache
-	rm -rf .coverage
-	rm -rf build
-	rm -rf dist
-	rm -rf *.egg-info
+	@rm -rf .ipynb_checkpoints
+	@rm -rf **/.ipynb_checkpoints
+	@rm -rf __pycache__
+	@rm -rf **/__pycache__
+	@rm -rf **/**/__pycache__
+	@rm -rf .pytest_cache
+	@rm -rf **/.pytest_cache
+	@rm -rf .ruff_cache
+	@rm -rf .coverage
+	@rm -rf build
+	@rm -rf dist
+	@rm -rf *.egg-info
+	@rm -rf pg_upsert.log
 
 show-bump: ## Show the next version
 	@bump-my-version show-bump
