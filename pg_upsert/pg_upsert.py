@@ -2584,7 +2584,8 @@ def upsert(
     logger.debug(f"Upsert completed in {ellapsed_time(timer)}")
 
 
-if __name__ == "__main__":
+def main() -> None:
+    """Main command line entrypoint for the upsert function."""
     args = clparser().parse_args()
     logging.basicConfig(
         level=logging.INFO if not args.debug else logging.DEBUG,
@@ -2607,3 +2608,7 @@ if __name__ == "__main__":
         exclude_cols=args.exclude.split(",") if args.exclude else None,
         exclude_null_check_columns=args.null.split(",") if args.null else None,
     )
+
+
+if __name__ == "__main__":
+    main()
