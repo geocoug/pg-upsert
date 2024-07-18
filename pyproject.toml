@@ -66,7 +66,7 @@ exclude = [
     "*cache*",
 ]
 # The line length to use when enforcing long-lines violations (like E501).
-line-length = 88
+line-length = 120
 # Assume Python 3.11.
 target-version = "py311"
 # Whether to automatically exclude files that are ignored by .ignore, .gitignore, .git/info/exclude, and global gitignore files.
@@ -115,4 +115,4 @@ commit_args = "--no-verify"
 tag = true
 
 [[tool.bumpversion.files]]
-filename = "pg_upsert/pg_upsert.py"
+filename = "pg_upsert/__init__.py"

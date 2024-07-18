@@ -4,6 +4,13 @@ PYTHON = $(BIN)/python
 PIP = $(BIN)/pip
 TEST = pytest
 
+# Sphinx documentation
+SPHINXOPTS    ?=
+SPHINXBUILD   ?= sphinx-build
+SPHINXAPIDOC  ?= sphinx-apidoc
+SOURCEDIR     = docs
+BUILDDIR      = docs/_build
+
 # Self documenting commands
 .DEFAULT_GOAL := help
 .PHONY: help
@@ -61,12 +68,23 @@ lint: $(VENV)/bin/activate ## Run pre-commit hooks
 test: $(VENV)/bin/activate ## Run unit tests
 	$(PYTHON) -m $(TEST)
 
-build: $(VENV)/bin/activate ## Generate distrubition packages
+build-dist: $(VENV)/bin/activate ## Generate distrubition packages
 	$(PYTHON) -m build
+
+build-docs: ## Generate documentation
+	@printf "Building documentation\n"
+	@$(SPHINXAPIDOC) -f -o "$(SOURCEDIR)" pg_upsert
+	@$(SPHINXBUILD) -M html "$(SOURCEDIR)" "$(BUILDDIR)" $(SPHINXOPTS)
 
 publish: $(VENV)/bin/activate ## Publish to PyPI
 	$(MAKE) lint
 	$(MAKE) test
-	$(MAKE) build
+	$(MAKE) build-dist
 	$(PYTHON) -m twine upload --repository pypi dist/*
 	$(MAKE) clean
+
+build: $(VENV)/bin/activate ## Build the project
+	$(MAKE) lint
+	$(MAKE) test
+	$(MAKE) build-dist
+	$(MAKE) build-docs
