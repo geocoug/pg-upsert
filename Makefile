@@ -73,7 +73,6 @@ build-dist: $(VENV)/bin/activate ## Generate distrubition packages
 
 build-docs: ## Generate documentation
 	@printf "Building documentation\n"
-	@$(SPHINXAPIDOC) -f -o "$(SOURCEDIR)" pg_upsert
 	@$(SPHINXBUILD) -M html "$(SOURCEDIR)" "$(BUILDDIR)" $(SPHINXOPTS)
 
 publish: $(VENV)/bin/activate ## Publish to PyPI

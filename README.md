@@ -398,3 +398,22 @@ POSTGRES_PASSWORD=
 ```
 
 Now you can run the tests using `make test`.
+
+## Notes
+
+- The user can modify the control table to set interactive specific to each table
+- The user can modify the control table to set the upsert method specific to each table
+- The user can modify the control table to set the exclude columns specific to each table
+- The user can modify the control table to set the exclude null check columns specific to each table
+- In upsert_one check that the table has a primary key before proceeding
+- Replace all sys.exit() with a graceful exit that closes db connection and rolls back changes
+
+upsert_all():
+
+- What would happen if the user runs this method without running the QA checks first?
+- What would happen if the user modified the qa_passed attribute to True without running the QA checks?
+- What would happen if the user modified the control table to indicate that QA checks passed when they did not?
+
+TODO:
+- Modify the show() funciton to acutally show a query either via GUI or console
+- Fix upsert_one to return self

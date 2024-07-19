@@ -1,4 +1,12 @@
-from ._version import __version__
-from .pg_upsert import PgUpsert, PostgresDB
+from ._version import (
+    __author__,
+    __author_email__,
+    __description__,
+    __license__,
+    __title__,
+    __url__,
+    __version__,
+)
+from .pg_upsert import PgUpsert
 
-__all__ = ["PgUpsert", "PostgresDB"]
+__all__ = ["PgUpsert"]

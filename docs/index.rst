@@ -6,26 +6,12 @@
 pg_upsert documentation
 =======================
 
-Release v\ |version|.
-
 **pg_upsert** is a Python package that runs not-NULL, Primary Key, Foreign Key, and Check Constraint checks on PostgreSQL staging tables then update and insert (upsert) data from staging tables to base tables.
 
-The API Documentation / Guide
------------------------------
-
-If you are looking for information on a specific function, class, or method,
-this part of the documentation is for you.
+Module Contents
+---------------
 
 .. toctree::
-   :maxdepth: 2
-   :caption: Contents:
+   :maxdepth: 4
 
-   modules
-
-
-Indices and tables
-==================
-
-* :ref:`genindex`
-* :ref:`modindex`
-* :ref:`search`
+   pg_upsert

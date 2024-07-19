@@ -1,19 +1,10 @@
-pg\_upsert package
-==================
+.. _pg_upsert:
 
-Submodules
-----------
+pg\_upsert
+==========
 
-pg\_upsert.pg\_upsert module
-----------------------------
-
-.. automodule:: pg_upsert.pg_upsert
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-Module contents
----------------
+All of pg_upsert's functionality can be accessed by the :class:`PgUpsert` object, which
+includes all the methods and attributes mentioned in the sections below.
 
 .. automodule:: pg_upsert
    :members:

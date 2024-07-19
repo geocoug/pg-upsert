@@ -13,7 +13,7 @@ charset-normalizer==3.3.2
 click==8.1.7
 coverage==7.6.0
 distlib==0.3.8
-docutils==0.21.2
+docutils==0.20.1
 filelock==3.14.0
 identify==2.5.36
 idna==3.7
@@ -32,7 +32,6 @@ more-itertools==10.3.0
 nh3==0.2.18
 nodeenv==1.8.0
 packaging==24.1
-pg_upsert @ file:///Users/cgrant/GitHub/geocoug/pg_upsert
 pkginfo==1.10.0
 platformdirs==4.2.2
 pluggy==1.5.0
@@ -62,9 +61,11 @@ snowballstemmer==2.2.0
 soupsieve==2.5
 Sphinx==7.4.6
 sphinx-book-theme==1.1.3
+sphinx-rtd-theme==2.0.0
 sphinxcontrib-applehelp==1.0.8
 sphinxcontrib-devhelp==1.0.6
 sphinxcontrib-htmlhelp==2.0.5
+sphinxcontrib-jquery==4.1
 sphinxcontrib-jsmath==1.0.1
 sphinxcontrib-qthelp==1.0.7
 sphinxcontrib-serializinghtml==1.1.10
