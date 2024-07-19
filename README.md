@@ -416,4 +416,3 @@ upsert_all():
 
 TODO:
 - Modify the show() funciton to acutally show a query either via GUI or console
-- Fix upsert_one to return self
