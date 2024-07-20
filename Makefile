@@ -43,17 +43,17 @@ bump: ## Show the next version
 	@bump-my-version show-bump
 
 bump-patch: $(VENV)/bin/activate ## Bump patch version
-	@$(MAKE) show-bump
+	@$(MAKE) bump
 	@printf "Applying patch bump\n"
 	@$(BIN)/bump-my-version bump patch
 
 bump-minor: $(VENV)/bin/activate ## Bump minor version
-	@$(MAKE) show-bump
+	@$(MAKE) bump
 	@printf "Applying minor bump\n"
 	@$(BIN)/bump-my-version bump minor
 
 bump-major: $(VENV)/bin/activate ## Bump major version
-	@$(MAKE) show-bump
+	@$(MAKE) bump
 	@printf "Applying major bump\n"
 	@$(BIN)/bump-my-version bump major
 
