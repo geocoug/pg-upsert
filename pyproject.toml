@@ -16,11 +16,7 @@ classifiers = [
     "Topic :: Software Development :: Libraries :: Python Modules",
     "License :: OSI Approved :: GNU Lesser General Public License v3 (LGPLv3)",
 ]
-dependencies = [
-    "polars >= 1.0.1",
-    "psycopg2-binary >= 2.9.9",
-    "tabulate >= 0.9.0",
-]
+dependencies = ["psycopg2-binary >= 2.9.9", "tabulate >= 0.9.0"]
 keywords = ["postgresql", "postgres", "dbms", "etl", "upsert", "database"]
 
 [project.scripts]
@@ -66,7 +62,7 @@ exclude = [
     "*cache*",
 ]
 # The line length to use when enforcing long-lines violations (like E501).
-line-length = 88
+line-length = 120
 # Assume Python 3.11.
 target-version = "py311"
 # Whether to automatically exclude files that are ignored by .ignore, .gitignore, .git/info/exclude, and global gitignore files.
@@ -96,7 +92,7 @@ select = [
     "PD",
     "RUF",
 ]
-ignore = ["PD901", "S101"]
+ignore = ["PD901", "S101", "F401"]
 
 [tool.ruff.format]
 # Like Black, use double quotes for strings.
@@ -115,4 +111,4 @@ commit_args = "--no-verify"
 tag = true
 
 [[tool.bumpversion.files]]
-filename = "pg_upsert/pg_upsert.py"
+filename = "pg_upsert/__init__.py"

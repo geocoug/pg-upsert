@@ -8,7 +8,7 @@ import pytest
 from dotenv import load_dotenv
 from psycopg2.sql import SQL, Identifier, Literal
 
-from pg_upsert.pg_upsert import PostgresDB
+from pg_upsert.pg_upsert import PgUpsert, PostgresDB
 
 load_dotenv()
 
@@ -46,6 +46,25 @@ def db(global_variables):
     """,
     )
     db.close()
+
+
+@pytest.fixture(scope="session")
+def ups(global_variables):
+    """Return a PgUpsert object."""
+    obj = PgUpsert(
+        host=global_variables["POSTGRES_HOST"],
+        database=global_variables["POSTGRES_DB"],
+        user=global_variables["POSTGRES_USER"],
+        passwd=global_variables["POSTGRES_PASSWORD"],
+        tables=("genres", "books", "authors", "book_authors"),
+        stg_schema="staging",
+        base_schema="public",
+        do_commit=False,
+        interactive=False,
+        upsert_method="upsert",
+    )
+    yield obj
+    obj.db.close()
 
 
 def test_db_connection(db):
@@ -109,44 +128,35 @@ def test_db_rowdict_params(db):
     assert rows[0]["two"] == 2
 
 
-def test_db_dataframe(db):
-    """Test the dataframe function."""
-    df = db.dataframe("SELECT 1 as one, 2 as two")
-    assert df.shape == (1, 2)
-    assert df["one"][0] == 1
-    assert df["two"][0] == 2
+def test_pgupsert_init(global_variables, ups):
+    assert ups.tables == ("genres", "books", "authors", "book_authors")
+    assert ups.stg_schema == "staging"
+    assert ups.base_schema == "public"
+    assert ups.do_commit is False
+    assert ups.interactive is False
+    assert ups.upsert_method == "upsert"
+    assert ups.control_table == "ups_control"
+    assert ups.exclude_cols == ()
+    assert ups.exclude_null_check_cols == ()
 
 
-def test_db_dataframe_params(db):
-    """Test the dataframe function with parameters."""
-    df = db.dataframe(
-        SQL("SELECT {one} as one, {two} as two").format(
-            one=Literal(1),
-            two=Literal(2),
+def test_pgupsert_control_table_init(global_variables, ups):
+    # Test that the control table was initialized
+    cur = ups.db.execute(
+        SQL(
+            "select table_name from information_schema.tables where table_name={table}",
+        ).format(
+            table=Literal(ups.control_table),
         ),
     )
-    assert df.shape == (1, 2)
-    assert df["one"][0] == 1
-    assert df["two"][0] == 2
-
-
-# def test_upsert_no_commit(global_variables, db):
-#     # Run the upsert function. The function should raise a SystemExit error that
-#     # qa checks failed.
-#     with pytest.raises(SystemExit) as exc_info:
-#         upsert(
-#             host=global_variables["POSTGRES_HOST"],
-#             database=global_variables["POSTGRES_DB"],
-#             user=global_variables["POSTGRES_USER"],
-#             passwd=global_variables["POSTGRES_PASSWORD"],
-#             tables=["genres", "authors", "books", "book_authors"],
-#             stg_schema="staging",
-#             base_schema="public",
-#             upsert_method="upsert",
-#             commit=False,
-#             interactive=False,
-#             exclude_cols=[],
-#             exclude_null_check_colls=[],
-#         )
-#         assert exc_info.type is SystemExit
-#         assert exc_info.value.code == 1
+    assert cur.rowcount == 1
+    assert cur.fetchone()[0] == ups.control_table
+    # Test that the control table has the correct columns
+    cur = ups.db.execute(
+        SQL(
+            "select column_name from information_schema.columns where table_name={table}",
+        ).format(
+            table=Literal(ups.control_table),
+        ),
+    )
+    assert cur.rowcount == 10

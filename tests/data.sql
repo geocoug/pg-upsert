@@ -10,7 +10,7 @@ create table public.books (
     book_title varchar(200) not null,
     genre varchar(100) not null,
     notes text,
-    foreign key (genre) references genres(genre)
+    foreign key (genre) references public.genres(genre)
 );
 
 drop table if exists public.authors cascade;
@@ -27,8 +27,8 @@ drop table if exists public.book_authors cascade;
 create table public.book_authors (
     book_id varchar(100) not null,
     author_id varchar(100) not null,
-    foreign key (author_id) references authors(author_id),
-    foreign key (book_id) references books(book_id),
+    foreign key (author_id) references public.authors(author_id),
+    foreign key (book_id) references public.books(book_id),
     constraint pk_book_authors primary key (book_id, author_id)
 );
 

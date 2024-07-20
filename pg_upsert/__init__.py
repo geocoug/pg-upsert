@@ -1,3 +1,12 @@
-from .pg_upsert import upsert
+from ._version import (
+    __author__,
+    __author_email__,
+    __description__,
+    __license__,
+    __title__,
+    __url__,
+    __version__,
+)
+from .pg_upsert import PgUpsert
 
-__all__ = ["upsert"]
+__all__ = ["PgUpsert"]
