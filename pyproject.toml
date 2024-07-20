@@ -5,25 +5,26 @@ authors = [{ name = "Caleb Grant", email = "grantcaleb22@gmail.com" }]
 description = "A Python library for upserting data into postgres."
 readme = { file = "README.md", content-type = "text/markdown" }
 license = { file = "LICENSE" }
-requires-python = ">=3.10,<3.12"
+requires-python = ">=3.10"
 classifiers = [
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
     "Operating System :: OS Independent",
     "Intended Audience :: Developers",
     "Topic :: Database",
     "Topic :: Software Development :: Libraries :: Python Modules",
     "License :: OSI Approved :: GNU Lesser General Public License v3 (LGPLv3)",
 ]
-dependencies = ["psycopg2-binary >= 2.9.9", "tabulate >= 0.9.0"]
+dependencies = ["psycopg2-binary==2.9.9", "tabulate==0.9.0"]
 keywords = ["postgresql", "postgres", "dbms", "etl", "upsert", "database"]
 
 [project.scripts]
-pg_upsert = "pg_upsert.pg_upsert:main"
+pg_upsert = "pg_upsert:cli"
 
 [tool.setuptools.dynamic]
-version = { attr = "pg_upsert.pg_upsert.__version__" }
+version = { attr = "pg_upsert._version.__version__" }
 
 [project.urls]
 Homepage = "https://github.com/geocoug/pg_upsert"
@@ -111,4 +112,4 @@ commit_args = "--no-verify"
 tag = true
 
 [[tool.bumpversion.files]]
-filename = "pg_upsert/__init__.py"
+filename = "pg_upsert/pg_upsert.py"
