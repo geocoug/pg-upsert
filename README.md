@@ -15,6 +15,31 @@ This project was created using inspiration from [ExecSQL](https://execsql.readth
 
 ## Usage
 
+### Python
+
+```python
+import logging
+
+from pg_upsert import PgUpsert
+
+logger = logging.getLogger("pg_upsert")
+logger.setLevel(logging.INFO)
+logger.addHandler(logging.StreamHandler())
+
+PgUpsert(
+    host="localhost",
+    port=5432,
+    database="dev",
+    user="username",
+    tables=("genres", "books", "authors", "book_authors"),
+    stg_schema="staging",
+    base_schema="public",
+    do_commit=True,
+    upsert_method="upsert",
+    interactive=False,
+).run()
+```
+
 ### CLI
 
 ```sh
