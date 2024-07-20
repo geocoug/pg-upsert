@@ -65,7 +65,7 @@ exclude = [
 # The line length to use when enforcing long-lines violations (like E501).
 line-length = 120
 # Assume Python 3.11.
-target-version = "py311"
+target-version = "py312"
 # Whether to automatically exclude files that are ignored by .ignore, .gitignore, .git/info/exclude, and global gitignore files.
 respect-gitignore = true
 # Default autofix behavior
