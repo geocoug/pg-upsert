@@ -39,7 +39,7 @@ repos:
   # Replaces Black, Flake8, isort, pydocstyle, pyupgrade, bandit, and autoflake
   - repo: https://github.com/astral-sh/ruff-pre-commit
     # Ruff version.
-    rev: v0.5.2
+    rev: v0.5.3
     hooks:
       # Run the Ruff linter.
       - id: ruff

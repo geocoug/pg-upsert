@@ -39,7 +39,7 @@ clean: ## Remove temporary files
 	@rm -rf *.egg-info
 	@rm -rf pg_upsert.log
 
-show-bump: ## Show the next version
+bump: ## Show the next version
 	@bump-my-version show-bump
 
 bump-patch: $(VENV)/bin/activate ## Bump patch version

@@ -129,7 +129,7 @@ This example will demonstrate how to use `pg_upsert` to upsert data from staging
 
     .. code-block:: text
 
-        The script pg_upsert.py wants the password for PostgresDB(host=localhost, database=dev, user=docker):
+        The script pg_upsert.py wants the password for PostgresDB(host=localhost, database=dev, user=username):
         Upserting to public from staging
         Tables selected for upsert:
             books
@@ -203,7 +203,7 @@ This example will demonstrate how to use `pg_upsert` to upsert data from staging
 
     .. code-block:: text
 
-        The script pg_upsert.py wants the password for PostgresDB(host=localhost, database=dev, user=docker):
+        The script pg_upsert.py wants the password for PostgresDB(host=localhost, database=dev, user=username):
         Upserting to public from staging
         Tables selected for upsert:
             books

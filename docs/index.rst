@@ -109,7 +109,7 @@ CLI
 
     options:
     -h, --help            show this help message and exit
-    --version             show program's version number and exit
+    --version             show programs version number and exit
     -q, --quiet           suppress all console output
     -d, --debug           display debug output
     -l LOGFILE, --log LOGFILE

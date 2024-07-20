@@ -837,6 +837,7 @@ class PgUpsert:
             )
             for row in rows:
                 logger.error(f"  {row['schema_table']}")
+            raise ValueError("Invalid table(s) specified")
 
     def _init_ups_control(self: PgUpsert) -> None:
         """Creates a table having the structure that is used to drive
