@@ -43,19 +43,19 @@ bump: ## Show the next version
 	@bump-my-version show-bump
 
 bump-patch: $(VENV)/bin/activate ## Bump patch version
-	@$(MAKE) bump
 	@printf "Applying patch bump\n"
 	@$(BIN)/bump-my-version bump patch
+	@$(MAKE) bump
 
 bump-minor: $(VENV)/bin/activate ## Bump minor version
-	@$(MAKE) bump
 	@printf "Applying minor bump\n"
 	@$(BIN)/bump-my-version bump minor
+	@$(MAKE) bump
 
 bump-major: $(VENV)/bin/activate ## Bump major version
-	@$(MAKE) bump
 	@printf "Applying major bump\n"
 	@$(BIN)/bump-my-version bump major
+	@$(MAKE) bump
 
 update: $(VENV)/bin/activate ## Update pip and pre-commit
 	$(PIP) install -U pip
