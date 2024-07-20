@@ -7,5 +7,6 @@ from ._version import (
     __url__,
     __version__,
 )
+from .pg_upsert import PgUpsert
 
 __all__ = ["PgUpsert"]

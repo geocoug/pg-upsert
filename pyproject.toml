@@ -112,4 +112,4 @@ commit_args = "--no-verify"
 tag = true
 
 [[tool.bumpversion.files]]
-filename = "pg_upsert/pg_upsert.py"
+filename = "pg_upsert/__init__.py"
