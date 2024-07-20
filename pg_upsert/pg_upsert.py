@@ -571,9 +571,9 @@ class PgUpsert:
                         not be updated or inserted to, however, they will still be checked during
                         the QA process.
     :type exclude_cols: list or tuple or None, optional
-    :param exclude_null_check_columns: List of column names to exclude from the not-null check during
+    :param exclude_null_check_cols: List of column names to exclude from the not-null check during
                                     the QA process. Defaults to ().
-    :type exclude_null_check_columns: list or tuple or None, optional
+    :type exclude_null_check_cols: list or tuple or None, optional
     :param control_table: Name of the temporary control table that will be used to track changes
                         during the upsert process. Defaults to "ups_control".
     :type control_table: str, optional
@@ -596,11 +596,11 @@ class PgUpsert:
             upsert_method="upsert",
             interactive=False,
             exclude_cols=("rev_user", "rev_time", "created_at", "updated_at"),
-            exclude_null_check_columns=("rev_user", "rev_time", "created_at", "updated_at", "alias"),
+            exclude_null_check_cols=("rev_user", "rev_time", "created_at", "updated_at", "alias"),
         )
 
     .. _psycopg2.sql: https://www.psycopg.org/docs/sql.html
-    """
+    """  # noqa: E501
 
     def __init__(
         self,
@@ -616,7 +616,7 @@ class PgUpsert:
         interactive: bool = False,
         upsert_method: str = "upsert",
         exclude_cols: list | tuple | None = (),
-        exclude_null_check_columns: list | tuple | None = (),
+        exclude_null_check_cols: list | tuple | None = (),
         control_table: str = "ups_control",
     ):
         if upsert_method not in self._upsert_methods():
@@ -651,7 +651,7 @@ class PgUpsert:
         self.interactive = interactive
         self.upsert_method = upsert_method
         self.exclude_cols = exclude_cols
-        self.exclude_null_check_columns = exclude_null_check_columns
+        self.exclude_null_check_cols = exclude_null_check_cols
         self.control_table = control_table
         self.qa_passed = False
         self._validate_schemas()
@@ -665,7 +665,7 @@ class PgUpsert:
         return ("upsert", "update", "insert")
 
     def __repr__(self):
-        return f"{self.__class__.__name__}(db={self.db!r}, tables={self.tables}, stg_schema={self.stg_schema}, base_schema={self.base_schema}, do_commit={self.do_commit}, interactive={self.interactive}, upsert_method={self.upsert_method}, exclude_cols={self.exclude_cols}, exclude_null_check_columns={self.exclude_null_check_columns})"  # noqa: E501
+        return f"{self.__class__.__name__}(db={self.db!r}, tables={self.tables}, stg_schema={self.stg_schema}, base_schema={self.base_schema}, do_commit={self.do_commit}, interactive={self.interactive}, upsert_method={self.upsert_method}, exclude_cols={self.exclude_cols}, exclude_null_check_cols={self.exclude_null_check_cols})"  # noqa: E501
 
     def _show(self, sql: str | Composable) -> None | str:
         """Display the results of a query in a table format. If the interactive flag is set,
@@ -886,17 +886,17 @@ class PgUpsert:
                 ),
             )
         # Update the control table with the list of columns to exclude from null checks.
-        if self.exclude_null_check_columns and len(self.exclude_null_check_columns) > 0:
+        if self.exclude_null_check_cols and len(self.exclude_null_check_cols) > 0:
             self.db.execute(
                 SQL(
                     """
                     update {control_table}
-                    set exclude_null_checks = {exclude_null_check_columns};
+                    set exclude_null_checks = {exclude_null_check_cols};
                 """,
                 ).format(
                     control_table=Identifier(self.control_table),
-                    exclude_null_check_columns=Literal(
-                        ",".join(self.exclude_null_check_columns),
+                    exclude_null_check_cols=Literal(
+                        ",".join(self.exclude_null_check_cols),
                     ),
                 ),
             )
@@ -1110,14 +1110,14 @@ class PgUpsert:
                 and table_name = {table}
                 and is_nullable = 'NO'
                 and column_default is null
-                and column_name not in ({exclude_null_check_columns});
+                and column_name not in ({exclude_null_check_cols});
             """,
             ).format(
                 base_schema=Literal(self.base_schema),
                 table=Literal(table),
-                exclude_null_check_columns=(
-                    SQL(",").join(Literal(col) for col in self.exclude_null_check_columns)
-                    if self.exclude_null_check_columns
+                exclude_null_check_cols=(
+                    SQL(",").join(Literal(col) for col in self.exclude_null_check_cols)
+                    if self.exclude_null_check_cols
                     else Literal("")
                 ),
             ),
@@ -1316,7 +1316,7 @@ class PgUpsert:
                 ),
             )
             tot_errs = next(iter(tot_errs))
-            err_msg = f"{tot_errs['errcount']} duplicate keys ({tot_errs['total_rows']} rows) in table {self.stg_schema}.{table}"
+            err_msg = f"{tot_errs['errcount']} duplicate keys ({tot_errs['total_rows']} rows) in table {self.stg_schema}.{table}"  # noqa: E501
             pk_errors.append(err_msg)
             logger.debug("")
             err_sql = SQL("select * from ups_pk_check;")
@@ -2479,7 +2479,7 @@ class PgUpsert:
         - All QA checks have passed (i.e., the `qa_passed` flag is set to `True`). Note that no checking is done to ensure that QA checks have been run.
         - The summary of changes shows that rows have been updated or inserted.
         - If the `interactive` flag is set to `True` and the `do_commit` flag is is set to `False`, the user is prompted to commit the changes and the user selects "Continue".
-        """
+        """  # noqa: E501
         self._validate_control()
         final_ctrl_sql = SQL("select * from {control_table}").format(
             control_table=Identifier(self.control_table),
@@ -2785,7 +2785,7 @@ def cli() -> None:
         upsert_method=args.upsert_method,
         interactive=args.interactive,
         exclude_cols=args.exclude.split(",") if args.exclude else None,
-        exclude_null_check_columns=args.null.split(",") if args.null else None,
+        exclude_null_check_cols=args.null.split(",") if args.null else None,
     ).run()
 
 

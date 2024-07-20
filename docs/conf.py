@@ -10,9 +10,10 @@ import pg_upsert
 # -- Project information -----------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
-project = "pg_upsert"
-copyright = "2024, Caleb Grant"
-author = "Caleb Grant"
+project = pg_upsert.__title__
+title = pg_upsert.__title__
+copyright = f"2024, {pg_upsert.__author__}"
+author = pg_upsert.__author__
 
 # The short X.Y version.
 version = pg_upsert.__version__
@@ -28,6 +29,7 @@ extensions = [
     "sphinx.ext.autosummary",
     "sphinx.ext.napoleon",
     "sphinx.ext.viewcode",
+    "sphinx_copybutton",
 ]
 
 templates_path = ["_templates"]
@@ -43,8 +45,16 @@ add_module_names = True
 # The theme to use for HTML and HTML Help pages.  See the documentation for
 # a list of builtin themes.
 html_theme = "sphinx_rtd_theme"
-
+html_context = {
+    "display_github": True,  # Integrate GitHub
+    "github_user": "geocoug",  # Username
+    "github_repo": "pg_upsert",  # Repo name
+    "github_version": "main",  # Version
+    "conf_py_path": "/docs/",  # Path in the checkout to the docs root
+}
 html_static_path = ["_static"]
-
+html_sidebars = {
+    "**": ["examples.hsml"],
+}
 # If true, "Created using Sphinx" is shown in the HTML footer. Default is True.
 html_show_sphinx = False
