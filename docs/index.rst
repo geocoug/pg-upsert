@@ -34,9 +34,7 @@ You can install **pg_upsert** via pip from PyPI:
 
 .. code-block:: bash
 
-   python -m venv .venv \
-   && source .venv/bin/activate \
-   && pip install pg_upsert
+   pip install pg_upsert
 
 There is also a Docker image available on the GitHub Container Registry:
 
@@ -93,12 +91,16 @@ CLI
 
 .. code-block:: bash
 
-    usage: pg_upsert [-h] [-q] [-d] [-l LOGFILE] [-e EXCLUDE_COLUMNS] [-n NULL_COLUMNS] [-c] [-i] [-m METHOD] HOST DATABASE USER STAGING_SCHEMA BASE_SCHEMA TABLE [TABLE ...]
+    usage: pg_upsert [-h] [--version] [-q] [-d] [-l LOGFILE] [-e EXCLUDE_COLUMNS]
+                    [-n NULL_COLUMNS] [-c] [-i] [-m UPSERT_METHOD]
+                    HOST PORT DATABASE USER STAGING_SCHEMA BASE_SCHEMA TABLE
+                    [TABLE ...]
 
-    Update and insert (upsert) data from staging tables to base tables.
+    Run not-NULL, Primary Key, Foreign Key, and Check Constraint checks on staging tables then update and insert (upsert) data from staging tables to base tables.
 
     positional arguments:
     HOST                  database host
+    PORT                  database port
     DATABASE              database name
     USER                  database user
     STAGING_SCHEMA        staging schema name
@@ -107,17 +109,20 @@ CLI
 
     options:
     -h, --help            show this help message and exit
+    --version             show program's version number and exit
     -q, --quiet           suppress all console output
     -d, --debug           display debug output
     -l LOGFILE, --log LOGFILE
                             write log to LOGFILE
     -e EXCLUDE_COLUMNS, --exclude EXCLUDE_COLUMNS
-                            comma-separated list of columns to exclude from null checks
+                            comma-separated list of columns to exclude from null
+                            checks
     -n NULL_COLUMNS, --null NULL_COLUMNS
-                            comma-separated list of columns to exclude from null checks
-    -c, --commit          commit changes to database
+                            comma-separated list of columns to exclude from null
+                            checks
+    -c, --do-commit       commit changes to database
     -i, --interactive     display interactive GUI of important table information
-    -m METHOD, --method METHOD
+    -m UPSERT_METHOD, --upsert-method UPSERT_METHOD
                             method to use for upsert
 
 
@@ -125,6 +130,7 @@ Docker
 ^^^^^^
 
 There is a Docker image available on the GitHub Container Registry that can be used to run `pg_upsert`:
+
 .. code-block:: bash
 
     docker pull ghcr.io/geocoug/pg_upsert:latest
