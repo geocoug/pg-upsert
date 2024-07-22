@@ -2774,20 +2774,24 @@ def cli() -> None:
         )
         for handler in logger.handlers:
             handler.setFormatter(formatter)
-    PgUpsert(
-        host=args.host,
-        port=args.port,
-        database=args.database,
-        user=args.user,
-        tables=args.tables,
-        stg_schema=args.stg_schema,
-        base_schema=args.base_schema,
-        do_commit=args.do_commit,
-        upsert_method=args.upsert_method,
-        interactive=args.interactive,
-        exclude_cols=args.exclude.split(",") if args.exclude else None,
-        exclude_null_check_cols=args.null.split(",") if args.null else None,
-    ).run()
+    try:
+        PgUpsert(
+            host=args.host,
+            port=args.port,
+            database=args.database,
+            user=args.user,
+            tables=args.tables,
+            stg_schema=args.stg_schema,
+            base_schema=args.base_schema,
+            do_commit=args.do_commit,
+            upsert_method=args.upsert_method,
+            interactive=args.interactive,
+            exclude_cols=args.exclude.split(",") if args.exclude else None,
+            exclude_null_check_cols=args.null.split(",") if args.null else None,
+        ).run()
+    except Exception as e:
+        logger.error(e)
+        sys.exit(1)
 
 
 if __name__ == "__main__":
