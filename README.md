@@ -8,7 +8,7 @@
 
 **pg_upsert** is a Python package that provides a method to *interactively* update and insert (upsert) rows of a base table or base tables from the staging table(s) of the same name. The package is designed to work exclusively with PostgreSQL databases.
 
-The program will perform initial table checks in the form of not-null, primary key, foreign key, and check constraint checks. If any of these checks fail, the program will exit with an error message. If all checks pass, the program will display the number of rows to be inserted and updated, and ask for confirmation before proceeding. If the user confirms, the program will perform the upserts and display the number of rows inserted and updated. If the user does not confirm, the program will exit without performing any upserts.
+The program will perform initial table checks in the form of not-null, primary key, foreign key, and check constraint checks. If any of these checks fail, the program will exit with an error message. If all checks pass, the program will display the number of rows to be inserted and updated, and ask for confirmation before proceeding (when the `interactive` flag is set to `True`). If the user confirms, the program will perform the upserts and display the number of rows inserted and updated. If the user does not confirm, the program will exit without performing any upserts.
 
 ## Credits
 
@@ -30,14 +30,16 @@ logger.addHandler(logging.StreamHandler())
 PgUpsert(
     host="localhost",
     port=5432,
-    database="dev",
-    user="username",
+    database="postgres",
+    user="<db_username>",
     tables=("genres", "books", "authors", "book_authors"),
     stg_schema="staging",
     base_schema="public",
     do_commit=True,
     upsert_method="upsert",
-    interactive=False,
+    interactive=True,
+    exclude_cols=("rev_user", "rev_time", "created_at", "updated_at"),
+    exclude_null_check_cols=("rev_user", "rev_time", "created_at", "updated_at", "alias"),
 ).run()
 ```
 
@@ -102,7 +104,7 @@ docker pull ghcr.io/geocoug/pg_upsert:latest
 Running tests locally requires a PostgreSQL database. The easiest way to set up a PostgreSQL database is to use Docker. The following command will create a PostgreSQL database called `dev` with the user `docker` and password `docker`.
 
 ```sh
-docker run --name postgres -e POSTGRES_USER=docker -e POSTGRES_PASSWORD=<passwd> -e POSTGRES_DB=dev -p 5432:5432 -d postgres
+docker run --name postgres -e POSTGRES_USER=docker -e POSTGRES_PASSWORD=docker -e POSTGRES_DB=dev -p 5432:5432 -d postgres
 ```
 
 Once initialized, import the test data by running the following command.
@@ -114,11 +116,11 @@ docker exec -i postgres psql -U docker -d dev < tests/data.sql
 Create a `.env` file in the root directory with the following content, modifying the values as needed.
 
 ```sh
-POSTGRES_HOST=
+POSTGRES_HOST=localhost
 POSTGRES_PORT=5432
 POSTGRES_DB=dev
 POSTGRES_USER=docker
-POSTGRES_PASSWORD=
+POSTGRES_PASSWORD=docker
 ```
 
 Now you can run the tests using `make test`.

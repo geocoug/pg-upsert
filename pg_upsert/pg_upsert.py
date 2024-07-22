@@ -588,7 +588,7 @@ class PgUpsert:
             host="localhost",
             port=5432,
             database="postgres",
-            user="username",
+            user="<db_username>",
             tables=("genres", "books", "authors", "book_authors"),
             stg_schema="staging",
             base_schema="public",

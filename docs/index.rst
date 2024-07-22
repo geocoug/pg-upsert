@@ -80,7 +80,9 @@ Below is a simple example of how to use the `PgUpsert` class to upsert data from
         base_schema="public",
         do_commit=True,
         upsert_method="upsert",
-        interactive=False,
+        interactive=True,
+        exclude_cols=("rev_user", "rev_time", "created_at", "updated_at"),
+        exclude_null_check_cols=("rev_user", "rev_time", "created_at", "updated_at", "alias"),
     ).run()
 
 
