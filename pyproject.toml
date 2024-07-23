@@ -27,7 +27,8 @@ pg_upsert = "pg_upsert.pg_upsert:cli"
 version = { attr = "pg_upsert._version.__version__" }
 
 [project.urls]
-Homepage = "https://github.com/geocoug/pg_upsert"
+Homepage = "https://pg-upsert.readthedocs.io"
+Repository = "https://github.com/geocoug/pg_upsert"
 Issues = "https://github.com/geocoug/pg_upsert/issues"
 
 [tool.pytest.ini_options]
