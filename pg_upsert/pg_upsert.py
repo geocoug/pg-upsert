@@ -526,80 +526,49 @@ class PgUpsert:
     - Perform QA checks on data in a staging table or set of staging tables. QA checks include not-null, primary key, foreign key, and check constraint checks.
     - Perform updates and inserts (upserts) on a base table or set of base tables from the staging table(s) of the same name.
 
-    PgUpsert utilizes temporary tables and views inside the PostgreSQL database to dynamically
-    generate SQL for QA checks and upserts. All temporary objects are initialized with the `ups_` prefix.
+    PgUpsert utilizes temporary tables and views inside the PostgreSQL database to dynamically generate SQL for QA checks and upserts. All temporary objects are initialized with the `ups_` prefix.
 
-    The upsert process is transactional. If any part of the process fails, the transaction will be rolled back.
-    Committing changes to the database is optional and can be controlled with the `do_commit` flag.
+    The upsert process is transactional. If any part of the process fails, the transaction will be rolled back. Committing changes to the database is optional and can be controlled with the `do_commit` flag.
 
-    To avoid SQL injection, all SQL statements are generated using the `psycopg2.sql`_ module.
+    To avoid SQL injection, all SQL statements are generated using the [`psycopg2.sql`](https://www.psycopg.org/docs/sql.html) module.
 
-    :param host: Name of the PostgreSQL host.
-    :type host: str
-    :param database: Name of the PostgreSQL database.
-    :type database: str
-    :param user: Name of the PostgreSQL user. This user must have the necessary permissions to
-                connect to the database, query the information_schema, create temporary objects,
-                select from the staging tables, and update and insert into the base tables.
-                No checking is done to verify these permissions.
-    :type user: str
-    :param port: PostgreSQL database port, defaults to 5432.
-    :type port: int, optional
-    :param passwd: Password for the PostgreSQL user. If None, the user will be prompted to enter
-                the password. Defaults to None.
-    :type passwd: None or str, optional
-    :param tables: List of table names to perform QA checks on and upsert. Defaults to ().
-    :type tables: list or tuple or None, optional
-    :param stg_schema: Name of the staging schema where tables are located which will be used for
-                    QA checks and upserts. Tables in the staging schema must have the same name
-                    as the tables in the base schema that they will be upserted to. Defaults to None.
-    :type stg_schema: str or None, optional
-    :param base_schema: Name of the base schema where tables are located which will be updated or
-                        inserted into. Defaults to None.
-    :type base_schema: str or None, optional
-    :param do_commit: If True, changes will be committed to the database once the upsert process
-                    is complete. If False, changes will be rolled back. Defaults to False.
-    :type do_commit: bool, optional
-    :param interactive: If True, the user will be prompted with multiple dialogs to confirm various
-                        steps during the upsert process. If False, the upsert process will run
-                        without user intervention. Defaults to False.
-    :type interactive: bool, optional
-    :param upsert_method: The method to use for upserting data. Must be one of "upsert", "update",
-                        or "insert". Defaults to "upsert".
-    :type upsert_method: str, optional
-    :param exclude_cols: List of column names to exclude from the upsert process. These columns will
-                        not be updated or inserted to, however, they will still be checked during
-                        the QA process.
-    :type exclude_cols: list or tuple or None, optional
-    :param exclude_null_check_cols: List of column names to exclude from the not-null check during
-                                    the QA process. Defaults to ().
-    :type exclude_null_check_cols: list or tuple or None, optional
-    :param control_table: Name of the temporary control table that will be used to track changes
-                        during the upsert process. Defaults to "ups_control".
-    :type control_table: str, optional
+    Args:
+        host (str): Name of the PostgreSQL host.
+        database (str): Name of the PostgreSQL database.
+        user (str): Name of the PostgreSQL user. This user must have the necessary permissions to connect to the database, query the information_schema, create temporary objects, select from the staging tables, and update and insert into the base tables. No checking is done to verify these permissions.
+        port (int, optional): PostgreSQL database port, defaults to 5432.
+        passwd (None or str, optional): Password for the PostgreSQL user. If None, the user will be prompted to enter the password. Defaults to None.
+        tables (list or tuple or None, optional): List of table names to perform QA checks on and upsert. Defaults to ().
+        stg_schema (str or None, optional): Name of the staging schema where tables are located which will be used for QA checks and upserts. Tables in the staging schema must have the same name as the tables in the base schema that they will be upserted to. Defaults to None.
+        base_schema (str or None, optional): Name of the base schema where tables are located which will be updated or inserted into. Defaults to None.
+        do_commit (bool, optional): If True, changes will be committed to the database once the upsert process is complete. If False, changes will be rolled back. Defaults to False.
+        interactive (bool, optional): If True, the user will be prompted with multiple dialogs to confirm various steps during the upsert process. If False, the upsert process will run without user intervention. Defaults to False.
+        upsert_method (str, optional): The method to use for upserting data. Must be one of "upsert", "update", or "insert". Defaults to "upsert".
+        exclude_cols (list or tuple or None, optional): List of column names to exclude from the upsert process. These columns will not be updated or inserted to, however, they will still be checked during the QA process.
+        exclude_null_check_cols (list or tuple or None, optional): List of column names to exclude from the not-null check during the QA process. Defaults to ().
+        control_table (str, optional): Name of the temporary control table that will be used to track changes during the upsert process. Defaults to "ups_control".
 
-    :example:
+    Example:
 
-    .. code-block:: python
+    ```python
+    from pg_upsert import PgUpsert
 
-        from pg_upsert import PgUpsert
+    PgUpsert(
+        host="localhost",
+        port=5432,
+        database="postgres",
+        user="<db_username>",
+        tables=("genres", "books", "authors", "book_authors"),
+        stg_schema="staging",
+        base_schema="public",
+        do_commit=False,
+        upsert_method="upsert",
+        interactive=False,
+        exclude_cols=("rev_user", "rev_time", "created_at", "updated_at"),
+        exclude_null_check_cols=("rev_user", "rev_time", "created_at", "updated_at", "alias"),
+    )
+    ```
 
-        PgUpsert(
-            host="localhost",
-            port=5432,
-            database="postgres",
-            user="<db_username>",
-            tables=("genres", "books", "authors", "book_authors"),
-            stg_schema="staging",
-            base_schema="public",
-            do_commit=False,
-            upsert_method="upsert",
-            interactive=False,
-            exclude_cols=("rev_user", "rev_time", "created_at", "updated_at"),
-            exclude_null_check_cols=("rev_user", "rev_time", "created_at", "updated_at", "alias"),
-        )
-
-    .. _psycopg2.sql: https://www.psycopg.org/docs/sql.html
     """  # noqa: E501
 
     def __init__(
@@ -720,8 +689,8 @@ class PgUpsert:
         Halts script processing if any either of the schemas are non-existent,
         or if either of the tables are not present within those schemas pass.
 
-        :param table: The table to validate.
-        :type table: str
+        Args:
+            table (str): The table to validate.
         """
         logger.debug(
             f"Validating table {table} exists in {self.base_schema} and {self.stg_schema} schemas",
@@ -762,10 +731,12 @@ class PgUpsert:
     def _validate_control(self: PgUpsert) -> None:
         """Validate contents of control table against base and staging schema.
 
-        :objects created:
+        **Objects created:**
 
-        - `ups_validate_control`: Temporary table containing the results of the validation.
-        - `ups_ctrl_invl_table`: Temporary table containing the names of invalid tables.
+        | table / view | description |
+        | ------------ | ----------- |
+        | `ups_validate_control` | Temporary table containing the results of the validation. |
+        | `ups_ctrl_invl_table` | Temporary table containing the names of invalid tables. |
         """
         logger.debug("Validating control table")
         self._validate_schemas()
@@ -843,9 +814,11 @@ class PgUpsert:
         """Creates a table having the structure that is used to drive
         the upsert operation on multiple staging tables.
 
-        :objects created:
+        **Objects created**
 
-        - `ups_control`: Temporary table containing the control data.
+        | table / view | description |
+        | ------------ | ----------- |
+        | `ups_control` | Temporary table containing the control data. |
         """
         logger.debug("Initializing upsert control table")
         sql = SQL(
@@ -927,11 +900,11 @@ class PgUpsert:
         If there are failures in the QA checks, loading is not attempted.
         If the loading step is carried out, it is done within a transaction.
 
-        The "null_errors", "pk_errors", "fk_errors", "ck_errors" columns of the
+        The `null_errors`, `pk_errors`, `fk_errors`, `ck_errors` columns of the
         control table will be updated to identify any errors that occur,
         so that this information is available to the caller.
 
-        The "rows_updated" and "rows_inserted" columns of the control table
+        The `rows_updated` and `rows_inserted` columns of the control table
         will be updated with counts of the number of rows affected by the
         upsert operation for each table.
 
@@ -940,17 +913,21 @@ class PgUpsert:
         update operation does not test to see if column contents are different,
         and so does not update only those values that are different.
 
-        This method runs :class:`PgUpsert` methods in the following order:
+        This method runs [`PgUpsert`](pg_upsert.md) methods in the following order:
 
-        1. :meth:`PgUpsert.qa_all_null`
-        2. :meth:`PgUpsert.qa_all_pk`
-        3. :meth:`PgUpsert.qa_all_fk`
-        4. :meth:`PgUpsert.qa_all_ck`
+        1. [`PgUpsert.qa_all_null`](pg_upsert.md#pg_upsert.PgUpsert.qa_all_null)
+        2. [`PgUpsert.qa_all_pk`](pg_upsert.md#pg_upsert.PgUpsert.qa_all_pk)
+        3. [`PgUpsert.qa_all_fk`](pg_upsert.md#pg_upsert.PgUpsert.qa_all_fk)
+        4. [`PgUpsert.qa_all_ck`](pg_upsert.md#pg_upsert.PgUpsert.qa_all_ck)
 
-        :objects created:
+        **Objects created:**
 
-            - `ups_proctables`: Temporary table containing the list of tables to process.
-            - `ups_toprocess`: Temporary view returning a single unprocessed table.
+        The following temporary objects are created during the QA process:
+
+        | table / view | description |
+        |--------------|-------------|
+        | ups_proctables | Temporary table containing the list of tables to process. |
+        | ups_toprocess  | Temporary view returning a single unprocessed table. |
         """
         self._validate_control()
         # Clear the columns of return values from the control table,
@@ -1081,14 +1058,16 @@ class PgUpsert:
     def qa_one_null(self: PgUpsert, table: str) -> PgUpsert:
         """Performs null checks for non-null columns in a single staging table.
 
-        :param table: The name of the staging table to check for null values.
-        :type table: str
+        Args:
+            table (str): The name of the staging table to check for null values.
 
-        :objects created:
+        **Objects created:**
 
-            - `ups_nonnull_cols`: Temporary table containing the non-null columns of the base table.
-            - `ups_qa_nonnull_col`: Temporary view containing the number of rows with nulls in the staging table.
-            - `ups_null_error_list`: Temporary view containing the list of null errors.
+        | table / view | description |
+        |--------------|-------------|
+        | `ups_nonnull_cols` | Temporary table containing the non-null columns of the base table. |
+        | `ups_qa_nonnull_col` | Temporary view containing the number of rows with nulls in the staging table. |
+        | `ups_null_error_list` | Temporary view containing the list of null errors. |
         """
         logger.info(
             f"Conducting not-null QA checks on table {self.stg_schema}.{table}",
@@ -1238,13 +1217,15 @@ class PgUpsert:
     def qa_one_pk(self: PgUpsert, table: str) -> PgUpsert:
         """Performs primary key checks for duplicated primary key values in a single staging table.
 
-        :param table: The name of the staging table to check for duplicate primary key values.
-        :type table: str
+        Args:
+            table (str): The name of the staging table to check for duplicate primary key values.
 
-        :objects created:
+        **Objects created:**
 
-            - `ups_primary_key_columns`: Temporary table containing the primary key columns of the base table.
-            - `ups_pk_check`: Temporary view containing the duplicate primary key values.
+        | table / view | description |
+        |--------------|-------------|
+        | `ups_primary_key_columns` | Temporary table containing the primary key columns of the base table. |
+        | `ups_pk_check` | Temporary view containing the duplicate primary key values. |
         """
         pk_errors = []
         logger.info(
@@ -1378,16 +1359,18 @@ class PgUpsert:
     def qa_one_fk(self: PgUpsert, table: str) -> PgUpsert:
         """Performs foreign key checks for invalid foreign key values in a single staging table.
 
-        :param table: The name of the staging table to check for invalid foreign key values.
-        :type table: str
+        Args:
+            table (str): The name of the staging table to check for invalid foreign key values.
 
-        :objects created:
+        **Objects created:**
 
-            - `ups_foreign_key_columns`: Temporary table containing the foreign key columns of the base table.
-            - `ups_sel_fks`: Temporary table containing the foreign key relationships for the base table.
-            - `ups_fk_constraints`: Temporary table containing the unique constraint names for the table.
-            - `ups_one_fk`: Temporary table containing the foreign key relationships for the base table.
-            - `ups_fk_check`: Temporary view containing the invalid foreign key values.
+        | table / view | description |
+        |--------------|-------------|
+        | `ups_foreign_key_columns` | Temporary table containing the foreign key columns of the base table. |
+        | `ups_sel_fks` | Temporary table containing the foreign key relationships for the base table. |
+        | `ups_fk_constraints` | Temporary table containing the unique constraint names for the table. |
+        | `ups_one_fk` | Temporary table containing the foreign key relationships for the base table. |
+        | `ups_fk_check` | Temporary view containing the invalid foreign key values. |
         """
         logger.info(
             f"Conducting foreign key QA checks on table {self.stg_schema}.{table}",
@@ -1687,12 +1670,14 @@ class PgUpsert:
     def qa_all_ck(self: PgUpsert) -> PgUpsert:
         """Performs check constraint checks for invalid check constraint values in selected staging tables.
 
-        :objects created:
+        **Objects created:**
 
-            - `ups_check_constraints`: Temporary table containing the check constraints of the base table.
-            - `ups_sel_cks`: Temporary table containing the check constraints for the base table.
-            - `ups_ck_check_check`: Temporary view containing the check constraint values.
-            - `ups_ck_error_list`: Temporary table containing the list of check constraint errors.
+        | table / view | description |
+        |--------------|-------------|
+        | `ups_check_constraints` | Temporary table containing the check constraints of the base table. |
+        | `ups_sel_cks` | Temporary table containing the check constraints for the base table. |
+        | `ups_ck_check_check` | Temporary view containing the check constraint values. |
+        | `ups_ck_error_list` | Temporary table containing the list of check constraint errors. |
         """
         while True:
             rows, headers, rowcount = self.db.rowdict(
@@ -1734,14 +1719,16 @@ class PgUpsert:
     def qa_one_ck(self: PgUpsert, table: str) -> PgUpsert:
         """Performs check constraint checks for invalid check constraint values in a single staging table.
 
-        :param table: The name of the staging table to check for invalid check constraint values.
-        :type table: str
+        table (str): The name of the staging table to check for invalid check constraint values.
 
-        :objects created:
+        **Objects created:**
 
-            - `ups_sel_cks`: Temporary table containing the check constraints for the base table.
-            - `ups_ck_check_check`: Temporary view containing the check constraint values.
-            - `ups_ck_error_list`: Temporary table containing the list of check constraint errors.
+        | table / view | description |
+        |--------------|-------------|
+        | `ups_check_constraints` | Temporary table containing the check constraints of the base table. |
+        | `ups_sel_cks` | Temporary table containing the check constraints for the base table. |
+        | `ups_ck_check_check` | Temporary view containing the check constraint values. |
+        | `ups_ck_error_list` | Temporary table containing the list of check constraint errors. |
         """
         logger.info(
             f"Conducting check constraint QA checks on table {self.stg_schema}.{table}",
@@ -1908,11 +1895,13 @@ class PgUpsert:
     def upsert_all(self: PgUpsert) -> PgUpsert:
         """Performs upsert operations on all selected tables in the base schema.
 
-        :objects created:
+        **Objects created:**
 
-            - `ups_dependencies`: Temporary table containing the dependencies of the base schema.
-            - `ups_ordered_tables`: Temporary table containing the selected tables ordered by dependency.
-            - `ups_proctables`: Temporary table containing the selected tables with ordering information.
+        | table / view | description |
+        |--------------|-------------|
+        | `ups_dependencies` | Temporary table containing the dependencies of the base schema. |
+        | `ups_ordered_tables` | Temporary table containing the selected tables ordered by dependency. |
+        | `ups_proctables` | Temporary table containing the selected tables with ordering information. |
         """
         self._validate_control()
         if not self.qa_passed:
@@ -2058,15 +2047,17 @@ class PgUpsert:
     def upsert_one(self: PgUpsert, table: str) -> PgUpsert:
         """Performs an upsert operation on a single table.
 
-        :param table: The name of the table to upsert.
-        :type table: str
+        Args:
+            table (str): The name of the table to upsert.
 
-        :objects created:
+        **Objects created:**
 
-            - `ups_cols`: Temporary table containing the columns to be updated.
-            - `ups_pks`: Temporary table containing the primary key columns.
-            - `ups_fk_check`: Temporary view containing the foreign key check.
-            - `ups_toprocess`: Temporary table containing the tables to be processed.
+        | table / view | description |
+        |--------------|-------------|
+        | `ups_cols` | Temporary table containing the columns to be updated. |
+        | `ups_pks` | Temporary table containing the primary key columns. |
+        | `ups_fk_check` | Temporary view containing the foreign key check. |
+        | `ups_toprocess` | Temporary table containing the tables to be processed. |
         """
         rows_updated = 0
         rows_inserted = 0
@@ -2434,11 +2425,11 @@ class PgUpsert:
     def run(self: PgUpsert) -> PgUpsert:
         """Run all QA checks and upsert operations.
 
-        This method runs :class:`PgUpsert` methods in the following order:
+        This method runs `PgUpsert` methods in the following order:
 
-        1. :meth:`PgUpsert.qa_all`
-        2. :meth:`PgUpsert.upsert_all`
-        3. :meth:`PgUpsert.commit`
+        1. [`PgUpsert.qa_all()`](pg_upsert.md#pg_upsert.PgUpsert.qa_all)
+        2. [`PgUpsert.upsert_all()`](pg_upsert.md#pg_upsert.PgUpsert.upsert_all)
+        3. [`PgUpsert.commit()`](pg_upsert.md#pg_upsert.PgUpsert.commit)
         """
         start_time = datetime.now()
         logger.info(f"Upserting to {self.base_schema} from {self.stg_schema}")

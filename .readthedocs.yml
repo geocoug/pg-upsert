@@ -8,13 +8,8 @@ build:
   tools:
     python: "3.12"
 
-sphinx:
-  configuration: docs/conf.py
-  builder: "dirhtml"
-
-formats:
-  - pdf
-  - epub
+mkdocs:
+  configuration: mkdocs.yml
 
 python:
   install:
