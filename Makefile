@@ -4,13 +4,6 @@ PYTHON = $(BIN)/python
 PIP = $(BIN)/pip
 TEST = pytest
 
-# Sphinx documentation
-SPHINXOPTS    ?=
-SPHINXBUILD   ?= sphinx-build
-SPHINXAPIDOC  ?= sphinx-apidoc
-SOURCEDIR     = docs
-BUILDDIR      = docs/_build
-
 # Self documenting commands
 .DEFAULT_GOAL := help
 .PHONY: help
@@ -38,6 +31,7 @@ clean: ## Remove temporary files
 	@rm -rf dist
 	@rm -rf *.egg-info
 	@rm -rf pg_upsert.log
+	@rm -rf site/
 
 bump: ## Show the next version
 	@bump-my-version show-bump
@@ -71,9 +65,9 @@ test: $(VENV)/bin/activate ## Run unit tests
 build-dist: $(VENV)/bin/activate ## Generate distrubition packages
 	$(PYTHON) -m build
 
-build-docs: ## Generate documentation
+build-docs: $(VENV)/bin/activate ## Generate documentation
 	@printf "Building documentation\n"
-	@$(SPHINXBUILD) -M html "$(SOURCEDIR)" "$(BUILDDIR)" $(SPHINXOPTS)
+	@mkdocs build -c -q
 
 publish: $(VENV)/bin/activate ## Publish to PyPI
 	$(MAKE) lint
