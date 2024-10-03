@@ -21,10 +21,10 @@ dependencies = ["psycopg2-binary==2.9.9", "tabulate==0.9.0"]
 keywords = ["postgresql", "postgres", "dbms", "etl", "upsert", "database"]
 
 [project.scripts]
-pg_upsert = "pg_upsert.pg_upsert:cli"
+pg_upsert = "pg_upsert.pg_upsert:main"
 
 [tool.setuptools.dynamic]
-version = { attr = "pg_upsert._version.__version__" }
+version = { attr = "pg_upsert.__version__.__version__" }
 
 [project.urls]
 Homepage = "https://pg-upsert.readthedocs.io"
@@ -113,4 +113,4 @@ commit_args = "--no-verify"
 tag = true
 
 [[tool.bumpversion.files]]
-filename = "pg_upsert/_version.py"
+filename = "pg_upsert/__version__.py"
