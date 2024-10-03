@@ -18,13 +18,8 @@ from psycopg2.extras import DictCursor
 from psycopg2.sql import SQL, Composable, Identifier, Literal
 from tabulate import tabulate
 
-from ._version import __description__, __version__
+from .__version__ import __description__, __version__
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(message)s",
-    handlers=[logging.NullHandler()],
-)
 logger = logging.getLogger(__name__)
 
 
@@ -2659,16 +2654,16 @@ def clparser() -> argparse.ArgumentParser:
         version=f"%(prog)s {__version__}",
     )
     parser.add_argument(
-        "-q",
-        "--quiet",
-        action="store_true",
-        help="suppress all console output",
-    )
-    parser.add_argument(
         "-d",
         "--debug",
         action="store_true",
         help="display debug output",
+    )
+    parser.add_argument(
+        "-q",
+        "--quiet",
+        action="store_true",
+        help="suppress all console output",
     )
     parser.add_argument(
         "-l",
@@ -2749,15 +2744,20 @@ def clparser() -> argparse.ArgumentParser:
     return parser
 
 
-def cli() -> None:
+def main() -> None:
     """Main command line entrypoint for the upsert function."""
     args = clparser().parse_args()
     if args.log and args.log.exists():
         args.log.unlink()
     if not args.quiet:
-        logger.addHandler(logging.StreamHandler())
+        stream_handler = logging.StreamHandler()
+        stream_handler.setLevel(logging.INFO)
+        stream_handler.setFormatter(logging.Formatter("%(message)s"))
+        logger.addHandler(stream_handler)
     if args.log:
-        logger.addHandler(logging.FileHandler(args.log))
+        file_handler = logging.FileHandler(args.log)
+        file_handler.setLevel(logging.INFO)
+        logger.addHandler(file_handler)
     if args.debug:
         logger.setLevel(logging.DEBUG)
         formatter = logging.Formatter(
@@ -2765,6 +2765,7 @@ def cli() -> None:
         )
         for handler in logger.handlers:
             handler.setFormatter(formatter)
+            handler.setLevel(logging.DEBUG)
     try:
         PgUpsert(
             host=args.host,
@@ -2786,4 +2787,4 @@ def cli() -> None:
 
 
 if __name__ == "__main__":
-    cli()
+    main()

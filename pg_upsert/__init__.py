@@ -1,4 +1,6 @@
-from ._version import (
+import logging
+
+from .__version__ import (
     __author__,
     __author_email__,
     __description__,
@@ -10,3 +12,7 @@ from ._version import (
 from .pg_upsert import PgUpsert
 
 __all__ = ["PgUpsert"]
+
+
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
