@@ -58,40 +58,37 @@ PgUpsert(
 
 `pg_upsert` has a command-line interface that can be used to perform all the functionality of the `PgUpsert` class. The CLI can be accessed by running `pg_upsert` in the terminal.
 
-```bash
-usage: pg_upsert [-h] [--version] [-q] [-d] [-l LOGFILE] [-e EXCLUDE_COLUMNS]
-                [-n NULL_COLUMNS] [-c] [-i] [-m UPSERT_METHOD]
-                HOST PORT DATABASE USER STAGING_SCHEMA BASE_SCHEMA TABLE
-                [TABLE ...]
+```txt
+usage: pg_upsert [--help] [--version] [--debug] [-q] [-l LOG] [-e EXCLUDE] [-n NULL] [-c] [-i] [-m {upsert,update,insert}] -h HOST -p PORT -d DATABASE -u USER -s STG_SCHEMA -b BASE_SCHEMA tables [tables ...]
 
 Run not-NULL, Primary Key, Foreign Key, and Check Constraint checks on staging tables then update and insert (upsert) data from staging tables to base tables.
 
 positional arguments:
-HOST                  database host
-PORT                  database port
-DATABASE              database name
-USER                  database user
-STAGING_SCHEMA        staging schema name
-BASE_SCHEMA           base schema name
-TABLE                 table name(s)
+  tables                table name(s)
 
 options:
--h, --help            show this help message and exit
---version             show programs version number and exit
--q, --quiet           suppress all console output
--d, --debug           display debug output
--l LOGFILE, --log LOGFILE
-                        write log to LOGFILE
--e EXCLUDE_COLUMNS, --exclude EXCLUDE_COLUMNS
-                        comma-separated list of columns to exclude from null
-                        checks
--n NULL_COLUMNS, --null NULL_COLUMNS
-                        comma-separated list of columns to exclude from null
-                        checks
--c, --do-commit       commit changes to database
--i, --interactive     display interactive GUI of important table information
--m UPSERT_METHOD, --upsert-method UPSERT_METHOD
+  --help                show this help message and exit
+  --version             show program's version number and exit
+  --debug               display debug output
+  -q, --quiet           suppress all console output
+  -l LOG, --log LOG     write log to LOGFILE
+  -e EXCLUDE, --exclude-columns EXCLUDE
+                        comma-separated list of columns to exclude from null checks
+  -n NULL, --null-columns NULL
+                        comma-separated list of columns to exclude from null checks
+  -c, --commit          commit changes to database
+  -i, --interactive     display interactive GUI of important table information
+  -m {upsert,update,insert}, --upsert-method {upsert,update,insert}
                         method to use for upsert
+  -h HOST, --host HOST  database host
+  -p PORT, --port PORT  database port
+  -d DATABASE, --database DATABASE
+                        database name
+  -u USER, --user USER  database user
+  -s STG_SCHEMA, --staging-schema STG_SCHEMA
+                        staging schema name
+  -b BASE_SCHEMA, --base-schema BASE_SCHEMA
+                        base schema name
 ```
 
 ### Docker
