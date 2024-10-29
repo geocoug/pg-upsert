@@ -1295,10 +1295,10 @@ class PgUpsert:
             tot_errs = next(iter(tot_errs))
             err_msg = f"{tot_errs['errcount']} duplicate keys ({tot_errs['total_rows']} rows) in table {self.stg_schema}.{table}"  # noqa: E501
             pk_errors.append(err_msg)
-            logger.debug("")
+            logger.warning("")
             err_sql = SQL("select * from ups_pk_check;")
-            logger.debug(f"\n{self._show(err_sql)}")
-            logger.debug("")
+            logger.warning(f"{self._show(err_sql)}")
+            logger.warning("")
             if self.interactive:
                 btn, return_value = TableUI(
                     "Duplicate key error",
@@ -1553,9 +1553,9 @@ class PgUpsert:
                     uq_table=Identifier(const_rows["uq_table"]),
                     su_join=SQL(fk_rows["su_join"]),
                 )
-                query += SQL(" where u.{uq_column} is null").format(
-                    uq_column=Identifier(const_rows["uq_column"]),
-                )
+            query += SQL(" where u.{uq_column} is null").format(
+                uq_column=Identifier(const_rows["uq_column"]),
+            )
             if su_exists:
                 query += SQL(" and su.{uq_column} is null").format(
                     uq_column=Identifier(const_rows["uq_column"]),
@@ -1577,9 +1577,9 @@ class PgUpsert:
                 logger.warning(
                     f"    Foreign key error referencing {const_rows['uq_schema']}.{const_rows['uq_table']}",
                 )
-                logger.debug("")
-                logger.debug(f"\n{self._show(check_sql)}")
-                logger.debug("")
+                logger.warning("")
+                logger.warning(f"{self._show(check_sql)}")
+                logger.warning("")
                 if self.interactive:
                     btn, return_value = TableUI(
                         "Foreign key error",
