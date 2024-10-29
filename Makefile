@@ -69,6 +69,9 @@ build-docs: $(VENV)/bin/activate ## Generate documentation
 	@printf "Building documentation\n"
 	@mkdocs build -c -q
 
+preview-docs: $(VENV)/bin/activate ## Serve documentation
+	@mkdocs serve -w .
+
 publish: $(VENV)/bin/activate ## Publish to PyPI
 	$(MAKE) lint
 	$(MAKE) test
