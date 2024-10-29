@@ -2645,8 +2645,14 @@ def ellapsed_time(start_time: datetime):
 def clparser() -> argparse.ArgumentParser:
     """Command line interface for the upsert function."""
     parser = argparse.ArgumentParser(
+        add_help=False,
         description=__description__,
         formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument(
+        "--help",
+        action="help",
+        help="show this help message and exit",
     )
     parser.add_argument(
         "--version",
@@ -2654,7 +2660,6 @@ def clparser() -> argparse.ArgumentParser:
         version=f"%(prog)s {__version__}",
     )
     parser.add_argument(
-        "-d",
         "--debug",
         action="store_true",
         help="display debug output",
@@ -2669,24 +2674,25 @@ def clparser() -> argparse.ArgumentParser:
         "-l",
         "--log",
         type=Path,
-        metavar="LOGFILE",
         help="write log to LOGFILE",
     )
     parser.add_argument(
         "-e",
-        "--exclude",
-        metavar="EXCLUDE_COLUMNS",
+        "--exclude-columns",
+        dest="exclude",
+        type=str,
         help="comma-separated list of columns to exclude from null checks",
     )
     parser.add_argument(
         "-n",
-        "--null",
-        metavar="NULL_COLUMNS",
+        "--null-columns",
+        dest="null",
+        type=str,
         help="comma-separated list of columns to exclude from null checks",
     )
     parser.add_argument(
         "-c",
-        "--do-commit",
+        "--commit",
         action="store_true",
         help="commit changes to database",
     )
@@ -2699,45 +2705,58 @@ def clparser() -> argparse.ArgumentParser:
     parser.add_argument(
         "-m",
         "--upsert-method",
-        metavar="UPSERT_METHOD",
         default="upsert",
         choices=["upsert", "update", "insert"],
         help="method to use for upsert",
     )
     parser.add_argument(
-        "host",
-        metavar="HOST",
+        "-h",
+        "--host",
+        required=True,
+        type=str,
         help="database host",
     )
     parser.add_argument(
-        "port",
-        metavar="PORT",
+        "-p",
+        "--port",
+        required=True,
         type=int,
         help="database port",
     )
     parser.add_argument(
-        "database",
-        metavar="DATABASE",
+        "-d",
+        "--database",
+        required=True,
+        type=str,
         help="database name",
     )
     parser.add_argument(
-        "user",
-        metavar="USER",
+        "-u",
+        "--user",
+        required=True,
+        type=str,
         help="database user",
     )
     parser.add_argument(
-        "stg_schema",
-        metavar="STAGING_SCHEMA",
+        "-s",
+        "--staging-schema",
+        default="staging",
+        dest="stg_schema",
+        required=True,
+        type=str,
         help="staging schema name",
     )
     parser.add_argument(
-        "base_schema",
-        metavar="BASE_SCHEMA",
+        "-b",
+        "--base-schema",
+        default="public",
+        dest="base_schema",
+        required=True,
+        type=str,
         help="base schema name",
     )
     parser.add_argument(
         "tables",
-        metavar="TABLE",
         nargs="+",
         help="table name(s)",
     )
@@ -2775,7 +2794,7 @@ def main() -> None:
             tables=args.tables,
             stg_schema=args.stg_schema,
             base_schema=args.base_schema,
-            do_commit=args.do_commit,
+            do_commit=args.commit,
             upsert_method=args.upsert_method,
             interactive=args.interactive,
             exclude_cols=args.exclude.split(",") if args.exclude else None,
