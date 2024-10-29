@@ -3,24 +3,35 @@ name: ci/cd
 
 on:
   push:
-  pull_request:
+    branches:
+      - main
   workflow_dispatch:
 
-jobs:
+env:
+  PROJECT_NAME: pg-upsert
+  POSTGRES_HOST: localhost
+  POSTGRES_PORT: 5432
+  POSTGRES_USER: postgres
+  POSTGRES_PASSWORD: postgres
+  POSTGRES_DB: dev
 
-  # https://docs.github.com/en/actions/using-containerized-services/creating-postgresql-service-containers#running-jobs-directly-on-the-runner-machine
-  python-tests:
-    runs-on: ubuntu-latest
+jobs:
+  tests:
     strategy:
       matrix:
-        python-version: ["3.10", "3.11", "3.12"]
+        os:
+          - ubuntu-latest
+        python-version:
+          - "3.10"
+          - "3.11"
+          - "3.12"
     services:
       postgres:
         image: postgis/postgis:16-3.4-alpine
         env:
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: dev
+          POSTGRES_USER: ${{ env.POSTGRES_USER }}
+          POSTGRES_PASSWORD: ${{ env.POSTGRES_PASSWORD }}
+          POSTGRES_DB: ${{ env.POSTGRES_DB }}
         options: >-
           --health-cmd pg_isready
           --health-interval 10s
@@ -28,16 +39,17 @@ jobs:
           --health-retries 5
         ports:
           - 5432:5432
+    runs-on: ${{ matrix.os }}
     steps:
       - name: Check out repository code
         uses: actions/checkout@v4
       - name: Import PostgreSQL data
-        run: |
-          psql -h localhost -U postgres -d dev -f tests/data.sql
+        run: >-
+          psql -h ${{ env.POSTGRES_HOST }} -U ${{ env.POSTGRES_USER }} -d ${{ env.POSTGRES_DB }} -f tests/data.sql
         env:
-          PGPASSWORD: postgres
+          PGPASSWORD: ${{ env.POSTGRES_PASSWORD }}
       - name: Setup Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v2
+        uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
       - name: Install dependencies
@@ -49,15 +61,56 @@ jobs:
           python -m pip install pytest
           python -m pytest
         env:
-          POSTGRES_HOST: localhost
-          POSTGRES_PORT: 5432
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: dev
+          POSTGRES_HOST: ${{ env.POSTGRES_HOST }}
+          POSTGRES_PORT: ${{ env.POSTGRES_PORT }}
+          POSTGRES_USER: ${{ env.POSTGRES_USER }}
+          POSTGRES_PASSWORD: ${{ env.POSTGRES_PASSWORD }}
+          POSTGRES_DB: ${{ env.POSTGRES_DB }}
 
+  build:
+    name: Build distribution 📦
+    runs-on: ubuntu-latest
+    needs: [tests]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Build binary distribution package
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          python -m pip install --upgrade build
+          python -m build --sdist --wheel --outdir dist/
+      - name: Store the distribution package
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.PROJECT_NAME }}
+          path: dist/
+
+  publish:
+    name: PyPI Publish 🚀
+    needs: [build]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/') # only publish to PyPI on tag pushes
+    environment:
+      name: pypi
+      url: https://pypi.org/p/${{ env.PROJECT_NAME }}
+    permissions:
+      id-token: write
+    steps:
+      - name: Download the dist
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ env.PROJECT_NAME }}
+          path: dist/
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
 
   docker-build:
     name: Docker Build+Push
+    needs: [build]
     uses: geocoug/github-actions-templates/.github/workflows/docker-build.yml@main
     permissions:
       contents: read
@@ -74,24 +127,3 @@ jobs:
         type=semver,pattern={{version}}
         type=raw,value=gha-${{ github.run_id }}
       platforms: linux/amd64,linux/arm64
-
-
-  pypi-publish:
-    name: PyPI Publish
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.12'
-      - name: Build and publish
-        env:
-          TWINE_USERNAME: ${{ secrets.PYPI_USERNAME }}
-          TWINE_PASSWORD: ${{ secrets.PYPI_PASSWORD }}
-        run: |
-          python -m pip install --upgrade pip
-          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-          python -m pip install --upgrade build twine
-          python -m build --sdist --wheel --outdir dist/
-          python -m twine upload --skip-existing dist/*
