@@ -19,7 +19,7 @@ from psycopg2.extras import DictCursor
 from psycopg2.sql import SQL, Composable, Identifier, Literal
 from tabulate import tabulate
 
-from .__version__ import __description__, __version__
+from .__version__ import __description__, __title__, __version__
 
 logger = logging.getLogger(__name__)
 
@@ -81,7 +81,7 @@ class PostgresDB:
             parsed_uri = urlparse(uri)
             if parsed_uri.password:
                 return uri
-            prompt = f"The script {Path(__file__).name} wants the password for PostgresDB(uri={uri}): "
+            prompt = f"The library {__title__} wants the password for PostgresDB(uri={uri}): "
             return urlunparse(
                 parsed_uri._replace(
                     netloc=f"{parsed_uri.username}:{getpass.getpass(prompt)}@{parsed_uri.hostname}:{parsed_uri.port}",
