@@ -67,6 +67,7 @@ build-dist: $(VENV)/bin/activate ## Generate distrubition packages
 
 build-docs: $(VENV)/bin/activate ## Generate documentation
 	@printf "Building documentation\n"
+	@rm -rf site/
 	@mkdocs build -c -q
 
 preview-docs: $(VENV)/bin/activate ## Serve documentation
