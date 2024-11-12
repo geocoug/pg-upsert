@@ -12,6 +12,7 @@ import tkinter.font as tkfont
 import tkinter.ttk as ttk
 from datetime import datetime
 from pathlib import Path
+from urllib.parse import urlparse, urlunparse
 
 import psycopg2
 from psycopg2.extras import DictCursor
@@ -24,104 +25,130 @@ logger = logging.getLogger(__name__)
 
 
 class PostgresDB:
-    """Base database object."""
+    """Base database object for connecting and executing SQL queries on a PostgreSQL database.
+
+    Args:
+        conn (psycopg2.extensions.connection, optional): An existing connection object to a PostgreSQL database.
+        uri (str, optional): A connection URI for a PostgreSQL database.
+        encoding (str, optional): The encoding to use for the database connection.
+        **kwargs: Additional keyword arguments passed to `psycopg2.connect()`.
+
+    Returns:
+        PostgresDB: A new PostgresDB object for connecting to a PostgreSQL database and executing queries.
+
+    Raises:
+        AttributeError: If neither a connection URI nor an existing connection object is provided.
+        psycopg2.Error: If an error occurs while connecting to the database or executing a query.
+    """
 
     def __init__(
-        self: PostgresDB,
-        host: str,
-        database: str,
-        user: str,
-        port: int = 5432,
-        passwd: None | str = None,
-    ) -> None:
-        self.host = host
-        self.port = port
-        self.database = database
-        self.user = user
-        if passwd is not None:
-            self.passwd = passwd
-        else:
-            self.passwd = self.get_password()
+        self,
+        uri: None | str = None,
+        conn: None | psycopg2.extensions.connection = None,
+        encoding: str = "utf-8",
+        **kwargs,
+    ):
+        if conn is None and uri is None:
+            raise AttributeError(
+                "Either a connection URI or an existing connection object must be provided.",
+            )
+        if conn and uri:
+            logger.warning(
+                "Connection URI ignored as an existing connection object is provided.",
+            )
+        # If a URI is supplied, check for a password and prompt if necessary
+        if uri:
+            uri = self._prompt_for_password(uri)
+        self.conn = conn or psycopg2.connect(uri, **kwargs)
+        self.encoding = encoding
         self.in_transaction = False
-        self.encoding = "UTF8"
-        self.conn = None
-        if not self.valid_connection():
-            raise psycopg2.Error(f"Error connecting to {self!s}")
+        if not self._is_valid_connection():
+            raise psycopg2.Error(f"Error connecting to {self.conn.dsn}")
 
-    def __repr__(self: PostgresDB) -> str:
-        return (
-            f"{self.__class__.__name__}(host={self.host}, port={self.port}, database={self.database}, user={self.user})"
-        )
+    def __repr__(self) -> str:
+        """Return a string representation of the object."""
+        params = self.conn.get_dsn_parameters() if self.conn else "No connection"
+        return f"{self.__class__.__name__}({params})"
 
-    def __del__(self: PostgresDB) -> None:
-        """Delete the instance."""
-        self.close()
+    def __del__(self):
+        """Ensure the database connection is closed when the object is deleted, if open."""
+        if hasattr(self, "conn") and self.conn and not self.conn.closed:
+            self.close()
 
-    def get_password(self):
+    def _prompt_for_password(self, uri: str) -> str:
+        """Prompt the user for a password."""
         try:
-            return getpass.getpass(
-                f"The script {Path(__file__).name} wants the password for {self!s}: ",
+            parsed_uri = urlparse(uri)
+            if parsed_uri.password:
+                return uri
+            prompt = f"The script {Path(__file__).name} wants the password for PostgresDB(uri={uri}): "
+            return urlunparse(
+                parsed_uri._replace(
+                    netloc=f"{parsed_uri.username}:{getpass.getpass(prompt)}@{parsed_uri.hostname}:{parsed_uri.port}",
+                ),
             )
         except (KeyboardInterrupt, EOFError) as err:
             raise err
 
-    def valid_connection(self: PostgresDB) -> bool:
-        """Test the database connection."""
-        logger.debug(f"Testing connection to {self!s}")
+    def _is_valid_connection(self) -> bool:
+        """Check if the database connection is valid."""
         try:
-            self.open_db()
+            with self.conn.cursor():
+                self.conn.set_client_encoding(self.encoding)
             return True
         except psycopg2.Error:
             return False
-        finally:
-            self.close()
 
-    def open_db(self: PostgresDB) -> None:
-        """Open a database connection."""
-
-        def db_conn(db):
-            """Return a database connection object."""
-            return psycopg2.connect(
-                host=str(db.host),
-                database=str(db.database),
-                port=db.port,
-                user=str(db.user),
-                password=str(db.passwd),
-            )
-
-        if self.conn is None:
-            self.conn = db_conn(self)
+    def open_db(self) -> None:
+        """Ensure the database connection is open."""
+        if not self.conn or self.conn.closed:
+            logger.debug("Opening database connection.")
+            self.conn = psycopg2.connect(self.conn.dsn)
+            self.conn.set_client_encoding(self.encoding)
             self.conn.set_session(autocommit=False)
-        self.encoding = self.conn.encoding
+        elif self.conn.closed:
+            logger.warning("Connection is closed; attempting to reopen.")
+            self.conn = psycopg2.connect(self.conn.dsn)
+            self.conn.set_client_encoding(self.encoding)
 
-    def cursor(self: PostgresDB):
-        """Return the connection cursor."""
+    def cursor(self):
+        """Return a cursor for executing database queries."""
         self.open_db()
         return self.conn.cursor(cursor_factory=DictCursor)
 
-    def close(self: PostgresDB) -> None:
-        """Close the database connection."""
-        self.rollback()
-        if self.conn is not None:
+    def close(self) -> None:
+        """Close the database connection if open."""
+        if self.conn and not self.conn.closed:
+            self.rollback()
             self.conn.close()
-            self.conn = None
 
-    def commit(self: PostgresDB) -> None:
+    def commit(self) -> None:
         """Commit the current transaction."""
-        if self.conn:
+        if self.conn and self.in_transaction:
             self.conn.commit()
-        self.in_transaction = False
+            self.in_transaction = False
 
-    def rollback(self: PostgresDB) -> None:
-        """Roll back the current transaction."""
-        if self.conn is not None:
+    def rollback(self) -> None:
+        """Rollback the current transaction."""
+        if self.conn and self.in_transaction:
             self.conn.rollback()
-        self.in_transaction = False
+            self.in_transaction = False
 
-    def execute(self: PostgresDB, sql: str | Composable, params=None):
+    def execute(
+        self: PostgresDB,
+        sql: str | Composable,
+        params=None,
+    ) -> psycopg2.extensions.cursor:
         """A shortcut to self.cursor().execute() that handles encoding.
 
         Handles insert, updates, deletes
+
+        Args:
+            sql (str | psycopg2.sql.Composable): The SQL query to execute. Accepts a `str` or `Composable` object.
+            params (tuple, optional): A tuple of parameters to pass to the query.
+                Note that a `Composable` object should not have parameters passed separately. Default is None.
+        Returns:
+            psycopg2.extensions.cursor: A cursor object for the executed query.
         """
         self.in_transaction = True
         try:
@@ -142,11 +169,17 @@ class PostgresDB:
         return curs
 
     def rowdict(self: PostgresDB, sql: str | Composable, params=None) -> tuple:
-        """Convert a cursor object to an iterable that.
+        """Convert a cursor object to an iterable that yields dictionaries of row data.
 
-        yields dictionaries of row data.
+        yields dictionaries of row data with the following structure:
+            0) dict_row (iterator) - an iterator that yields dictionaries of row data
+            1) headers (list) - a list of column names
+            2) rowcount (int) - the number of rows returned by the query
         """
         curs = self.execute(sql, params)
+        if not curs.description:
+            # No data returned
+            return (iter([]), [], 0)
         headers = [d[0] for d in curs.description]
 
         def dict_row():
@@ -549,10 +582,7 @@ class PgUpsert:
     from pg_upsert import PgUpsert
 
     PgUpsert(
-        host="localhost",
-        port=5432,
-        database="postgres",
-        user="<db_username>",
+        conn=conn,
         tables=("genres", "books", "authors", "book_authors"),
         stg_schema="staging",
         base_schema="public",
@@ -568,11 +598,9 @@ class PgUpsert:
 
     def __init__(
         self,
-        host: str,
-        database: str,
-        user: str,
-        port: int = 5432,
-        passwd: None | str = None,
+        uri: None | str = None,
+        conn: None | psycopg2.extensions.connection = None,
+        encoding: str = "utf-8",
         tables: list | tuple | None = (),
         stg_schema: str | None = None,
         base_schema: str | None = None,
@@ -601,11 +629,9 @@ class PgUpsert:
                 f"Staging and base schemas must be different. Got {stg_schema} for both.",
             )
         self.db = PostgresDB(
-            host=host,
-            port=port,
-            database=database,
-            user=user,
-            passwd=passwd,
+            uri=uri,
+            conn=conn,
+            encoding=encoding,
         )
         logger.debug(f"Connected to {self.db!s}")
         self.tables = tables
@@ -630,6 +656,9 @@ class PgUpsert:
 
     def __repr__(self):
         return f"{self.__class__.__name__}(db={self.db!r}, tables={self.tables}, stg_schema={self.stg_schema}, base_schema={self.base_schema}, do_commit={self.do_commit}, interactive={self.interactive}, upsert_method={self.upsert_method}, exclude_cols={self.exclude_cols}, exclude_null_check_cols={self.exclude_null_check_cols})"  # noqa: E501
+
+    def __del__(self):
+        self.db.close()
 
     def _show(self, sql: str | Composable) -> None | str:
         """Display the results of a query in a table format. If the interactive flag is set,
@@ -2756,6 +2785,13 @@ def clparser() -> argparse.ArgumentParser:
         help="base schema name",
     )
     parser.add_argument(
+        "--encoding",
+        default="utf-8",
+        type=str,
+        required=False,
+        help="encoding of the database",
+    )
+    parser.add_argument(
         "tables",
         nargs="+",
         help="table name(s)",
@@ -2787,10 +2823,8 @@ def main() -> None:
             handler.setLevel(logging.DEBUG)
     try:
         PgUpsert(
-            host=args.host,
-            port=args.port,
-            database=args.database,
-            user=args.user,
+            uri=f"postgresql://{args.user}@{args.host}:{args.port}/{args.database}",
+            encoding="utf-8",
             tables=args.tables,
             stg_schema=args.stg_schema,
             base_schema=args.base_schema,

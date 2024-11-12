@@ -11,8 +11,6 @@ from .__version__ import (
 )
 from .pg_upsert import PgUpsert
 
-__all__ = ["PgUpsert"]
-
-
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
+
+__all__ = ["PgUpsert"]
