@@ -1,3 +1,4 @@
+-e file:///Users/cgrant/GitHub/geocoug/pg-upsert
 alabaster==0.7.16
 annotated-types==0.7.0
 babel==2.15.0
@@ -22,6 +23,7 @@ imagesize==1.4.1
 iniconfig==2.0.0
 jinja2==3.1.4
 markdown==3.6
+markdown-include==0.8.1
 markdown-it-py==3.0.0
 markupsafe==2.1.5
 mdurl==0.1.2
@@ -38,6 +40,7 @@ nodeenv==1.9.1
 packaging==24.1
 paginate==0.5.6
 pathspec==0.12.1
+pip==24.3.1
 pkginfo==1.10.0
 platformdirs==4.2.2
 pluggy==1.5.0
@@ -62,6 +65,7 @@ requests==2.32.3
 rich==13.7.1
 rich-click==1.8.3
 ruff==0.5.3
+shellingham==1.5.4
 six==1.16.0
 snowballstemmer==2.2.0
 sphinx==7.4.6
