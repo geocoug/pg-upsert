@@ -1,6 +1,7 @@
 __title__ = "pg_upsert"
 __author__ = "Caleb Grant"
-__url__ = "https://github.com/geocoug/pg_upsert"
+__code_url__ = "https://github.com/geocoug/pg_upsert"
+__docs_url__ = "https://pg-upsert.readthedocs.io/"
 __author_email__ = "grantcaleb22@gmail.com"
 __license__ = "GNU GPLv3"
 __version__ = "1.3.1"

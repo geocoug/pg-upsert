@@ -5,9 +5,12 @@ from __future__ import annotations
 import argparse
 import logging
 import sys
+import webbrowser
 from pathlib import Path
 
-from .__version__ import __description__, __title__, __version__
+import yaml
+
+from .__version__ import __description__, __docs_url__, __title__, __version__
 from .pg_upsert import PgUpsert
 
 logger = logging.getLogger(__title__)
@@ -38,6 +41,11 @@ def clparser() -> argparse.Namespace:
         help="display debug output",
     )
     parser.add_argument(
+        "--docs",
+        action="store_true",
+        help="open the documentation in a web browser",
+    )
+    parser.add_argument(
         "-q",
         "--quiet",
         action="store_true",
@@ -45,7 +53,7 @@ def clparser() -> argparse.Namespace:
     )
     parser.add_argument(
         "-l",
-        "--log",
+        "--logfile",
         type=Path,
         help="write log to LOGFILE",
     )
@@ -85,28 +93,28 @@ def clparser() -> argparse.Namespace:
     parser.add_argument(
         "-h",
         "--host",
-        required=True,
+        # required=True,
         type=str,
         help="database host",
     )
     parser.add_argument(
         "-p",
         "--port",
-        required=True,
+        # required=True,
         type=int,
         help="database port",
     )
     parser.add_argument(
         "-d",
         "--database",
-        required=True,
+        # required=True,
         type=str,
         help="database name",
     )
     parser.add_argument(
         "-u",
         "--user",
-        required=True,
+        # required=True,
         type=str,
         help="database user",
     )
@@ -115,7 +123,7 @@ def clparser() -> argparse.Namespace:
         "--staging-schema",
         default="staging",
         dest="stg_schema",
-        required=True,
+        # required=True,
         type=str,
         help="staging schema name",
     )
@@ -124,7 +132,7 @@ def clparser() -> argparse.Namespace:
         "--base-schema",
         default="public",
         dest="base_schema",
-        required=True,
+        # required=True,
         type=str,
         help="base schema name",
     )
@@ -136,8 +144,18 @@ def clparser() -> argparse.Namespace:
         help="encoding of the database",
     )
     parser.add_argument(
-        "tables",
+        "-f",
+        "--config-file",
+        dest="config_file",
+        type=Path,
+        required=False,
+        help="path to configuration yaml file",
+    )
+    parser.add_argument(
+        "-t",
+        "--table",
         nargs="+",
+        default=[],
         help="table name(s)",
     )
     return parser.parse_args()
@@ -145,15 +163,58 @@ def clparser() -> argparse.Namespace:
 
 def main() -> None:
     args = clparser()
-    if args.log and args.log.exists():
-        args.log.unlink()
+    if args.docs:
+        try:
+            webbrowser.open(__docs_url__)
+        except Exception as e:
+            logger.error(e)
+            raise
+        sys.exit(0)
+    if args.config_file:
+        if args.config_file.resolve().exists():
+            try:
+                with open(args.config_file) as file:
+                    config = yaml.safe_load(file)
+            except Exception as e:
+                logger.error(e)
+                sys.exit(1)
+        else:
+            logger.error(f"Configuration file not found: {args.config_file}")
+            sys.exit(1)
+    # For each key in the configuration yaml, update the corresponding command line argument
+    for key in config:
+        if key in vars(args):
+            if key == "logfile":
+                setattr(args, key, Path(config[key]))
+            else:
+                setattr(args, key, config[key])
+    if not args.host:
+        logger.error("Database host is required.")
+        sys.exit(1)
+    if not args.database:
+        logger.error("Database name is required.")
+        sys.exit(1)
+    if not args.user:
+        logger.error("Database user is required.")
+        sys.exit(1)
+    if not args.stg_schema:
+        logger.error("Staging schema is required.")
+        sys.exit(1)
+    if not args.base_schema:
+        logger.error("Base schema is required.")
+        sys.exit(1)
+    if not args.table:
+        logger.error("One or more table names are required.")
+        sys.exit(1)
+    if args.logfile and args.logfile.exists():
+        args.logfile.unlink()
     if not args.quiet:
         stream_handler = logging.StreamHandler()
         stream_handler.setLevel(logging.INFO)
         stream_handler.setFormatter(logging.Formatter("%(message)s"))
         logger.addHandler(stream_handler)
-    if args.log:
-        file_handler = logging.FileHandler(args.log)
+    if args.logfile:
+        file_handler = logging.FileHandler(args.logfile)
         file_handler.setLevel(logging.INFO)
         logger.addHandler(file_handler)
     if args.debug:
@@ -172,7 +233,7 @@ def main() -> None:
         PgUpsert(
             uri=f"postgresql://{args.user}@{args.host}:{args.port}/{args.database}",
             encoding="utf-8",
-            tables=args.tables,
+            tables=args.table,
             stg_schema=args.stg_schema,
             base_schema=args.base_schema,
             do_commit=args.commit,
