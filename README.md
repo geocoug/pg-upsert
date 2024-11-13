@@ -27,11 +27,33 @@ logger = logging.getLogger("pg_upsert")
 logger.setLevel(logging.INFO)
 logger.addHandler(logging.StreamHandler())
 
+# Run PgUpsert using a URI
 PgUpsert(
+    uri="postgresql://user@localhost:5432/database", # Note the missing password. pg_upsert will prompt for the password.
+    encoding="utf-8",
+    tables=("genres", "books", "authors", "book_authors"),
+    stg_schema="staging",
+    base_schema="public",
+    do_commit=True,
+    upsert_method="upsert",
+    interactive=True,
+    exclude_cols=("rev_user", "rev_time", "created_at", "updated_at"),
+    exclude_null_check_cols=("rev_user", "rev_time", "created_at", "updated_at", "alias"),
+).run()
+
+
+# Run PgUpsert using an existing connection
+conn = psycopg2.connect(
     host="localhost",
     port=5432,
-    database="postgres",
-    user="<db_username>",
+    dbname="database",
+    user="user",
+    password="password",
+)
+
+PgUpsert(
+    conn=conn,
+    encoding="utf-8",
     tables=("genres", "books", "authors", "book_authors"),
     stg_schema="staging",
     base_schema="public",
@@ -45,20 +67,26 @@ PgUpsert(
 
 ### CLI
 
+`pg_upsert` can be run from the command line. There are two key ways to run `pg_upsert` from the command line: using a configuration file or using command line arguments.
+
+#### Command Line Arguments
+
+Running `pg_upsert --help` will display the following help message:
+
 ```txt
-usage: pg_upsert [--help] [--version] [--debug] [-q] [-l LOG] [-e EXCLUDE] [-n NULL] [-c] [-i] [-m {upsert,update,insert}] -h HOST -p PORT -d DATABASE -u USER -s STG_SCHEMA -b BASE_SCHEMA tables [tables ...]
+usage: pg_upsert [--help] [--version] [--debug] [--docs] [-q] [-l LOGFILE] [-e EXCLUDE] [-n NULL] [-c] [-i] [-m {upsert,update,insert}] [-h HOST] [-p PORT] [-d DATABASE] [-u USER] [-s STG_SCHEMA] [-b BASE_SCHEMA]
+                 [--encoding ENCODING] [-f CONFIG_FILE] [-t TABLE [TABLE ...]]
 
 Run not-NULL, Primary Key, Foreign Key, and Check Constraint checks on staging tables then update and insert (upsert) data from staging tables to base tables.
-
-positional arguments:
-  tables                table name(s)
 
 options:
   --help                show this help message and exit
   --version             show program's version number and exit
   --debug               display debug output
+  --docs                open the documentation in a web browser
   -q, --quiet           suppress all console output
-  -l LOG, --log LOG     write log to LOGFILE
+  -l LOGFILE, --logfile LOGFILE
+                        write log to LOGFILE
   -e EXCLUDE, --exclude-columns EXCLUDE
                         comma-separated list of columns to exclude from null checks
   -n NULL, --null-columns NULL
@@ -76,12 +104,61 @@ options:
                         staging schema name
   -b BASE_SCHEMA, --base-schema BASE_SCHEMA
                         base schema name
+  --encoding ENCODING   encoding of the database
+  -f CONFIG_FILE, --config-file CONFIG_FILE
+                        path to configuration yaml file
+  -t TABLE [TABLE ...], --table TABLE [TABLE ...]
+                        table name(s)
 ```
+
+#### Configuration File
+
+To use a configuration file, create a YAML file with the format below. This is also provided in the [pg_upsert.example.yaml](./pg_upsert.example.yaml) file in the repository.
+
+```yaml
+debug: false
+quiet: false
+commit: false
+interactive: false
+upsert_method: "upsert"
+logfile: "pg_upsert.log"
+host: "localhost"
+port: 5432
+user: "postgres"
+database: "postgres"
+staging_schema: "staging"
+base_schema: "public"
+encoding: "utf-8"
+table:
+  - "authors"
+  - "publishers"
+  - "books"
+  - "book_authors"
+  - "genres"
+exclude_columns:
+  - "alias"
+  - "rev_time"
+  - "rev_user"
+null_columns:
+  - "alias"
+  - "created_at"
+  - "updated_at"
+```
+
+Then, run `pg_upsert -f pg_upsert.yaml`.
+
+If the user specifies a configuration file and command line arguments, the configuration file will override the command line arguments.
 
 ### Docker
 
 ```sh
 docker pull ghcr.io/geocoug/pg_upsert:latest
+```
+
+Once the image is pulled, you can run the image using either of the [cli](#cli) options. Below is an example:
+
+```sh
+docker run -it --rm ghcr.io/geocoug/pg_upsert:latest -v $(pwd):/app pg_upsert --help
 ```
 
 ## Contributing

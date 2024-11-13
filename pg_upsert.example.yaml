@@ -1,0 +1,27 @@
+debug: false
+quiet: false
+commit: false
+interactive: false
+upsert_method: "upsert"
+logfile: "pg_upsert.log"
+host: "localhost"
+port: 5432
+user: "postgres"
+database: "postgres"
+staging_schema: "staging"
+base_schema: "public"
+encoding: "utf-8"
+table:
+  - "authors"
+  - "publishers"
+  - "books"
+  - "book_authors"
+  - "genres"
+exclude_columns:
+  - "alias"
+  - "rev_time"
+  - "rev_user"
+null_columns:
+  - "alias"
+  - "created_at"
+  - "updated_at"
