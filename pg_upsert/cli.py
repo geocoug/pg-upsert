@@ -181,13 +181,13 @@ def main() -> None:
         else:
             logger.error(f"Configuration file not found: {args.config_file}")
             sys.exit(1)
-    # For each key in the configuration yaml, update the corresponding command line argument
-    for key in config:
-        if key in vars(args):
-            if key == "logfile":
-                setattr(args, key, Path(config[key]))
-            else:
-                setattr(args, key, config[key])
+        # For each key in the configuration yaml, update the corresponding command line argument
+        for key in config:
+            if key in vars(args):
+                if key == "logfile":
+                    setattr(args, key, Path(config[key]))
+                else:
+                    setattr(args, key, config[key])
     if not args.host:
         logger.error("Database host is required.")
         sys.exit(1)
