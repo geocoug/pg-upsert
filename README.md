@@ -113,7 +113,7 @@ options:
 
 #### Configuration File
 
-To use a configuration file, create a YAML file with the format below. This is also provided in the [pg_upsert.example.yaml](./pg_upsert.example.yaml) file in the repository.
+To use a configuration file, create a YAML file with the format below. This example is also provided in the [pg_upsert.example.yaml](./pg_upsert.example.yaml) file. The configuration file can be passed to `pg_upsert` using the `-f` or `--config-file` flag.
 
 ```yaml
 debug: false
@@ -147,7 +147,7 @@ null_columns:
 
 Then, run `pg_upsert -f pg_upsert.yaml`.
 
-If the user specifies a configuration file and command line arguments, the configuration file will override the command line arguments.
+If the user specifies a configuration file **and** command line arguments, the configuration file will override any command line arguments specified.
 
 ### Docker
 

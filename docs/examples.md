@@ -108,10 +108,7 @@ This example will demonstrate how to use `pg_upsert` to upsert data from staging
     logger.addHandler(logging.StreamHandler())
 
     PgUpsert(
-        host="localhost",
-        port=5432,
-        database="dev",
-        user="username",
+        uri="postgresql://user@localhost:5432/database", # Note the missing password. pg_upsert will prompt for the password.
         tables=("genres", "books", "authors", "book_authors"),
         stg_schema="staging",
         base_schema="public",
@@ -242,6 +239,8 @@ This example will demonstrate how to use `pg_upsert` to upsert data from staging
     The script failed to upsert data because there are non-null and foreign key checks that failed on the `staging.books` table, and primary key and check constraint that failed on the `staging.authors` table. The interactive GUI will display all values in the `books.genres` column that fail the foreign key check. No GUI dialogs are displayed for non-null checks, because there are no values to display. Similarly, if there is a primary key check that fails (like in the `staging.authors` table), a GUI dialog will be displayed with the primary keys in the table that are failing. No GUI dialogs are displayed for check constraint checks.
 
 ## QA and upsert
+
+Run all QA checks and then run the upsert process on all tables.
 
 ```python
 upsert.run()
