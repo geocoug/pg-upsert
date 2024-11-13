@@ -2,22 +2,13 @@
 
 from __future__ import annotations
 
-import argparse
 import getpass
 import logging
-import re
-import sys
-import tkinter as tk
-import tkinter.font as tkfont
-import tkinter.ttk as ttk
-from datetime import datetime
-from pathlib import Path
 from urllib.parse import urlparse, urlunparse
 
 import psycopg2
 from psycopg2.extras import DictCursor
-from psycopg2.sql import SQL, Composable, Identifier, Literal
-from tabulate import tabulate
+from psycopg2.sql import Composable
 
 from .__version__ import __description__, __title__, __version__
 

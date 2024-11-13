@@ -54,7 +54,7 @@ class PgUpsert:
     from pg_upsert import PgUpsert
 
     PgUpsert(
-        conn=conn,
+        uri="postgresql://user@localhost:5432/database", # Note the missing password. pg_upsert will prompt for the password.
         tables=("genres", "books", "authors", "book_authors"),
         stg_schema="staging",
         base_schema="public",
