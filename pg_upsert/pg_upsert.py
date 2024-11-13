@@ -129,9 +129,6 @@ class PgUpsert:
     def __repr__(self):
         return f"{self.__class__.__name__}(db={self.db!r}, tables={self.tables}, stg_schema={self.stg_schema}, base_schema={self.base_schema}, do_commit={self.do_commit}, interactive={self.interactive}, upsert_method={self.upsert_method}, exclude_cols={self.exclude_cols}, exclude_null_check_cols={self.exclude_null_check_cols})"  # noqa: E501
 
-    def __del__(self):
-        self.db.close()
-
     def _show(self, sql: str | Composable) -> None | str:
         """Display the results of a query in a table format. If the interactive flag is set,
         the results will be displayed in a Tkinter window. Otherwise, the results will be
