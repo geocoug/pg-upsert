@@ -1,48 +1,34 @@
-# ~~~~~~~~~~~
-# Build stage
-# ~~~~~~~~~~~
-FROM python:3.12-slim as staging
-WORKDIR /app
-
-ENV PYTHONDONTWRITEBYTECODE 1
-ENV PYTHONUNBUFFERED 1
-
-RUN apt-get update -y && \
-    pip install --no-cache-dir --upgrade pip==24.1.2
-
-COPY ./requirements.txt .
-
-RUN pip wheel --no-cache-dir --wheel-dir /app/wheels -r requirements.txt
-
-
-# ~~~~~~~~~~~
-# Build final
-# ~~~~~~~~~~~
 FROM python:3.12-slim
 
 ENV HOME=/app
-ENV PYTHONDONTWRITEBYTECODE 1
-ENV PYTHONUNBUFFERED 1
-
-RUN mkdir -p $HOME
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+ENV UV_SYSTEM_PYTHON=1
 
 WORKDIR $HOME
 
-RUN addgroup --system app && \
-    adduser --system --group app && \
-    apt-get update && \
-    rm -rf /var/lib/apt/lists/*
+# hadolint ignore=DL3008
+RUN apt-get update -y \
+    && apt-get install --no-install-recommends -y wget \
+    && rm -rf /var/lib/apt/lists/*
 
-COPY --from=staging /app/wheels /wheels
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/uv
 
-# hadolint ignore=DL3013
-RUN pip install --no-cache-dir --upgrade pip==24.1.2 && \
-    pip install --no-cache-dir /wheels/*
+COPY ./requirements.txt /tmp/requirements.txt
 
-COPY . $HOME
+RUN /bin/uv pip install --no-cache -r /tmp/requirements.txt \
+    && rm -rf /tmp/requirements.txt
 
-RUN chown -R app:app $HOME
+COPY ./pg_upsert $HOME/pg_upsert
+
+COPY ./pyproject.toml $HOME
+
+RUN /bin/uv pip install --no-cache $HOME
+
+RUN addgroup --system app \
+    && adduser --system --group app \
+    && chown -R app:app $HOME
 
 USER app
 
-ENTRYPOINT [ "python", "pg_upsert/pg_upsert.py" ]
+ENTRYPOINT [ "pg_upsert" ]
