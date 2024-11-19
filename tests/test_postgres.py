@@ -5,7 +5,7 @@ import pytest
 from dotenv import load_dotenv
 from psycopg2.sql import SQL, Identifier, Literal
 
-from pg_upsert.pg_upsert import PostgresDB
+from pg_upsert import PostgresDB
 
 load_dotenv()
 
