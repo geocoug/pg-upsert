@@ -53,6 +53,7 @@ class PostgresDB:
         self.conn = conn or psycopg2.connect(uri, **kwargs)
         self.encoding = encoding
         self.in_transaction = False
+        self.kwargs = kwargs
         if not self._is_valid_connection():
             raise psycopg2.Error(f"Error connecting to {self.conn.dsn}")
 
@@ -94,12 +95,12 @@ class PostgresDB:
         """Ensure the database connection is open."""
         if not self.conn or self.conn.closed:
             logger.debug("Opening database connection.")
-            self.conn = psycopg2.connect(self.conn.dsn)
+            self.conn = psycopg2.connect(self.conn.dsn, **self.kwargs)
             self.conn.set_client_encoding(self.encoding)
             self.conn.set_session(autocommit=False)
         elif self.conn.closed:
             logger.warning("Connection is closed; attempting to reopen.")
-            self.conn = psycopg2.connect(self.conn.dsn)
+            self.conn = psycopg2.connect(self.conn.dsn, **self.kwargs)
             self.conn.set_client_encoding(self.encoding)
 
     def cursor(self):

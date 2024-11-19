@@ -11,7 +11,7 @@ from psycopg2.sql import SQL, Composable, Identifier, Literal
 from tabulate import tabulate
 
 from .__version__ import __description__, __version__
-from .database import PostgresDB
+from .postgres import PostgresDB
 from .ui import (
     CompareUI,
     TableUI,
@@ -2012,5 +2012,5 @@ class PgUpsert:
         else:
             logger.info("Rolling back changes")
             self.db.rollback()
-        self.db.close()
+        # self.db.close()
         return self

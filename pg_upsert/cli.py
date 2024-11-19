@@ -11,7 +11,7 @@ from pathlib import Path
 import yaml
 
 from .__version__ import __description__, __docs_url__, __title__, __version__
-from .pg_upsert import PgUpsert
+from .upsert import PgUpsert
 
 logger = logging.getLogger(__title__)
 logger.setLevel(logging.INFO)
@@ -188,6 +188,8 @@ def main() -> None:
                     setattr(args, key, Path(config[key]))
                 else:
                     setattr(args, key, config[key])
+            else:
+                logger.warning(f"Invalid configuration key will be ignored: {key}")
     if not args.host:
         logger.error("Database host is required.")
         sys.exit(1)

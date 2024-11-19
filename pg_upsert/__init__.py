@@ -8,6 +8,8 @@ from .__version__ import (
     __title__,
     __version__,
 )
-from .pg_upsert import PgUpsert
+from .postgres import PostgresDB
+from .upsert import PgUpsert
+from .utils import ellapsed_time
 
-__all__ = ["PgUpsert"]
+__all__ = ["PgUpsert", "PostgresDB", "ellapsed_time"]
