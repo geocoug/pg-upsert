@@ -53,9 +53,9 @@ class PgUpsert:
     ```python
     from pg_upsert import PgUpsert
 
-    PgUpsert(
+    ups  = PgUpsert(
         uri="postgresql://user@localhost:5432/database", # Note the missing password. pg_upsert will prompt for the password.
-        tables=("genres", "books", "authors", "book_authors"),
+        tables=("genres", "books", "publishers", "authors", "book_authors"),
         stg_schema="staging",
         base_schema="public",
         do_commit=False,
@@ -415,13 +415,28 @@ class PgUpsert:
 
         **Objects created:**
 
-        The following temporary objects are created during the QA process:
+        The following temporary objects are created during the QA process (in addition to all objects created by the individual QA methods called):
 
         | table / view | description |
         |--------------|-------------|
         | ups_proctables | Temporary table containing the list of tables to process. |
         | ups_toprocess  | Temporary view returning a single unprocessed table. |
-        """
+
+        **Example:**
+
+        ```python
+        PgUpsert(
+            uri="postgresql://user@localhost:5432/database",
+            tables=("genres", "books", "publishers", "authors", "book_authors"),
+            stg_schema="staging",
+            base_schema="public",
+            do_commit=False,
+            interactive=False,
+            exclude_cols=("rev_user", "rev_time", "created_at", "updated_at"),
+            exclude_null_check_cols=("rev_user", "rev_time", "created_at", "updated_at", "alias"),
+        ).qa_all()
+        ```
+        """  # noqa: E501
         self._validate_control()
         # Clear the columns of return values from the control table,
         # in case this control table has been used previously.
@@ -527,7 +542,10 @@ class PgUpsert:
         return self
 
     def qa_all_null(self: PgUpsert) -> PgUpsert:
-        """Performs null checks for non-null columns in selected staging tables."""
+        """Performs null checks for non-null columns in selected staging tables.
+
+        This method will loop through all rows (tables) in the control table and call the [`PgUpsert.qa_one_null`](pg_upsert.md#pg_upsert.PgUpsert.qa_one_null) method for each table (row) in the control table.
+        """  # noqa: E501
         while True:
             rows, headers, rowcount = self.db.rowdict(
                 SQL("select * from ups_toprocess;"),
@@ -551,6 +569,8 @@ class PgUpsert:
     def qa_one_null(self: PgUpsert, table: str) -> PgUpsert:
         """Performs null checks for non-null columns in a single staging table.
 
+        This method will loop through all non-null columns in the staging table and check for null values. If any null values are found in a non-null column, the control table will be updated to include the name of the column and the number of rows with null values (e.g., `column_name (nrows)`). If multiple columns have null values, the failing column names will be concatenated with a comma (`,`) separator in the control table.
+
         Args:
             table (str): The name of the staging table to check for null values.
 
@@ -561,7 +581,7 @@ class PgUpsert:
         | `ups_nonnull_cols` | Temporary table containing the non-null columns of the base table. |
         | `ups_qa_nonnull_col` | Temporary view containing the number of rows with nulls in the staging table. |
         | `ups_null_error_list` | Temporary view containing the list of null errors. |
-        """
+        """  # noqa: E501
         logger.info(
             f"Conducting not-null QA checks on table {self.stg_schema}.{table}",
         )
@@ -686,7 +706,10 @@ class PgUpsert:
         return self
 
     def qa_all_pk(self: PgUpsert) -> PgUpsert:
-        """Performs primary key checks for duplicated primary key values in selected staging tables."""
+        """Performs primary key checks for duplicated primary key values in selected staging tables.
+
+        This method will loop through all rows (tables) in the control table and call the [`PgUpsert.qa_one_pk`](pg_upsert.md#pg_upsert.PgUpsert.qa_one_pk) method for each table (row) in the control table.
+        """  # noqa: E501
         while True:
             rows, headers, rowcount = self.db.rowdict(
                 SQL("select * from ups_toprocess;"),
@@ -710,6 +733,8 @@ class PgUpsert:
     def qa_one_pk(self: PgUpsert, table: str) -> PgUpsert:
         """Performs primary key checks for duplicated primary key values in a single staging table.
 
+        This method will check for duplicate primary key values in the staging table. If any duplicate primary key values are found, the control table will be updated to include the number of duplicate keys and the number of rows with duplicate keys (e.g., `n duplicate keys (n rows)`).
+
         Args:
             table (str): The name of the staging table to check for duplicate primary key values.
 
@@ -719,7 +744,7 @@ class PgUpsert:
         |--------------|-------------|
         | `ups_primary_key_columns` | Temporary table containing the primary key columns of the base table. |
         | `ups_pk_check` | Temporary view containing the duplicate primary key values. |
-        """
+        """  # noqa: E501
         pk_errors = []
         logger.info(
             f"Conducting primary key QA checks on table {self.stg_schema}.{table}",
@@ -828,7 +853,10 @@ class PgUpsert:
         return self
 
     def qa_all_fk(self: PgUpsert) -> PgUpsert:
-        """Performs foreign key checks for invalid foreign key values in selected staging tables."""
+        """Performs foreign key checks for invalid foreign key values in selected staging tables.
+
+        This method will loop through all rows (tables) in the control table and call the [`PgUpsert.qa_one_fk`](pg_upsert.md#pg_upsert.PgUpsert.qa_one_fk) method for each table (row) in the control table.
+        """  # noqa: E501
         while True:
             rows, headers, rowcount = self.db.rowdict(
                 SQL("select * from ups_toprocess;"),
@@ -852,6 +880,8 @@ class PgUpsert:
     def qa_one_fk(self: PgUpsert, table: str) -> PgUpsert:
         """Performs foreign key checks for invalid foreign key values in a single staging table.
 
+        This method will check for invalid foreign key values in the staging table. If any invalid foreign key values are found, the control table will be updated to include the foreign key name that is violated and the number of rows with invalid foreign key values (e.g., `fk_column (n rows)`).
+
         Args:
             table (str): The name of the staging table to check for invalid foreign key values.
 
@@ -864,7 +894,7 @@ class PgUpsert:
         | `ups_fk_constraints` | Temporary table containing the unique constraint names for the table. |
         | `ups_one_fk` | Temporary table containing the foreign key relationships for the base table. |
         | `ups_fk_check` | Temporary view containing the invalid foreign key values. |
-        """
+        """  # noqa: E501
         logger.info(
             f"Conducting foreign key QA checks on table {self.stg_schema}.{table}",
         )
@@ -1163,6 +1193,8 @@ class PgUpsert:
     def qa_all_ck(self: PgUpsert) -> PgUpsert:
         """Performs check constraint checks for invalid check constraint values in selected staging tables.
 
+        This method will loop through all rows (tables) in the control table and call the [`PgUpsert.qa_one_ck`](pg_upsert.md#pg_upsert.PgUpsert.qa_one_ck) method for each table (row) in the control table.
+
         **Objects created:**
 
         | table / view | description |
@@ -1171,7 +1203,7 @@ class PgUpsert:
         | `ups_sel_cks` | Temporary table containing the check constraints for the base table. |
         | `ups_ck_check_check` | Temporary view containing the check constraint values. |
         | `ups_ck_error_list` | Temporary table containing the list of check constraint errors. |
-        """
+        """  # noqa: E501
         while True:
             rows, headers, rowcount = self.db.rowdict(
                 SQL("select * from ups_toprocess;"),
@@ -1212,7 +1244,10 @@ class PgUpsert:
     def qa_one_ck(self: PgUpsert, table: str) -> PgUpsert:
         """Performs check constraint checks for invalid check constraint values in a single staging table.
 
-        table (str): The name of the staging table to check for invalid check constraint values.
+        This method will check for invalid check constraint values in the staging table. If any invalid check constraint values are found, the control table will be updated to include the check constraint name that is violated and the number of rows with invalid check constraint values (e.g., `constraint_name (n rows)`).
+
+        Args:
+            table (str): The name of the staging table to check for invalid check constraint values.
 
         **Objects created:**
 
@@ -1222,7 +1257,7 @@ class PgUpsert:
         | `ups_sel_cks` | Temporary table containing the check constraints for the base table. |
         | `ups_ck_check_check` | Temporary view containing the check constraint values. |
         | `ups_ck_error_list` | Temporary table containing the list of check constraint errors. |
-        """
+        """  # noqa: E501
         logger.info(
             f"Conducting check constraint QA checks on table {self.stg_schema}.{table}",
         )
@@ -1388,6 +1423,8 @@ class PgUpsert:
     def upsert_all(self: PgUpsert) -> PgUpsert:
         """Performs upsert operations on all selected tables in the base schema.
 
+        This method will loop through all rows (tables) in the control table and call the [`PgUpsert.upsert_one`](pg_upsert.md#pg_upsert.PgUpsert.upsert_one) method for each table (row) in the control table.
+
         **Objects created:**
 
         | table / view | description |
@@ -1395,7 +1432,7 @@ class PgUpsert:
         | `ups_dependencies` | Temporary table containing the dependencies of the base schema. |
         | `ups_ordered_tables` | Temporary table containing the selected tables ordered by dependency. |
         | `ups_proctables` | Temporary table containing the selected tables with ordering information. |
-        """
+        """  # noqa: E501
         self._validate_control()
         if not self.qa_passed:
             logger.warning(
@@ -1540,6 +1577,8 @@ class PgUpsert:
     def upsert_one(self: PgUpsert, table: str) -> PgUpsert:
         """Performs an upsert operation on a single table.
 
+        This method will perform an upsert operation on a single table. The upsert operation will update rows in the base table with rows from the staging table where the primary key values match. If no matching primary key values are found, the method will insert the row from the staging table into the base table. If the base table has a matching primary key value, the method will update the row in the base table with the values from the staging table.
+
         Args:
             table (str): The name of the table to upsert.
 
@@ -1551,7 +1590,7 @@ class PgUpsert:
         | `ups_pks` | Temporary table containing the primary key columns. |
         | `ups_fk_check` | Temporary view containing the foreign key check. |
         | `ups_toprocess` | Temporary table containing the tables to be processed. |
-        """
+        """  # noqa: E501
         rows_updated = 0
         rows_inserted = 0
         logger.info(f"Performing upsert on table {self.base_schema}.{table}")
@@ -1601,7 +1640,7 @@ class PgUpsert:
                 """,
             ).format(
                 exclude_cols=SQL(",").join(
-                    Literal(col) for col in spec_rows["exclude_cols"] if spec_rows["exclude_cols"]
+                    Literal(col) for col in spec_rows["exclude_cols"].split(",") if spec_rows["exclude_cols"]
                 ),
             )
         query += SQL(" order by s.ordinal_position;")

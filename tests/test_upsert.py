@@ -272,23 +272,6 @@ def test_pgupsert_qa_one_fk_many_tables(ups):
     assert cur.rowcount == 2
 
 
-# def test_pgupsert_qa_one_ck(ups):
-#     """Test that the qa_one_ck function catches check constraint errors in one table."""
-#     ups.db.execute(
-#         "update staging.authors set last_name = first_name where author_id = 'JDoe';"
-#     )
-#     ups.qa_one_ck("authors")
-#     cur = ups.db.execute(
-#         SQL(
-#             "select * from {control_table} where table_name={table} and ck_errors is not null",
-#         ).format(
-#             control_table=Identifier(ups.control_table),
-#             table=Literal("authors"),
-#         ),
-#     )
-#     assert cur.rowcount == 1
-
-
 def test_pgupsert_upsert_one_insert(ups):
     """Test the upsert_one function with an update."""
     ups.upsert_one("genres")
@@ -353,24 +336,6 @@ def test_pgupsert_upsert_no_commit_do_commit_false(ups):
     assert curs.fetchone()[0] == 0
 
 
-# # These tests aren't producing expected behavior.
-# # Shoudl the upsert_one method verify that QA checks have run?
-# # Should a user be able to run upsert_one?
-# def test_pgupsert_upsert_no_commit_do_commit_true(ups):
-#     """Test that a successful upsert_one call does not commit the
-#     transaction unless the do_commit attribute is True and no errors are present.
-#     """
-#     ups.do_commit = True
-#     # Insert a duplicate record to trigger a primary key error
-#     ups.db.execute(
-#         "insert into staging.genres (genre, description) values ('Fiction', 'Fiction');"
-#     )
-#     ups.qa_one_pk("genres")
-#     ups.upsert_one("genres").commit()
-#     curs = ups.db.execute("select count(*) from public.genres;")
-#     assert curs.fetchone()[0] == 0
-
-
 def test_pgupsert_upsert_do_commit_true(ups):
     """Test that a successful upsert_one call does not commit the
     transaction unless the do_commit attribute is True and no errors are present.
@@ -379,3 +344,18 @@ def test_pgupsert_upsert_do_commit_true(ups):
     ups.upsert_one("genres").commit()
     curs = ups.db.execute("select count(*) from public.genres;")
     assert curs.fetchone()[0] == 2
+
+
+def test_pgupsert_commit_standalone(ups):
+    """Test that running commit() by itself does not make any changes."""
+    ups.commit()
+
+    curs = ups.db.execute(
+        SQL(
+            "select * from {control_table} where coalesce(rows_inserted, rows_updated) is not null",
+        ).format(
+            control_table=Identifier(ups.control_table),
+            table=Literal("genres"),
+        ),
+    )
+    assert curs.fetchone() is None
