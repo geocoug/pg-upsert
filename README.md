@@ -8,7 +8,7 @@
 
 **pg_upsert** is a Python package that provides a method to *interactively* update and insert (upsert) rows of a base table or base tables from the staging table(s) of the same name. The package is designed to work exclusively with PostgreSQL databases.
 
-The program will perform initial table checks in the form of not-null, primary key, foreign key, and check constraint checks. If any of these checks fail, the program will exit with an error message. If all checks pass, the program will display the number of rows to be inserted and updated, and ask for confirmation before proceeding (when the `interactive` flag is set to `True`). If the user confirms, the program will perform the upserts and display the number of rows inserted and updated. If the user does not confirm, the program will exit without performing any upserts.
+The program will perform initial table checks in the form of *not-null*, *primary key*, *foreign key*, and *check constraint* checks. If any of these checks fail, the program will exit with an error message. If all checks pass, the program will display the number of rows to be inserted and updated, and ask for confirmation before proceeding (when the `interactive` flag is set to `True`). If the user confirms, the program will perform the upserts and display the number of rows inserted and updated. If the user does not confirm, the program will exit without performing any upserts.
 
 ## Credits
 
@@ -16,7 +16,11 @@ This project was created using inspiration from [ExecSQL](https://execsql.readth
 
 ## Usage
 
+A sample database is provided in the [tests/data.sql](./tests/data.sql) file and can be used to test the functionality of the `pg_upsert` package. See the [Running Tests Locally](#running-tests-locally) section for more information on how to set up the test database locally with Docker.
+
 ### Python
+
+Run PgUpsert using a URI:
 
 ```python
 import logging
@@ -31,7 +35,7 @@ logger.addHandler(logging.StreamHandler())
 PgUpsert(
     uri="postgresql://user@localhost:5432/database", # Note the missing password. pg_upsert will prompt for the password.
     encoding="utf-8",
-    tables=("genres", "books", "authors", "book_authors"),
+    tables=("genres", "publishers", "books", "authors", "book_authors"),
     stg_schema="staging",
     base_schema="public",
     do_commit=True,
@@ -40,9 +44,20 @@ PgUpsert(
     exclude_cols=("rev_user", "rev_time", "created_at", "updated_at"),
     exclude_null_check_cols=("rev_user", "rev_time", "created_at", "updated_at", "alias"),
 ).run()
+```
 
+Run PgUpsert using an existing connection:
 
-# Run PgUpsert using an existing connection
+```py
+import logging
+
+import psycopg2
+from pg_upsert import PgUpsert
+
+logger = logging.getLogger("pg_upsert")
+logger.setLevel(logging.INFO)
+logger.addHandler(logging.StreamHandler())
+
 conn = psycopg2.connect(
     host="localhost",
     port=5432,
@@ -54,7 +69,7 @@ conn = psycopg2.connect(
 PgUpsert(
     conn=conn,
     encoding="utf-8",
-    tables=("genres", "books", "authors", "book_authors"),
+    tables=("genres", "publishers", "books", "authors", "book_authors"),
     stg_schema="staging",
     base_schema="public",
     do_commit=True,
@@ -69,13 +84,16 @@ PgUpsert(
 
 `pg_upsert` can be run from the command line. There are two key ways to run `pg_upsert` from the command line: using a configuration file or using command line arguments.
 
+> [!IMPORTANT]
+> If the user specifies a configuration file **and** command line arguments, the configuration file will override any command line arguments specified.
+
 #### Command Line Arguments
 
 Running `pg_upsert --help` will display the following help message:
 
 ```txt
-usage: pg_upsert [--help] [--version] [--debug] [--docs] [-q] [-l LOGFILE] [-e EXCLUDE] [-n NULL] [-c] [-i] [-m {upsert,update,insert}] [-h HOST] [-p PORT] [-d DATABASE] [-u USER] [-s STG_SCHEMA] [-b BASE_SCHEMA]
-                 [--encoding ENCODING] [-f CONFIG_FILE] [-t TABLE [TABLE ...]]
+usage: pg_upsert [--help] [--version] [--debug] [--docs] [-q] [-l LOGFILE] [-e EXCLUDE_COLUMNS] [-n NULL_COLUMNS] [-c] [-i] [-m {upsert,update,insert}] [-h HOST] [-p PORT] [-d DATABASE] [-u USER] [-s STAGING_SCHEMA] [-b BASE_SCHEMA]
+                 [--encoding ENCODING] [-f CONFIG_FILE] [-t TABLES [TABLES ...]]
 
 Run not-NULL, Primary Key, Foreign Key, and Check Constraint checks on staging tables then update and insert (upsert) data from staging tables to base tables.
 
@@ -87,9 +105,9 @@ options:
   -q, --quiet           suppress all console output
   -l LOGFILE, --logfile LOGFILE
                         write log to LOGFILE
-  -e EXCLUDE, --exclude-columns EXCLUDE
+  -e EXCLUDE_COLUMNS, --exclude-columns EXCLUDE_COLUMNS
                         comma-separated list of columns to exclude from null checks
-  -n NULL, --null-columns NULL
+  -n NULL_COLUMNS, --null-columns NULL_COLUMNS
                         comma-separated list of columns to exclude from null checks
   -c, --commit          commit changes to database
   -i, --interactive     display interactive GUI of important table information
@@ -100,15 +118,21 @@ options:
   -d DATABASE, --database DATABASE
                         database name
   -u USER, --user USER  database user
-  -s STG_SCHEMA, --staging-schema STG_SCHEMA
+  -s STAGING_SCHEMA, --staging-schema STAGING_SCHEMA
                         staging schema name
   -b BASE_SCHEMA, --base-schema BASE_SCHEMA
                         base schema name
   --encoding ENCODING   encoding of the database
   -f CONFIG_FILE, --config-file CONFIG_FILE
                         path to configuration yaml file
-  -t TABLE [TABLE ...], --table TABLE [TABLE ...]
+  -t TABLES [TABLES ...], --tables TABLES [TABLES ...]
                         table name(s)
+```
+
+An example of running `pg_upsert` from the command line is shown below:
+
+```sh
+pg_upsert -l pg_upsert.log -h localhost -p 5432 -d postgres -u postgres -s staging -b public -t authors publishers books book_authors genres
 ```
 
 #### Configuration File
@@ -129,7 +153,7 @@ database: "postgres"
 staging_schema: "staging"
 base_schema: "public"
 encoding: "utf-8"
-table:
+tables:
   - "authors"
   - "publishers"
   - "books"
@@ -147,9 +171,9 @@ null_columns:
 
 Then, run `pg_upsert -f pg_upsert.yaml`.
 
-If the user specifies a configuration file **and** command line arguments, the configuration file will override any command line arguments specified.
-
 ### Docker
+
+Pull the latest image from the GitHub Container Registry (GHCR) using the following command:
 
 ```sh
 docker pull ghcr.io/geocoug/pg_upsert:latest
@@ -160,6 +184,10 @@ Once the image is pulled, you can run the image using either of the [cli](#cli) 
 ```sh
 docker run -it --rm ghcr.io/geocoug/pg_upsert:latest -v $(pwd):/app pg_upsert --help
 ```
+
+> [!NOTE]
+> The `-v` flag is used to mount the current directory to the `/app` directory in the container. This is useful for mounting configuration files or retaining log files.
+
 
 ## Contributing
 

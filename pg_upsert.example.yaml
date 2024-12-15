@@ -11,7 +11,7 @@ database: "postgres"
 staging_schema: "staging"
 base_schema: "public"
 encoding: "utf-8"
-table:
+tables:
   - "authors"
   - "publishers"
   - "books"
