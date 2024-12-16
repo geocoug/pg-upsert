@@ -6,7 +6,7 @@ This example will demonstrate how to use `pg_upsert` to upsert data from staging
 
 1. Initialize a PostgreSQL database called `dev` with the following schema and data.
 
-    ```sql
+   ```sql
     -- Create base tables.
    drop table if exists public.genres cascade;
    create table public.genres (
@@ -118,11 +118,11 @@ This example will demonstrate how to use `pg_upsert` to upsert data from staging
       ('B001', 'JDoe'),
       ('B001', 'JTrent'),
       ('B002', 'JSmith');
-    ```
+   ```
 
 1. Create a Python script called `upsert_data.py` that calls `pg_upsert` to upsert data from staging tables to base tables.
 
-    ```python
+   ```python
     import logging
 
     from pg_upsert import PgUpsert
@@ -140,11 +140,11 @@ This example will demonstrate how to use `pg_upsert` to upsert data from staging
         upsert_method="upsert",
         interactive=False,
     ).run()
-    ```
+   ```
 
 1. Run the script: `python upsert_data.py`
 
-    ```text
+   ```text
    The library pg_upsert wants the password for PostgresDB(uri=postgresql://docker@localhost:5432/dev):
    Upserting to public from staging
    Tables selected for upsert:
@@ -209,33 +209,33 @@ This example will demonstrate how to use `pg_upsert` to upsert data from staging
    | book_authors | alias,rev_time,rev_user | alias,created_at,updated_at | False         |               |             |             |             |              0 |               3 |
 
    Changes committed
-    ```
+   ```
 
-2. Modify a row in the staging table.
+1. Modify a row in the staging table.
 
-    ```sql
-    update staging.books set book_title = 'The Great Novel 2' where book_id = 'B001';
-    ```
+   ```sql
+   update staging.books set book_title = 'The Great Novel 2' where book_id = 'B001';
+   ```
 
-3. Run the script again, but this time set `interactive=True` in the `upsert` function call in `upsert_data.py`.
+1. Run the script again, but this time set `interactive=True` in the `upsert` function call in `upsert_data.py`.
 
     The script will display GUI dialogs during the upsert process to show which rows will be added and which rows will be updated. The user can chose to confirm, skip, or cancel the upsert process at any time. The script will not commit any changes to the database until all of the upserts have been completed successfully.
 
     ![](https://raw.githubusercontent.com/geocoug/pg_upsert/main/screenshot.png)
 
-4. Let's test some of the QA checks. Modify the `staging.books` table to include a row with a missing value in the `book_title` and `Mystery` value in the `genre` column. The `book_title` column is a non-null column, and the `genre` column is a foreign key column. Let's also modify the `staging.authors` table by adding `JDoe` again as the `author_id` but this time we will set both the `first_name` and `last_name` to `Doe1`. This should trigger a primary key error and check constraint errors.
+1. Let's test some of the QA checks. Modify the `staging.books` table to include a row with a missing value in the `book_title` and `Mystery` value in the `genre` column. The `book_title` column is a non-null column, and the `genre` column is a foreign key column. Let's also modify the `staging.authors` table by adding `JDoe` again as the `author_id` but this time we will set both the `first_name` and `last_name` to `Doe1`. This should trigger a primary key error and check constraint errors.
 
-    ```sql
-    insert into staging.books (book_id, book_title, genre, notes)
-    values ('B003', null, 'Mystery', 'A book with no name!');
+   ```sql
+   insert into staging.books (book_id, book_title, genre, notes)
+   values ('B003', null, 'Mystery', 'A book with no name!');
 
-    insert into staging.authors (author_id, first_name, last_name)
-    values ('JDoe', 'Doe1', 'Doe1');
-    ```
+   insert into staging.authors (author_id, first_name, last_name)
+   values ('JDoe', 'Doe1', 'Doe1');
+   ```
 
-    Run the script again: `python upsert_data.py`
+   Run the script again: `python upsert_data.py`
 
-    ```text
+   ```text
    The library pg_upsert wants the password for PostgresDB(uri=postgresql://docker@localhost:5432/dev):
    Upserting to public from staging
    Tables selected for upsert:
@@ -292,13 +292,13 @@ This example will demonstrate how to use `pg_upsert` to upsert data from staging
    | books        | alias,rev_time,rev_user | alias,created_at,updated_at | False         | book_title (1) |                                                    | books_genre_fkey (1) |                                                                        |                |                 |
    | book_authors | alias,rev_time,rev_user | alias,created_at,updated_at | False         |                |                                                    |                      |                                                                        |                |                 |
    | genres       | alias,rev_time,rev_user | alias,created_at,updated_at | False         |                |                                                    |                      |                                                                        |                |                 |
-    ```
+   ```
 
-    The script failed to upsert data because there are non-null and foreign key checks that failed on the `staging.books` table, and primary key and check constraint that failed on the `staging.authors` table. The interactive GUI will display all values in the `books.genres` column that fail the foreign key check. No GUI dialogs are displayed for non-null checks, because there are no values to display. Similarly, if there is a primary key check that fails (like in the `staging.authors` table), a GUI dialog will be displayed with the primary keys in the table that are failing. No GUI dialogs are displayed for check constraint checks.
+   The script failed to upsert data because there are non-null and foreign key checks that failed on the `staging.books` table, and primary key and check constraint that failed on the `staging.authors` table. The interactive GUI will display all values in the `books.genres` column that fail the foreign key check. No GUI dialogs are displayed for non-null checks, because there are no values to display. Similarly, if there is a primary key check that fails (like in the `staging.authors` table), a GUI dialog will be displayed with the primary keys in the table that are failing. No GUI dialogs are displayed for check constraint checks.
 
-## PgUpsert Methods
+## Use cases
 
-Below are examples of how to use each method in the `PgUpsert` class individually, potential use cases for each method, and why you might want to use them.
+Below are examples of how to use `PgUpsert` methods individually, and why you might want to use them.
 
 Each example below will assume that the `PgUpsert` class has been instantiated as `upsert` with the following code:
 
@@ -330,7 +330,7 @@ Run all not-null, primary key, foreign key, and check constraint QA checks on al
 upsert.run()
 ```
 
-## QA checks only
+### QA checks only
 
 Run all not-null, primary key, foreign key, and check constraint QA checks on all tables. This method does not commit any changes to the database.
 
@@ -338,7 +338,7 @@ Run all not-null, primary key, foreign key, and check constraint QA checks on al
 upsert.qa_all()
 ```
 
-## Upsert only
+### Upsert only
 
 Run upsert procedures on all tables and commit changes without running QA checks. Changes will not be committed if `do_commit=False`.
 
@@ -346,7 +346,7 @@ Run upsert procedures on all tables and commit changes without running QA checks
 upsert.upsert_all().commit()
 ```
 
-## Run upsert on one table
+### Run upsert on one table
 
 Run upsert procedures on one table and commit changes. Changes will not be committed if `do_commit=False`.
 
@@ -354,7 +354,7 @@ Run upsert procedures on one table and commit changes. Changes will not be commi
 upsert.upsert_one(table="authors").commit()
 ```
 
-## Run a specific set of QA checks on one table
+### Run a specific set of QA checks on one table
 
 Run a specific set of QA checks on one table. The following QA checks are available: null checks, primary key checks, foreign key checks, and check constraint checks.
 
@@ -369,13 +369,41 @@ upsert.qa_one_fk("authors")
 upsert.qa_one_ck("authors")
 ```
 
-## Modify control table
+### Table-specific control table modifications
 
-Modify the control table on a table-by-table basis. The control table is initialized when the class is instantiated. Modifying the control table allows you to make fine-grained changes to the upsert process including excluding columns from the upsert process, toggling interactivity for a specific table, and excluding columns from not-null QA checks.
+You may wish to modify the control table on a table-by-table basis. The control table is initialized when the class is instantiated. Modifying the control table allows you to make fine-grained changes to the upsert process including excluding columns from the upsert process, toggling interactivity for a specific table, and excluding columns from not-null QA checks.
+
+Below is an example of how to exclude the `first_name` and `last_name` columns from the upsert process for the `authors` table and set the `interactive` flag to `True` for the `authors` table.
+
+The control table will look like this before modifications:
+
+```txt
+| table_name   | exclude_cols   | exclude_null_checks   | interactive   | null_errors   | pk_errors   | fk_errors   | ck_errors   | rows_updated   | rows_inserted   |
+|--------------|----------------|-----------------------|---------------|---------------|-------------|-------------|-------------|----------------|-----------------|
+| genres       |                |                       | False         |               |             |             |             |                |                 |
+| books        |                |                       | False         |               |             |             |             |                |                 |
+| authors      |                |                       | False         |               |             |             |             |                |                 |
+| book_authors |                |                       | False         |               |             |             |             |                |                 |
+| publishers   |                |                       | False         |               |             |             |             |                |                 |
+```
+
+Now modify the control table for the `authors` table:
 
 ```python
 upsert.db.execute(
   f"update {upsert.control_table} set exclude_cols = 'first_name,last_name', interactive=true where table_name = 'authors';"
 )
 upsert.upsert_one(table="authors").commit()
+```
+
+The control table will look like this after modifications:
+
+```txt
+| table_name   | exclude_cols            | exclude_null_checks   | interactive   | null_errors   | pk_errors   | fk_errors   | ck_errors   | rows_updated   | rows_inserted   |
+|--------------|-------------------------|-----------------------|---------------|---------------|-------------|-------------|-------------|----------------|-----------------|
+| genres       |                         |                       | False         |               |             |             |             |                |                 |
+| books        |                         |                       | False         |               |             |             |             |                |                 |
+| authors      | first_name,last_name    |                       | True          |               |             |             |             |                |                 |
+| book_authors |                         |                       | False         |               |             |             |             |                |                 |
+| publishers   |                         |                       | False         |               |             |             |             |                |                 |
 ```

@@ -32,7 +32,7 @@ Repository = "https://github.com/geocoug/pg_upsert"
 Issues = "https://github.com/geocoug/pg_upsert/issues"
 
 [tool.pytest.ini_options]
-addopts = ["--cov=pg_upsert", "-v"]
+addopts = ["--cov=pg_upsert", "--cov-report=term-missing", "-sv"]
 testpaths = ["tests"]
 log_cli = true
 log_cli_level = "INFO"

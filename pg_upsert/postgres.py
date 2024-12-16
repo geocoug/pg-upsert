@@ -47,6 +47,7 @@ class PostgresDB:
             logger.warning(
                 "Connection URI ignored as an existing connection object is provided.",
             )
+            uri = None
         # If a URI is supplied, check for a password and prompt if necessary
         if uri:
             uri = self._prompt_for_password(uri)

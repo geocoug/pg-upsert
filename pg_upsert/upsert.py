@@ -45,7 +45,7 @@ class PgUpsert:
         interactive (bool, optional): If True, the user will be prompted with multiple dialogs to confirm various steps during the upsert process. If False, the upsert process will run without user intervention. Defaults to False.
         upsert_method (str, optional): The method to use for upserting data. Must be one of "upsert", "update", or "insert". Defaults to "upsert".
         exclude_cols (list or tuple or None, optional): List of column names to exclude from the upsert process. These columns will not be updated or inserted to, however, they will still be checked during the QA process.
-        exclude_null_check_cols (list or tuple or None, optional): List of column names to exclude from the not-null check during the QA process. Defaults to ().
+        exclude_null_check_cols (list or tuple or None, optional): List of column names to exclude from the not-null check during the QA process. You may wish to exclude certain columns from null checks, such as auto-generated timestamps or serial columns as they may not be populated until after records are inserted or updated. Defaults to ().
         control_table (str, optional): Name of the temporary control table that will be used to track changes during the upsert process. Defaults to "ups_control".
 
     Example:
@@ -123,16 +123,26 @@ class PgUpsert:
 
     @staticmethod
     def _upsert_methods() -> tuple[str, str, str]:
-        """Return a tuple of valid upsert methods."""
+        """Return a tuple of valid upsert methods.
+
+        Returns:
+            tuple: A tuple with a length of 3 containing the valid upsert methods.
+        """
         return ("upsert", "update", "insert")
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f"{self.__class__.__name__}(db={self.db!r}, tables={self.tables}, stg_schema={self.stg_schema}, base_schema={self.base_schema}, do_commit={self.do_commit}, interactive={self.interactive}, upsert_method={self.upsert_method}, exclude_cols={self.exclude_cols}, exclude_null_check_cols={self.exclude_null_check_cols})"  # noqa: E501
 
-    def _show(self, sql: str | Composable) -> None | str:
-        """Display the results of a query in a table format. If the interactive flag is set,
-        the results will be displayed in a Tkinter window. Otherwise, the results will be
-        displayed in the console using the tabulate module."""
+    def _tabulate_sql(self, sql: str | Composable) -> None | str:
+        """Tabulate the results of a SQL query and return the formatted Markdown table.
+
+        Args:
+            sql (str or Composable): The SQL query to execute.
+
+        Returns:
+            None or str: The formatted Markdown table, if results are found.
+        """
+
         rows, headers, rowcount = self.db.rowdict(sql)
         if rowcount == 0:
             logger.info("No results found")
@@ -224,13 +234,15 @@ class PgUpsert:
     def _validate_control(self: PgUpsert) -> None:
         """Validate contents of control table against base and staging schema.
 
+        This method will check if the control table exists and if the tables specified in the control table exist in the base and staging schemas. If the control table does not exist, it will be created. If any of the tables specified in the control table do not exist in the base or staging schema, an error will be raised.
+
         **Objects created:**
 
         | table / view | description |
         | ------------ | ----------- |
         | `ups_validate_control` | Temporary table containing the results of the validation. |
         | `ups_ctrl_invl_table` | Temporary table containing the names of invalid tables. |
-        """
+        """  # noqa: E501
         logger.debug("Validating control table")
         self._validate_schemas()
         # Check if the control table exists
@@ -307,12 +319,32 @@ class PgUpsert:
         """Creates a table having the structure that is used to drive
         the upsert operation on multiple staging tables.
 
-        **Objects created**
+        The control table is used to track the progress of the upsert process, including the number of rows updated and inserted, and any errors that occur during the QA process.
 
-        | table / view | description |
-        | ------------ | ----------- |
-        | `ups_control` | Temporary table containing the control data. |
-        """
+        **Objects created:**
+
+        The name of the control table is specified by the `control_table` parameter. The default name is `ups_control`. Below is an example of the control table structure:
+
+        | table_name | exclude_cols | exclude_null_checks | interactive | null_errors | pk_errors | fk_errors | ck_errors | rows_updated | rows_inserted |
+        |------------|--------------|---------------------|-------------|-------------|-----------|-----------|-----------|--------------|---------------|
+        | table1     | col1,col2    | col3                | False       | col3 (n)    |           |           |           |              |               |
+
+        The table definition is as follows:
+
+        | column name          | data type | required | description |
+        |----------------------|-----------|----------|-------------|
+        | `table_name`         | text      | yes      | The name of the table to process. |
+        | `exclude_cols`       | text      | no       | A comma-separated list of columns to exclude from the upsert process. |
+        | `exclude_null_checks`| text      | no       | A comma-separated list of columns to exclude from the not-null check during the QA process. |
+        | `interactive`        | boolean   | yes      | A flag to indicate whether the QA and upsert processes should be interactive. |
+        | `null_errors`        | text      | no       | A comma-separated list of columns with null values. |
+        | `pk_errors`          | text      | no       | A comma-separated list of primary key errors. |
+        | `fk_errors`          | text      | no       | A comma-separated list of foreign key errors. |
+        | `ck_errors`          | text      | no       | A comma-separated list of check constraint errors. |
+        | `rows_updated`       | integer   | no       | The number of rows updated during the upsert process. |
+        | `rows_inserted`      | integer   | no       | The number of rows inserted during the upsert process. |
+
+        """  # noqa: E501
         logger.debug("Initializing upsert control table")
         sql = SQL(
             """
@@ -383,8 +415,47 @@ class PgUpsert:
             control_table=Identifier(self.control_table),
         )
         logger.debug(
-            f"Control table after being initialized:\n{self._show(debug_sql)}",
+            f"Control table after being initialized:\n{self._tabulate_sql(debug_sql)}",
         )
+
+    def show_control(self: PgUpsert) -> None:
+        """Display contents of the control table.
+
+        If the `interactive` flag is set to `True`, the control table will be displayed in a Tkinter window. Otherwise, the results will be logged.
+
+        The control table definition is as follows:
+
+        | column name          | data type | required | description |
+        |----------------------|-----------|----------|-------------|
+        | `table_name`         | text      | yes      | The name of the table to process. |
+        | `exclude_cols`       | text      | no       | A comma-separated list of columns to exclude from the upsert process. |
+        | `exclude_null_checks`| text      | no       | A comma-separated list of columns to exclude from the not-null check during the QA process. |
+        | `interactive`        | boolean   | yes      | A flag to indicate whether the QA and upsert processes should be interactive. |
+        | `null_errors`        | text      | no       | A comma-separated list of columns with null values. |
+        | `pk_errors`          | text      | no       | A comma-separated list of primary key errors. |
+        | `fk_errors`          | text      | no       | A comma-separated list of foreign key errors. |
+        | `ck_errors`          | text      | no       | A comma-separated list of check constraint errors. |
+        | `rows_updated`       | integer   | no       | The number of rows updated during the upsert process. |
+        | `rows_inserted`      | integer   | no       | The number of rows inserted during the upsert process. |
+        """  # noqa: E501
+        self._validate_control()
+        sql = SQL("select * from {control_table};").format(
+            control_table=Identifier(self.control_table),
+        )
+        if self.interactive:
+            ctrl_rows, ctrl_headers, ctrl_rowcount = self.db.rowdict(sql)
+            btn, return_value = TableUI(
+                "Control Table",
+                "Control table contents:",
+                [
+                    ("Continue", 0, "<Return>"),
+                    ("Cancel", 1, "<Escape>"),
+                ],
+                ctrl_headers,
+                [[row[header] for header in ctrl_headers] for row in ctrl_rows],
+            ).activate()
+        else:
+            logger.info(f"Control table contents:\n{self._tabulate_sql(sql)}")
 
     def qa_all(self: PgUpsert) -> PgUpsert:
         """Performs QA checks for nulls in non-null columns, for duplicated
@@ -502,7 +573,7 @@ class PgUpsert:
                 control_table=Identifier(self.control_table),
             )
             if not self.interactive:
-                logger.debug(f"\n{self._show(ctrl)}")
+                logger.debug(f"\n{self._tabulate_sql(ctrl)}")
             # Reset the loop control flag in the control table.
             self.db.execute(SQL("update ups_proctables set processed = False;"))
 
@@ -521,7 +592,7 @@ class PgUpsert:
                 control_table=Identifier(self.control_table),
             )
             logger.debug("QA checks failed")
-            logger.debug(f"\n{self._show(ctrl)}")
+            logger.debug(f"\n{self._tabulate_sql(ctrl)}")
             logger.debug("")
             if self.interactive:
                 btn, return_value = TableUI(
@@ -536,7 +607,7 @@ class PgUpsert:
                 ).activate()
             else:
                 logger.error("===QA checks failed. Below is a summary of the errors===")
-                logger.error(self._show(ctrl))
+                logger.error(self._tabulate_sql(ctrl))
             return self
         self.qa_passed = True
         return self
@@ -820,7 +891,7 @@ class PgUpsert:
             pk_errors.append(err_msg)
             logger.warning("")
             err_sql = SQL("select * from ups_pk_check;")
-            logger.warning(f"{self._show(err_sql)}")
+            logger.warning(f"{self._tabulate_sql(err_sql)}")
             logger.warning("")
             if self.interactive:
                 btn, return_value = TableUI(
@@ -1106,7 +1177,7 @@ class PgUpsert:
                     f"    Foreign key error referencing {const_rows['uq_schema']}.{const_rows['uq_table']}",
                 )
                 logger.warning("")
-                logger.warning(f"{self._show(check_sql)}")
+                logger.warning(f"{self._tabulate_sql(check_sql)}")
                 logger.warning("")
                 if self.interactive:
                     btn, return_value = TableUI(
@@ -2026,7 +2097,7 @@ class PgUpsert:
             btn = 0
             logger.info("")
             logger.info("Summary of changes:")
-            logger.info(self._show(final_ctrl_sql))
+            logger.info(self._tabulate_sql(final_ctrl_sql))
 
         logger.info("")
 

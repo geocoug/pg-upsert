@@ -1,3 +1,4 @@
+import logging
 import sys
 from pathlib import Path
 from unittest.mock import MagicMock, mock_open, patch
@@ -8,25 +9,13 @@ import yaml
 from pg_upsert.__version__ import __docs_url__, __version__
 from pg_upsert.cli import clparser, main
 
+logger = logging.getLogger(__name__)
+
 
 @pytest.fixture
 def mock_pgupsert():
     with patch("pg_upsert.cli.PgUpsert") as mock:
         yield mock
-
-
-def test_clparser_help():
-    test_args = ["prog", "--help"]
-    with patch.object(sys, "argv", test_args):
-        with pytest.raises(SystemExit):
-            clparser()
-
-
-def test_clparser_version():
-    test_args = ["prog", "--version"]
-    with patch.object(sys, "argv", test_args):
-        with pytest.raises(SystemExit):
-            clparser()
 
 
 def test_clparser_debug():
@@ -75,6 +64,11 @@ def test_main_config_file(mock_pgupsert):
             with patch("yaml.safe_load", return_value=config_content):
                 with pytest.raises(SystemExit):
                     main()
+    # Test that the script exits if the configuration file is not found
+    test_args = ["prog", "--config-file", "non_existent_config.yaml"]
+    with patch.object(sys, "argv", test_args):
+        with pytest.raises(SystemExit):
+            main()
 
 
 def test_main_missing_required_args(mock_pgupsert):
@@ -99,13 +93,6 @@ def test_main_success(mock_pgupsert):
     with patch.object(sys, "argv", test_args):
         main()
         mock_pgupsert.assert_called_once()
-
-
-@pytest.fixture
-def mock_pgupsert():
-    """Mock PgUpsert class."""
-    with patch("pg_upsert.cli.PgUpsert") as mock_pgupsert:
-        yield mock_pgupsert
 
 
 def test_clparser_help(capsys):

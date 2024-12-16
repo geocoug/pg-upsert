@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 
 import logging
+import tkinter as tk
 import unittest
 from unittest.mock import MagicMock, patch
 
@@ -359,3 +360,25 @@ def test_pgupsert_commit_standalone(ups):
         ),
     )
     assert curs.fetchone() is None
+
+
+def test_pgupsert_show_control(ups):
+    """Test the show_control method. If the interactive attribute is False, the method should log a string representation of the control table."""  # noqa: E501
+    ups.interactive = False
+    ups.show_control()
+    with patch("pg_upsert.upsert.logger.info") as mock_logger:
+        ups.show_control()
+        mock_logger.assert_called_once()
+        message = mock_logger.call_args[0][0]
+        logger.info(message)
+        assert isinstance(message, str)
+        assert "table_name" in message
+        assert "exclude_cols" in message
+        assert "exclude_null_checks" in message
+        assert "interactive" in message
+        assert "null_errors" in message
+        assert "pk_errors" in message
+        assert "fk_errors" in message
+        assert "ck_errors" in message
+        assert "rows_updated" in message
+        assert "rows_inserted" in message
