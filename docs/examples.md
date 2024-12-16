@@ -332,7 +332,7 @@ upsert.run()
 
 ### QA checks only
 
-Run all not-null, primary key, foreign key, and check constraint QA checks on all tables. This method does not commit any changes to the database.
+Run all not-null, primary key, foreign key, and check constraint QA checks on all tables. This method does not commit any changes to the database and strictly runs QA checks.
 
 ```python
 upsert.qa_all()
@@ -340,7 +340,7 @@ upsert.qa_all()
 
 ### Upsert only
 
-Run upsert procedures on all tables and commit changes without running QA checks. Changes will not be committed if `do_commit=False`.
+Run upsert procedures on all tables and commit changes without running QA checks. Changes will not be committed if `do_commit=False`. It is important to note that `PgUpsert` does not verify if QA checks have been run before running the upsert process. It simply checks if there are any errors present in the corresponding error columns of the control table. It is recommended to run QA checks before running the upsert process, but there may be cases where you want to skip QA checks and run the upsert process only.
 
 ```python
 upsert.upsert_all().commit()
