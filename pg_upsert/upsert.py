@@ -32,7 +32,7 @@ class PgUpsert:
 
     The upsert process is transactional. If any part of the process fails, the transaction will be rolled back. Committing changes to the database is optional and can be controlled with the `do_commit` flag.
 
-    To avoid SQL injection, all SQL statements are generated using the [`psycopg2.sql`](https://www.psycopg.org/docs/sql.html) module.
+    All SQL statements are generated using the [`psycopg2.sql`](https://www.psycopg.org/docs/sql.html) module.
 
     Args:
         uri (str or None, optional): Connection URI for the PostgreSQL database. Defaults to None. **Note**: If a connection URI is not provided, an existing connection object must be provided.
