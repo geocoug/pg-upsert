@@ -35,6 +35,11 @@ repos:
     rev: v3.1.0
     hooks:
       - id: add-trailing-comma
+  # Mypy static type checker
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.12.1
+    hooks:
+    -   id: mypy
   # PEP 8 style guide, error and complexity checks
   # Replaces Black, Flake8, isort, pydocstyle, pyupgrade, bandit, and autoflake
   - repo: https://github.com/astral-sh/ruff-pre-commit
@@ -47,3 +52,16 @@ repos:
       # Run the Ruff formatter.
       - id: ruff-format
         args: [--config=pyproject.toml]
+  # Local hooks only
+  - repo: local
+    hooks:
+      # Run unit tests using pytest. May not be a desirable thing to include
+      # in pre-commit, but the option is there.
+      - id: pytest
+        name: pytest
+        language: python
+        additional_dependencies: [pytest, pytest-cov, psycopg2-binary, tabulate, pyyaml]  # coverage
+        entry: pytest -sv --cov=boilerplate
+        require_serial: true
+        pass_filenames: false
+        files: \.py$
