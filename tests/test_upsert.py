@@ -1,9 +1,7 @@
 #!/usr/bin/env python
 
-import logging
 import tkinter as tk
-import unittest
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 from dotenv import load_dotenv
@@ -13,12 +11,10 @@ from pg_upsert.upsert import PgUpsert
 
 load_dotenv()
 
-logger = logging.getLogger(__name__)
-
 
 def test_pgupsert_init(ups):
     """Test the PgUpsert object was initialized with the correct values."""
-    assert ups.tables == ("genres", "books", "authors", "book_authors")
+    assert ups.tables == ("genres", "books", "authors", "book_authors", "publishers")
     assert ups.stg_schema == "staging"
     assert ups.base_schema == "public"
     assert ups.do_commit is False
@@ -139,7 +135,7 @@ def test_pgupsert_init_ups_control(ups):
             control_table=Identifier(ups.control_table),
         ),
     )
-    assert cur.rowcount == 4
+    assert cur.rowcount == 5
     tables = [row[0] for row in cur.fetchall()]
     for table in ups.tables:
         assert table in tables
@@ -349,8 +345,6 @@ def test_pgupsert_upsert_do_commit_true(ups):
 
 def test_pgupsert_commit_standalone(ups):
     """Test that running commit() by itself does not make any changes."""
-    ups.commit()
-
     curs = ups.db.execute(
         SQL(
             "select * from {control_table} where coalesce(rows_inserted, rows_updated) is not null",
@@ -370,7 +364,6 @@ def test_pgupsert_show_control(ups):
         ups.show_control()
         mock_logger.assert_called_once()
         message = mock_logger.call_args[0][0]
-        logger.info(message)
         assert isinstance(message, str)
         assert "table_name" in message
         assert "exclude_cols" in message

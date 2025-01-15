@@ -1,21 +1,35 @@
 #!/usr/bin/env python
 
-import logging
 import os
 from pathlib import Path
 
-import psycopg2
 import pytest
 from dotenv import load_dotenv
-from psycopg2.sql import SQL, Identifier, Literal
 
 from pg_upsert import PgUpsert, PostgresDB
 
 load_dotenv()
 
-logger = logging.getLogger(__name__)
 
 DATA = Path(__file__).parent / "data.sql"
+
+
+def pytest_addoption(parser):
+    parser.addoption(
+        "--dev",
+        action="store_true",
+        default=False,
+        help="Run tests in development mode.",
+    )
+
+
+def pytest_configure(config):
+    if config.getoption("--dev"):
+        config.option.verbose = 1
+        config.option.setupshow = True
+        config.option.capture = "no"
+        config.option.showcapture = "all"
+        config.option.log_cli_level = "DEBUG"
 
 
 @pytest.fixture(scope="session")
@@ -31,7 +45,7 @@ def global_variables():
     }
 
 
-@pytest.fixture(autouse=True)
+@pytest.fixture(scope="function")
 def db(global_variables):
     """Return a PostgresDB object."""
     db = PostgresDB(uri=global_variables["URI"])
@@ -56,34 +70,15 @@ def db(global_variables):
     db.close()
 
 
-@pytest.fixture(autouse=True)
-def ups(global_variables):
+@pytest.fixture(scope="function")
+def ups(global_variables, db):
     """Return a PgUpsert object."""
-    obj = PgUpsert(
-        uri=global_variables["URI"],
-        tables=("genres", "books", "authors", "book_authors"),
+    yield PgUpsert(
+        conn=db.conn,
+        tables=("genres", "books", "authors", "book_authors", "publishers"),
         stg_schema="staging",
         base_schema="public",
         do_commit=False,
         interactive=False,
         upsert_method="upsert",
     )
-    obj.db.execute(DATA.read_text())
-    obj.db.commit()
-    yield obj
-    obj.db.execute(
-        """
-        drop table if exists staging.genres cascade;
-        drop table if exists staging.books cascade;
-        drop table if exists staging.authors cascade;
-        drop table if exists staging.book_authors cascade;
-        drop table if exists staging.publishers cascade;
-        drop table if exists public.genres cascade;
-        drop table if exists public.books cascade;
-        drop table if exists public.authors cascade;
-        drop table if exists public.book_authors cascade;
-        drop table if exists public.publishers cascade;
-    """,
-    )
-    obj.db.commit()
-    obj.db.close()

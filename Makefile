@@ -62,6 +62,9 @@ lint: $(VENV)/bin/activate ## Run pre-commit hooks
 test: $(VENV)/bin/activate ## Run unit tests
 	$(PYTHON) -m $(TEST)
 
+test-dev: $(VENV)/bin/activate ## Run unit tests in development mode
+	$(PYTHON) -m $(TEST) --dev
+
 build-dist: $(VENV)/bin/activate ## Generate distrubition packages
 	$(PYTHON) -m build
 

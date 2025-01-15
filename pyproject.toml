@@ -32,12 +32,8 @@ Repository = "https://github.com/geocoug/pg_upsert"
 Issues = "https://github.com/geocoug/pg_upsert/issues"
 
 [tool.pytest.ini_options]
-addopts = ["--cov=pg_upsert", "--cov-report=term-missing", "-sv"]
-testpaths = ["tests"]
+addopts = ["--cov=pg_upsert", "--cov-report=term-missing"]
 log_cli = true
-log_cli_level = "INFO"
-log_cli_format = "%(asctime)s - %(name)s - %(levelname)s: %(message)s"
-log_cli_date_format = "%Y-%m-%d %H:%M:%S"
 
 [tool.ruff]
 # Exclude a variety of commonly ignored directories.
