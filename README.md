@@ -1,12 +1,12 @@
-# pg_upsert
+# pg-upsert
 
-[![ci/cd](https://github.com/geocoug/pg_upsert/actions/workflows/ci-cd.yml/badge.svg)](https://github.com/geocoug/pg_upsert/actions/workflows/ci-cd.yml)
+[![ci/cd](https://github.com/geocoug/pg-upsert/actions/workflows/ci-cd.yml/badge.svg)](https://github.com/geocoug/pg-upsert/actions/workflows/ci-cd.yml)
 [![Documentation Status](https://readthedocs.org/projects/pg-upsert/badge/?version=latest)](https://pg-upsert.readthedocs.io/en/latest/?badge=latest)
-[![PyPI Latest Release](https://img.shields.io/pypi/v/pg_upsert.svg)](https://pypi.org/project/pg_upsert/)
-[![PyPI Downloads](https://img.shields.io/pypi/dm/pg_upsert.svg?label=pypi%20downloads)](https://pypi.org/project/pg_upsert/)
-[![Python Version Support](https://img.shields.io/pypi/pyversions/pg_upsert.svg)](https://pypi.org/project/pg_upsert/)
+[![PyPI Latest Release](https://img.shields.io/pypi/v/pg-upsert.svg)](https://pypi.org/project/pg-upsert/)
+[![PyPI Downloads](https://img.shields.io/pypi/dm/pg-upsert.svg?label=pypi%20downloads)](https://pypi.org/project/pg-upsert/)
+[![Python Version Support](https://img.shields.io/pypi/pyversions/pg-upsert.svg)](https://pypi.org/project/pg-upsert/)
 
-**pg_upsert** is a Python package that provides a method to *interactively* update and insert (upsert) rows of a base table or base tables from the staging table(s) of the same name. The package is designed to work exclusively with PostgreSQL databases.
+**pg-upsert** is a Python package that provides a method to *interactively* update and insert (upsert) rows of a base table or base tables from the staging table(s) of the same name. The package is designed to work exclusively with PostgreSQL databases.
 
 The program will perform initial table checks in the form of *not-null*, *primary key*, *foreign key*, and *check constraint* checks. If any of these checks fail, the program will exit with an error message. If all checks pass, the program will display the number of rows to be inserted and updated, and ask for confirmation before proceeding (when the `interactive` flag is set to `True`). If the user confirms, the program will perform the upserts and display the number of rows inserted and updated. If the user does not confirm, the program will exit without performing any upserts.
 
@@ -18,7 +18,7 @@ This project was created using inspiration from [ExecSQL](https://execsql.readth
 
 ## Usage
 
-A sample database is provided in the [tests/data.sql](./tests/data.sql) file and can be used to test the functionality of the `pg_upsert` package. See the [Running Tests Locally](#running-tests-locally) section for more information on how to set up the test database locally with Docker.
+A sample database is provided in the [tests/data.sql](https://github.com/geocoug/pg-upsert/blob/main/tests/data.sql) file and can be used to test the functionality of the `pg-upsert` package. See the [Running Tests Locally](#running-tests-locally) section for more information on how to set up the test database locally with Docker.
 
 ### Python
 
@@ -29,13 +29,13 @@ import logging
 
 from pg_upsert import PgUpsert
 
-logger = logging.getLogger("pg_upsert")
+logger = logging.getLogger("pg-upsert")
 logger.setLevel(logging.INFO)
 logger.addHandler(logging.StreamHandler())
 
 # Run PgUpsert using a URI
 PgUpsert(
-    uri="postgresql://user@localhost:5432/database", # Note the missing password. pg_upsert will prompt for the password.
+    uri="postgresql://user@localhost:5432/database", # Note the missing password. pg-upsert will prompt for the password.
     encoding="utf-8",
     tables=("genres", "publishers", "books", "authors", "book_authors"),
     stg_schema="staging",
@@ -84,62 +84,57 @@ PgUpsert(
 
 ### CLI
 
-`pg_upsert` can be run from the command line. There are two key ways to run `pg_upsert` from the command line: using a configuration file or using command line arguments.
+`pg-upsert` can be run from the command line. There are two key ways to run `pg-upsert` from the command line: using a configuration file or using command line arguments.
 
 > [!IMPORTANT]
 > If the user specifies a configuration file **and** command line arguments, the configuration file will override any command line arguments specified.
 
 #### Command Line Arguments
 
-Running `pg_upsert --help` will display the following help message:
+Running `pg-upsert --help` will display the following help message:
 
 ```txt
-usage: pg_upsert [--help] [--version] [--debug] [--docs] [-q] [-l LOGFILE] [-e EXCLUDE_COLUMNS] [-n NULL_COLUMNS] [-c] [-i] [-m {upsert,update,insert}] [-h HOST] [-p PORT] [-d DATABASE] [-u USER] [-s STAGING_SCHEMA] [-b BASE_SCHEMA]
-                 [--encoding ENCODING] [-f CONFIG_FILE] [-t TABLES [TABLES ...]]
+ Usage: pg-upsert [OPTIONS]
 
-Run not-NULL, Primary Key, Foreign Key, and Check Constraint checks on staging tables then update and insert (upsert) data from staging tables to base tables.
+ Run not-NULL, Primary Key, Foreign Key, and Check Constraint checks on staging tables then update and insert (upsert)
+ data from staging tables to base tables.
 
-options:
-  --help                show this help message and exit
-  --version             show program's version number and exit
-  --debug               display debug output
-  --docs                open the documentation in a web browser
-  -q, --quiet           suppress all console output
-  -l LOGFILE, --logfile LOGFILE
-                        write log to LOGFILE
-  -e EXCLUDE_COLUMNS, --exclude-columns EXCLUDE_COLUMNS
-                        comma-separated list of columns to exclude from null checks
-  -n NULL_COLUMNS, --null-columns NULL_COLUMNS
-                        comma-separated list of columns to exclude from null checks
-  -c, --commit          commit changes to database
-  -i, --interactive     display interactive GUI of important table information
-  -m {upsert,update,insert}, --upsert-method {upsert,update,insert}
-                        method to use for upsert
-  -h HOST, --host HOST  database host
-  -p PORT, --port PORT  database port
-  -d DATABASE, --database DATABASE
-                        database name
-  -u USER, --user USER  database user
-  -s STAGING_SCHEMA, --staging-schema STAGING_SCHEMA
-                        staging schema name
-  -b BASE_SCHEMA, --base-schema BASE_SCHEMA
-                        base schema name
-  --encoding ENCODING   encoding of the database
-  -f CONFIG_FILE, --config-file CONFIG_FILE
-                        path to configuration yaml file
-  -t TABLES [TABLES ...], --tables TABLES [TABLES ...]
-                        table name(s)
+╭─ Options ───────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ --version             -v               Display the version and exit                                                 │
+│ --debug                                Display debug output                                                         │
+│ --docs                                 Open the documentation in a web browser                                      │
+│ --quiet               -q               Suppress all console output                                                  │
+│ --logfile             -l      PATH     Write log messages to a log file [default: None]                             │
+│ --exclude-columns     -e      TEXT     Comma-separated list of columns to exclude from null checks [default: None]  │
+│ --null-columns        -n      TEXT     Comma-separated list of columns to exclude from null checks [default: None]  │
+│ --commit              -c               Commit changes to database                                                   │
+│ --interactive         -i               Display interactive GUI of important table information                       │
+│ --upsert-method       -m      TEXT     Method to use for upsert (upsert, update, insert) [default: upsert]          │
+│ --host                -h      TEXT     Database host [default: None]                                                │
+│ --port                -p      INTEGER  Database port [default: 5432]                                                │
+│ --database            -d      TEXT     Database name [default: None]                                                │
+│ --user                -u      TEXT     Database user [default: None]                                                │
+│ --staging-schema      -s      TEXT     Staging schema name [default: staging]                                       │
+│ --base-schema         -b      TEXT     Base schema name [default: public]                                           │
+│ --encoding            -e      TEXT     Encoding of the database [default: utf-8]                                    │
+│ --config-file         -f      PATH     Path to configuration YAML file [default: None]                              │
+│ --tables              -t      TEXT     Table name(s) [default: None]                                                │
+│ --install-completion                   Install completion for the current shell.                                    │
+│ --show-completion                      Show completion for the current shell, to copy it or customize the           │
+│                                        installation.                                                                │
+│ --help                                 Show this message and exit.                                                  │
+╰─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
 ```
 
-An example of running `pg_upsert` from the command line is shown below:
+An example of running `pg-upsert` from the command line is shown below:
 
 ```sh
-pg_upsert -l pg_upsert.log -h localhost -p 5432 -d postgres -u postgres -s staging -b public -t authors publishers books book_authors genres
+pg-upsert -l pg_upsert.log -h localhost -p 5432 -d postgres -u postgres -s staging -b public -t authors -t publishers -t books -t book_authors -t genres
 ```
 
 #### Configuration File
 
-To use a configuration file, create a YAML file with the format below. This example is also provided in the [pg_upsert.example.yaml](./pg_upsert.example.yaml) file. The configuration file can be passed to `pg_upsert` using the `-f` or `--config-file` flag.
+To use a configuration file, create a YAML file with the format below. This example is also provided in the [pg-upsert.example.yaml](https://github.com/geocoug/pg-upsert/blob/main/pg-upsert.example.yaml) file. The configuration file can be passed to `pg-upsert` using the `-f` or `--config-file` flag.
 
 ```yaml
 debug: false
@@ -171,25 +166,23 @@ null_columns:
   - "updated_at"
 ```
 
-Then, run `pg_upsert -f pg_upsert.yaml`.
+Then, run `pg-upsert -f pg_upsert.yaml`.
 
 ### Docker
 
 Pull the latest image from the GitHub Container Registry (GHCR) using the following command:
 
 ```sh
-docker pull ghcr.io/geocoug/pg_upsert:latest
+docker pull ghcr.io/geocoug/pg-upsert:latest
 ```
 
 Once the image is pulled, you can run the image using either of the [cli](#cli) options. Below is an example:
 
 ```sh
-docker run -it --rm ghcr.io/geocoug/pg_upsert:latest -v $(pwd):/app pg_upsert --help
+docker run -it --rm ghcr.io/geocoug/pg-upsert:latest -v $(pwd):/app pg-upsert --help
 ```
 
-> [!NOTE]
-> The `-v` flag is used to mount the current directory to the `/app` directory in the container. This is useful for mounting configuration files or retaining log files.
-
+The `-v` flag is used to mount the current directory to the `/app` directory in the container. This is useful for mounting configuration files or retaining log files.
 
 ## Contributing
 

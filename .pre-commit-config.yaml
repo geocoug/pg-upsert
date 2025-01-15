@@ -1,4 +1,10 @@
 ---
+exclude: |
+  (?x)^(
+    build/ |
+    dist/ |
+  )$
+
 repos:
   - repo: meta
     hooks:
@@ -6,9 +12,14 @@ repos:
       - id: check-hooks-apply
   # Protect secrets using Gitleaks
   - repo: https://github.com/zricethezav/gitleaks
-    rev: v8.21.2
+    rev: v8.23.1
     hooks:
       - id: gitleaks
+  # Validate pyproject.toml
+  - repo: https://github.com/abravalheri/validate-pyproject
+    rev: v0.23
+    hooks:
+      - id: validate-pyproject
   # Supported base hooks
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0
@@ -24,7 +35,7 @@ repos:
       - id: trailing-whitespace
   # Markdown lint
   - repo: https://github.com/igorshubovych/markdownlint-cli
-    rev: v0.42.0
+    rev: v0.43.0
     hooks:
       - id: markdownlint
         types: [file]
@@ -37,10 +48,10 @@ repos:
       - id: add-trailing-comma
   # Lint & format
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.7.3
+    rev: v0.9.1
     hooks:
       - id: ruff
-        args: [--config=pyproject.toml]
+        args: [--config=pyproject.toml, --exit-non-zero-on-fix]
       - id: ruff-format
         args: [--config=pyproject.toml]
   # Unit tests with pytest

@@ -65,7 +65,7 @@ test: $(VENV)/bin/activate ## Run unit tests
 test-dev: $(VENV)/bin/activate ## Run unit tests in development mode
 	$(PYTHON) -m $(TEST) --dev
 
-build-dist: $(VENV)/bin/activate ## Generate distrubition packages
+build-dist: $(VENV)/bin/activate ## Generate distribution packages
 	$(PYTHON) -m build
 
 build-docs: $(VENV)/bin/activate ## Generate documentation

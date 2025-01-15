@@ -10,6 +10,5 @@ from .__version__ import (
 )
 from .postgres import PostgresDB
 from .upsert import PgUpsert
-from .utils import ellapsed_time
 
-__all__ = ["PgUpsert", "PostgresDB", "ellapsed_time"]
+__all__ = ["PgUpsert", "PostgresDB"]

@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 from dotenv import load_dotenv
+from typer.testing import CliRunner
 
 from pg_upsert import PgUpsert, PostgresDB
 

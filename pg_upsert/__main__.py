@@ -1,6 +1,5 @@
-# my_library/__main__.py
-
-from .cli import main
+from .__version__ import __title__
+from .cli import app
 
 if __name__ == "__main__":
-    main()
+    app(prog_name=__title__)

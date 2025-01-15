@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
-import argparse
 import logging
 import sys
-import webbrowser
 from pathlib import Path
+from types import SimpleNamespace
+from typing import Annotated
 
+import typer
 import yaml
+from rich import print
 
 from .__version__ import __description__, __docs_url__, __title__, __version__
 from .upsert import PgUpsert
@@ -18,149 +20,171 @@ logger = logging.getLogger(__title__)
 logger.propagate = False
 
 
-def clparser() -> argparse.Namespace:
-    """Command line interface for the upsert function."""
-    parser = argparse.ArgumentParser(
-        add_help=False,
-        description=__description__,
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-    )
-    parser.add_argument(
-        "--help",
-        action="help",
-        help="show this help message and exit",
-    )
-    parser.add_argument(
-        "--version",
-        action="version",
-        version=f"%(prog)s {__version__}",
-    )
-    parser.add_argument(
-        "--debug",
-        action="store_true",
-        help="display debug output",
-    )
-    parser.add_argument(
-        "--docs",
-        action="store_true",
-        help="open the documentation in a web browser",
-    )
-    parser.add_argument(
-        "-q",
-        "--quiet",
-        action="store_true",
-        help="suppress all console output",
-    )
-    parser.add_argument(
-        "-l",
-        "--logfile",
-        type=Path,
-        help="write log to LOGFILE",
-    )
-    parser.add_argument(
-        "-e",
-        "--exclude-columns",
-        dest="exclude_columns",
-        type=str,
-        help="comma-separated list of columns to exclude from null checks",
-    )
-    parser.add_argument(
-        "-n",
-        "--null-columns",
-        dest="null_columns",
-        type=str,
-        help="comma-separated list of columns to exclude from null checks",
-    )
-    parser.add_argument(
-        "-c",
-        "--commit",
-        action="store_true",
-        help="commit changes to database",
-    )
-    parser.add_argument(
-        "-i",
-        "--interactive",
-        action="store_true",
-        help="display interactive GUI of important table information",
-    )
-    parser.add_argument(
-        "-m",
-        "--upsert-method",
-        dest="upsert_method",
-        default="upsert",
-        choices=["upsert", "update", "insert"],
-        help="method to use for upsert",
-    )
-    parser.add_argument(
-        "-h",
-        "--host",
-        type=str,
-        help="database host",
-    )
-    parser.add_argument(
-        "-p",
-        "--port",
-        type=int,
-        help="database port",
-    )
-    parser.add_argument(
-        "-d",
-        "--database",
-        type=str,
-        help="database name",
-    )
-    parser.add_argument(
-        "-u",
-        "--user",
-        type=str,
-        help="database user",
-    )
-    parser.add_argument(
-        "-s",
-        "--staging-schema",
-        dest="staging_schema",
-        default="staging",
-        type=str,
-        help="staging schema name",
-    )
-    parser.add_argument(
-        "-b",
-        "--base-schema",
-        dest="base_schema",
-        default="public",
-        type=str,
-        help="base schema name",
-    )
-    parser.add_argument(
-        "--encoding",
-        default="utf-8",
-        type=str,
-        required=False,
-        help="encoding of the database",
-    )
-    parser.add_argument(
-        "-f",
-        "--config-file",
-        dest="config_file",
-        type=Path,
-        required=False,
-        help="path to configuration yaml file",
-    )
-    parser.add_argument(
-        "-t",
-        "--tables",
-        nargs="+",
-        default=[],
-        help="table name(s)",
-    )
-    return parser.parse_args()
+app = typer.Typer()
 
 
-def main() -> None:
-    args = clparser()
+@app.command(help=__description__)
+def cli(
+    version: Annotated[
+        bool,
+        typer.Option(
+            "--version",
+            "-v",
+            help="Display the version and exit",
+        ),
+    ] = False,
+    debug: Annotated[
+        bool,
+        typer.Option(
+            "--debug",
+            help="Display debug output",
+        ),
+    ] = False,
+    docs: Annotated[
+        bool,
+        typer.Option(
+            "--docs",
+            help="Open the documentation in a web browser",
+        ),
+    ] = False,
+    quiet: Annotated[
+        bool,
+        typer.Option(
+            "--quiet",
+            "-q",
+            help="Suppress all console output",
+        ),
+    ] = False,
+    logfile: Annotated[
+        Path | None,
+        typer.Option(
+            "-l",
+            "--logfile",
+            help="Write log messages to a log file",
+        ),
+    ] = None,
+    exclude_columns: Annotated[
+        str | None,
+        typer.Option(
+            "--exclude-columns",
+            "-e",
+            help="Comma-separated list of columns to exclude from null checks",
+        ),
+    ] = None,
+    null_columns: Annotated[
+        str | None,
+        typer.Option(
+            "--null-columns",
+            "-n",
+            help="Comma-separated list of columns to exclude from null checks",
+        ),
+    ] = None,
+    commit: Annotated[
+        bool,
+        typer.Option(
+            "--commit",
+            "-c",
+            help="Commit changes to database",
+        ),
+    ] = False,
+    interactive: Annotated[
+        bool,
+        typer.Option(
+            "--interactive",
+            "-i",
+            help="Display interactive GUI of important table information",
+        ),
+    ] = False,
+    upsert_method: Annotated[
+        str,
+        typer.Option(
+            "--upsert-method",
+            "-m",
+            help="Method to use for upsert (upsert, update, insert)",
+        ),
+    ] = "upsert",
+    host: Annotated[
+        str | None,
+        typer.Option(
+            "--host",
+            "-h",
+            help="Database host",
+        ),
+    ] = None,
+    port: Annotated[
+        int,
+        typer.Option(
+            "--port",
+            "-p",
+            help="Database port",
+        ),
+    ] = 5432,
+    database: Annotated[
+        str | None,
+        typer.Option(
+            "--database",
+            "-d",
+            help="Database name",
+        ),
+    ] = None,
+    user: Annotated[
+        str | None,
+        typer.Option(
+            "--user",
+            "-u",
+            help="Database user",
+        ),
+    ] = None,
+    staging_schema: Annotated[
+        str,
+        typer.Option(
+            "--staging-schema",
+            "-s",
+            help="Staging schema name",
+        ),
+    ] = "staging",
+    base_schema: Annotated[
+        str,
+        typer.Option(
+            "--base-schema",
+            "-b",
+            help="Base schema name",
+        ),
+    ] = "public",
+    encoding: Annotated[
+        str,
+        typer.Option(
+            "--encoding",
+            "-e",
+            help="Encoding of the database",
+        ),
+    ] = "utf-8",
+    config_file: Annotated[
+        Path | None,
+        typer.Option(
+            "--config-file",
+            "-f",
+            help="Path to configuration YAML file",
+        ),
+    ] = None,
+    # list of table names
+    tables: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--tables",
+            "-t",
+            help="Table name(s)",
+        ),
+    ] = None,
+) -> None:
+    args = SimpleNamespace(**locals())
+    if args.version:
+        print(f"{__version__}")
+        sys.exit(0)
     if args.docs:
         try:
-            webbrowser.open(__docs_url__)
+            print(":link: Opening documentation in a web browser...")
+            typer.launch(__docs_url__)
         except Exception as e:
             logger.error(e)
             raise
@@ -178,7 +202,7 @@ def main() -> None:
             sys.exit(1)
         # For each key in the configuration yaml, update the corresponding command line argument
         for key in config:
-            if key in vars(args):
+            if key in args.__dict__:
                 if key == "logfile":
                     setattr(args, key, Path(config[key]))
                 else:
@@ -187,6 +211,36 @@ def main() -> None:
                 logger.warning(
                     f"Invalid configuration key will be ignored in {args.config_file}: {key}",
                 )
+    if args.debug:
+        logger.setLevel(logging.DEBUG)
+    else:
+        logger.setLevel(logging.INFO)
+    if args.logfile:
+        file_handler = logging.FileHandler(args.logfile)
+        if args.debug:
+            file_handler.setLevel(logging.DEBUG)
+            file_handler.setFormatter(
+                logging.Formatter(
+                    "[%(asctime)s] %(levelname)-8s %(name)-20s %(lineno)-5s: %(message)s",
+                ),
+            )
+        else:
+            file_handler.setLevel(logging.INFO)
+            file_handler.setFormatter(logging.Formatter("%(message)s"))
+        logger.addHandler(file_handler)
+    if not args.quiet:
+        stream_handler = logging.StreamHandler(sys.stdout)
+        if args.debug:
+            stream_handler.setLevel(logging.DEBUG)
+            stream_handler.setFormatter(
+                CustomLogFormatter(
+                    "[%(asctime)s] %(levelname)s %(name)s %(lineno)s: %(message)s",
+                ),
+            )
+        else:
+            stream_handler.setLevel(logging.INFO)
+            stream_handler.setFormatter(logging.Formatter("%(message)s"))
+        logger.addHandler(stream_handler)
     if not args.host:
         logger.error("Database host is required.")
         sys.exit(1)
@@ -210,36 +264,6 @@ def main() -> None:
             args.logfile.unlink()
         except Exception as err:
             logger.error(err)
-    if args.debug:
-        logger.setLevel(logging.DEBUG)
-    else:
-        logger.setLevel(logging.INFO)
-    if args.logfile:
-        file_handler = logging.FileHandler(args.logfile)
-        if args.debug:
-            file_handler.setLevel(logging.DEBUG)
-            file_handler.setFormatter(
-                logging.Formatter(
-                    "[%(asctime)s] %(levelname)-8s %(name)-20s %(lineno)-5s: %(message)s",
-                ),
-            )
-        else:
-            file_handler.setLevel(logging.INFO)
-            file_handler.setFormatter(logging.Formatter("[%(asctime)s]: %(message)s"))
-        logger.addHandler(file_handler)
-    if not args.quiet:
-        stream_handler = logging.StreamHandler(sys.stdout)
-        if args.debug:
-            stream_handler.setLevel(logging.DEBUG)
-            stream_handler.setFormatter(
-                CustomLogFormatter(
-                    "[%(asctime)s] %(levelname)s %(name)s %(lineno)s: %(message)s",
-                ),
-            )
-        else:
-            stream_handler.setLevel(logging.INFO)
-            stream_handler.setFormatter(logging.Formatter("%(message)s"))
-        logger.addHandler(stream_handler)
     logger.debug(f"{__title__} (v{__version__})")
     if args.debug:
         logger.debug("Command line arguments:")

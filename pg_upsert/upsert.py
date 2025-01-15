@@ -16,7 +16,7 @@ from .ui import (
     CompareUI,
     TableUI,
 )
-from .utils import ellapsed_time
+from .utils import elapsed_time
 
 logger = logging.getLogger(__name__)
 
@@ -567,7 +567,7 @@ class PgUpsert:
             logger.info(f"==={qa_check} checks===")
             start_time = datetime.now()
             qa_func()
-            logger.debug(f"{qa_check} checks completed in {ellapsed_time(start_time)}")
+            logger.debug(f"{qa_check} checks completed in {elapsed_time(start_time)}")
             logger.debug(f"Control table after {qa_check} checks:")
             ctrl = SQL("select * from {control_table};").format(
                 control_table=Identifier(self.control_table),
@@ -2062,7 +2062,7 @@ class PgUpsert:
         if self.qa_passed:
             self.upsert_all()
             self.commit()
-        logger.debug(f"Upsert completed in {ellapsed_time(start_time)}")
+        logger.debug(f"Upsert completed in {elapsed_time(start_time)}")
         return self
 
     def commit(self: PgUpsert) -> PgUpsert:
