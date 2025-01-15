@@ -33,7 +33,7 @@ class CustomLogFormatter(logging.Formatter):
         return super().format(record)
 
 
-def ellapsed_time(start_time: datetime) -> str:
+def elapsed_time(start_time: datetime) -> str:
     """Returns a string representing the ellapsed time since the start time.
 
     Args:

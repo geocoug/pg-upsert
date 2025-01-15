@@ -8,3 +8,4 @@ dist/
 build/
 docs/_build/
 site/
+pg-upsert.local.yaml
