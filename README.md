@@ -10,7 +10,7 @@
 
 The program will perform initial table checks in the form of *not-null*, *primary key*, *foreign key*, and *check constraint* checks. If any of these checks fail, the program will exit with an error message. If all checks pass, the program will display the number of rows to be inserted and updated, and ask for confirmation before proceeding (when the `interactive` flag is set to `True`). If the user confirms, the program will perform the upserts and display the number of rows inserted and updated. If the user does not confirm, the program will exit without performing any upserts.
 
-![Screenshot](./screenshot.png)
+![Screenshot](https://raw.githubusercontent.com/geocoug/pg-upsert/refs/heads/main/screenshot.png)
 
 ## Credits
 
