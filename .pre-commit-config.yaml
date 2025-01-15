@@ -49,9 +49,8 @@ repos:
       - id: pytest
         name: pytest
         language: python
-        additional_dependencies: [pytest, pytest-cov, psycopg2-binary, tabulate, pyyaml, python-dotenv]  # coverage
-        # entry: pytest -s -v --cov=pg_upsert tests/
-        entry: make test-dev
+        additional_dependencies: [pytest, pytest-cov, psycopg2-binary, tabulate, pyyaml, python-dotenv]
+        entry: make test
         require_serial: true
         pass_filenames: false
         files: \.py$
