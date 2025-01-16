@@ -50,18 +50,20 @@ jobs:
           psql -h ${{ env.POSTGRES_HOST }} -U ${{ env.POSTGRES_USER }} -d ${{ env.POSTGRES_DB }} -f tests/data/schema_passing.sql
         env:
           PGPASSWORD: ${{ env.POSTGRES_PASSWORD }}
+      - name: Setup uv
+        run: curl -LsSf https://astral.sh/uv/install.sh | sh
       - name: Setup Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v5
-        with:
-          python-version: ${{ matrix.python-version }}
+        run: |
+          uv python install ${{ matrix.python-version }}
+          uv venv
+          source .venv/bin/activate
       - name: Install dependencies
         run: |
-          python -m pip install --upgrade pip
-          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          if [ -f requirements.txt ]; then uv pip install -r requirements.txt; fi
+          uv pip instal pytest
       - name: Test with pytest
         run: |
-          python -m pip install pytest
-          python -m pytest
+          uv run pytest
         env:
           POSTGRES_HOST: ${{ env.POSTGRES_HOST }}
           POSTGRES_PORT: ${{ env.POSTGRES_PORT }}
