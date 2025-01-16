@@ -2,15 +2,19 @@
 
 ## Detailed example
 
-This example will demonstrate how to use `pg_upsert` to upsert data from staging tables to base tables.
+This example will demonstrate how to use [PgUpsert](./pg_upsert.md#pgupsert) to upsert data from staging tables to base tables.
 
-1. Initialize a PostgreSQL database called `dev` with the following schema and data (also available [here](https://github.com/geocoug/pg-upsert/blob/main/tests/data/schema_passing.sql)).
+### 1 - Initialize a PostgreSQL database
+
+Initialize a PostgreSQL database called `dev` with the following schema and data (also available [here](https://github.com/geocoug/pg-upsert/blob/main/tests/data/schema_passing.sql)).
 
    ```sql
    --8<-- "tests/data/schema_passing.sql"
    ```
 
-1. Create a Python script called `upsert_data.py` that calls `pg_upsert` to upsert data from staging tables to base tables.
+### 2 - Initialize PgUpsert
+
+Create a Python script called `upsert_data.py` that calls [PgUpsert](./pg_upsert.md#pgupsert) to upsert data from staging tables to base tables.
 
    ```python
     import logging
@@ -34,7 +38,9 @@ This example will demonstrate how to use `pg_upsert` to upsert data from staging
     ).run()
    ```
 
-1. Run the script: `python upsert_data.py`
+### 3 - Run the script
+
+Run the script: `python upsert_data.py`
 
    ```text
    The library pg_upsert wants the password for PostgresDB(uri=postgresql://user@localhost:5432/dev):
@@ -103,19 +109,25 @@ This example will demonstrate how to use `pg_upsert` to upsert data from staging
    Changes committed
    ```
 
-1. Modify a row in the staging table.
+### 4 - Modify the staging tables
+
+Modify a row in the staging table to see how the [PgUpsert](./pg_upsert.md#pgupsert) handles the changes.
 
    ```sql
    update staging.books set book_title = 'The Great Novel 2' where book_id = 'B001';
    ```
 
-1. Run the script again, but this time set `interactive=True` in the `upsert` function call in `upsert_data.py`.
+### 5 - Run the script again
 
-    The script will display GUI dialogs during the upsert process to show which rows will be added and which rows will be updated. The user can chose to confirm, skip, or cancel the upsert process at any time. The script will not commit any changes to the database until all of the upserts have been completed successfully.
+Run the script again, but this time set `interactive=True` in `upsert_data.py`.
 
-    ![pg-upsert Screenshot](https://raw.githubusercontent.com/geocoug/pg-upsert/refs/heads/main/pg-upsert-screenshot.png)
+The script will display GUI dialogs during the upsert process to show which rows will be added and which rows will be updated. The user can chose to confirm, skip, or cancel the upsert process at any time. The script will not commit any changes to the database until all of the upserts have been completed successfully.
 
-1. Let's test some of the QA checks. Modify the `staging.books` table to include a row with a missing value in the `book_title` and `Mystery` value in the `genre` column. The `book_title` column is a non-null column, and the `genre` column is a foreign key column. Let's also modify the `staging.authors` table by adding `JDoe` again as the `author_id` but this time we will set both the `first_name` and `last_name` to `Doe1`. This should trigger a primary key error and check constraint errors.
+![pg-upsert Screenshot](https://raw.githubusercontent.com/geocoug/pg-upsert/refs/heads/main/pg-upsert-screenshot.png)
+
+### 6 - Testing QA checks
+
+Let's test some of the QA checks. Modify the `staging.books` table to include a row with a missing value in the `book_title` and `Mystery` value in the `genre` column. The `book_title` column is a non-null column, and the `genre` column is a foreign key column. Let's also modify the `staging.authors` table by adding `JDoe` again as the `author_id` but this time we will set both the `first_name` and `last_name` to `Doe1`. This should trigger a primary key error and check constraint errors.
 
    ```sql
    insert into staging.books (book_id, book_title, genre, notes)
@@ -128,7 +140,7 @@ This example will demonstrate how to use `pg_upsert` to upsert data from staging
    Run the script again: `python upsert_data.py`
 
    ```text
-   The library pg_upsert wants the password for PostgresDB(uri=postgresql://docker@localhost:5432/dev):
+   The library pg_upsert wants the password for PostgresDB(uri=postgresql://user@localhost:5432/dev):
    Upserting to public from staging
    Tables selected for upsert:
       authors
@@ -186,13 +198,15 @@ This example will demonstrate how to use `pg_upsert` to upsert data from staging
    | genres       | alias,rev_time,rev_user | alias,created_at,updated_at | False         |                |                                                    |                      |                                                                        |                |                 |
    ```
 
-   The script failed to upsert data because there are non-null and foreign key checks that failed on the `staging.books` table, and primary key and check constraint that failed on the `staging.authors` table. The interactive GUI will display all values in the `books.genres` column that fail the foreign key check. No GUI dialogs are displayed for non-null checks, because there are no values to display. Similarly, if there is a primary key check that fails (like in the `staging.authors` table), a GUI dialog will be displayed with the primary keys in the table that are failing. No GUI dialogs are displayed for check constraint checks.
+### 7 - Review the QA checks
+
+The script failed to upsert data because there are non-null and foreign key checks that failed on the `staging.books` table, and primary key and check constraint that failed on the `staging.authors` table. The interactive GUI will display all values in the `books.genres` column that fail the foreign key check. No GUI dialogs are displayed for non-null checks, because there are no values to display. Similarly, if there is a primary key check that fails (like in the `staging.authors` table), a GUI dialog will be displayed with the primary keys in the table that are failing. No GUI dialogs are displayed for check constraint checks.
 
 ## Use cases
 
 Below are examples of how to use `PgUpsert` methods individually, and why you might want to use them.
 
-Each example below will assume that the `PgUpsert` class has been instantiated as `upsert` with the following code:
+Each example below will assume that the `PgUpsert` class has been instantiated with the following code:
 
 ```python
 import logging
@@ -204,7 +218,7 @@ logger.setLevel(logging.INFO)
 logger.addHandler(logging.StreamHandler())
 
 upsert = PgUpsert(
-   uri="postgresql://user@localhost:5432/database", # Note the missing password. pg_upsert will prompt for the password.
+   uri="postgresql://user@localhost:5432/dev", # Note the missing password. pg_upsert will prompt for the password.
    tables=("genres", "publishers", "books", "authors", "book_authors"),
    stg_schema="staging",
    base_schema="public",
