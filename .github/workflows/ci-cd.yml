@@ -63,7 +63,7 @@ jobs:
           uv pip install pytest
       - name: Test with pytest
         run: |
-          uv run pytest
+          uv run pytest tests
         env:
           POSTGRES_HOST: ${{ env.POSTGRES_HOST }}
           POSTGRES_PORT: ${{ env.POSTGRES_PORT }}
