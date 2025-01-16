@@ -7,8 +7,6 @@ import pytest
 from dotenv import load_dotenv
 from psycopg2.sql import SQL, Identifier, Literal
 
-from pg_upsert.upsert import PgUpsert
-
 load_dotenv()
 
 
@@ -281,7 +279,7 @@ def test_pgupsert_upsert_one_insert(ups):
         ),
     )
     row = curs.fetchone()
-    assert row[0] == 2
+    assert row[0] == 19
     assert row[1] == 0
 
 
@@ -299,7 +297,7 @@ def test_pgupsert_upsert_one_update(ups):
     )
     row = curs.fetchone()
     assert row[0] == 0
-    assert row[1] == 2
+    assert row[1] == 19
 
 
 def test_pgupsert_upsert_one_upsert(ups):
@@ -319,8 +317,8 @@ def test_pgupsert_upsert_one_upsert(ups):
         ),
     )
     row = curs.fetchone()
-    assert row[0] == 1
-    assert row[1] == 2
+    assert row[0] == 0
+    assert row[1] == 20
 
 
 def test_pgupsert_upsert_no_commit_do_commit_false(ups):
@@ -340,7 +338,7 @@ def test_pgupsert_upsert_do_commit_true(ups):
     ups.do_commit = True
     ups.upsert_one("genres").commit()
     curs = ups.db.execute("select count(*) from public.genres;")
-    assert curs.fetchone()[0] == 2
+    assert curs.fetchone()[0] == 19
 
 
 def test_pgupsert_commit_standalone(ups):

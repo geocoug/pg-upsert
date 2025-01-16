@@ -10,7 +10,7 @@
 
 The program will perform initial table checks in the form of *not-null*, *primary key*, *foreign key*, and *check constraint* checks. If any of these checks fail, the program will exit with an error message. If all checks pass, the program will display the number of rows to be inserted and updated, and ask for confirmation before proceeding (when the `interactive` flag is set to `True`). If the user confirms, the program will perform the upserts and display the number of rows inserted and updated. If the user does not confirm, the program will exit without performing any upserts.
 
-![Screenshot](https://raw.githubusercontent.com/geocoug/pg-upsert/refs/heads/main/screenshot.png)
+![Screenshot](https://raw.githubusercontent.com/geocoug/pg-upsert/refs/heads/main/pg-upsert-screenshot.png)
 
 ## Credits
 
@@ -18,7 +18,13 @@ This project was created using inspiration from [ExecSQL](https://execsql.readth
 
 ## Usage
 
-A sample database is provided in the [tests/data.sql](https://github.com/geocoug/pg-upsert/blob/main/tests/data.sql) file and can be used to test the functionality of the `pg-upsert` package. See the [Running Tests Locally](#running-tests-locally) section for more information on how to set up the test database locally with Docker.
+Two sample database schemas are provided in the [tests/data](https://github.com/geocoug/pg-upsert/blob/main/tests/data) folder and can be used to test the functionality of the `pg-upsert` package. Both schemas are identical, the only difference is the data contained within the tables. The [schema_failing.sql](https://github.com/geocoug/pg-upsert/blob/main/tests/data/schema_failing.sql) file contains some data rows which will pass the *not-null*, *primary key*, *foreign key*, and *check constraint* checks, and other rows that will fail the checks. The [schema_passing.sql](https://github.com/geocoug/pg-upsert/blob/main/tests/data/schema_passing.sql) file contains data rows that will pass all checks.
+
+Below is an ERD of the example schema. Code examples below will use this schema for demonstration purposes.
+
+![ERD](https://raw.githubusercontent.com/geocoug/pg-upsert/refs/heads/main/example-data-erd.png)
+
+See the [Running Tests Locally](#running-tests-locally) section for more information on how to set up a test database locally with Docker.
 
 ### Python
 
@@ -35,7 +41,7 @@ logger.addHandler(logging.StreamHandler())
 
 # Run PgUpsert using a URI
 PgUpsert(
-    uri="postgresql://user@localhost:5432/database", # Note the missing password. pg-upsert will prompt for the password.
+    uri="postgresql://docker@localhost:5432/dev", # Note the missing password. pg-upsert will prompt for the password.
     encoding="utf-8",
     tables=("genres", "publishers", "books", "authors", "book_authors"),
     stg_schema="staging",
@@ -43,8 +49,8 @@ PgUpsert(
     do_commit=True,
     upsert_method="upsert",
     interactive=True,
-    exclude_cols=("rev_user", "rev_time", "created_at", "updated_at"),
-    exclude_null_check_cols=("rev_user", "rev_time", "created_at", "updated_at", "alias"),
+    exclude_cols=("rev_user", "rev_time"),
+    exclude_null_check_cols=("book_alias"),
 ).run()
 ```
 
@@ -63,9 +69,9 @@ logger.addHandler(logging.StreamHandler())
 conn = psycopg2.connect(
     host="localhost",
     port=5432,
-    dbname="database",
-    user="user",
-    password="password",
+    dbname="dev",
+    user="docker",
+    password="docker",
 )
 
 PgUpsert(
@@ -77,14 +83,14 @@ PgUpsert(
     do_commit=True,
     upsert_method="upsert",
     interactive=True,
-    exclude_cols=("rev_user", "rev_time", "created_at", "updated_at"),
-    exclude_null_check_cols=("rev_user", "rev_time", "created_at", "updated_at", "alias"),
+    exclude_cols=("rev_user", "rev_time"),
+    exclude_null_check_cols=("book_alias"),
 ).run()
 ```
 
 ### CLI
 
-`pg-upsert` can be run from the command line. There are two key ways to run `pg-upsert` from the command line: using a configuration file or using command line arguments.
+There are two key ways to run `pg-upsert` from the command line: using a configuration file or using command line arguments.
 
 > [!IMPORTANT]
 > If the user specifies a configuration file **and** command line arguments, the configuration file will override any command line arguments specified.
@@ -129,7 +135,7 @@ Running `pg-upsert --help` will display the following help message:
 An example of running `pg-upsert` from the command line is shown below:
 
 ```sh
-pg-upsert -l pg_upsert.log -h localhost -p 5432 -d postgres -u postgres -s staging -b public -t authors -t publishers -t books -t book_authors -t genres
+pg-upsert -l pg_upsert.log -h localhost -p 5432 -d dev -u docker -s staging -b public -t authors -t publishers -t books -t book_authors -t genres
 ```
 
 #### Configuration File
@@ -157,16 +163,13 @@ tables:
   - "book_authors"
   - "genres"
 exclude_columns:
-  - "alias"
   - "rev_time"
   - "rev_user"
 null_columns:
-  - "alias"
-  - "created_at"
-  - "updated_at"
+  - "book_alias"
 ```
 
-Then, run `pg-upsert -f pg_upsert.yaml`.
+Then, run `pg-upsert -f pg-upsert.example.yaml`.
 
 ### Docker
 
@@ -198,16 +201,28 @@ The `-v` flag is used to mount the current directory to the `/app` directory in 
 
 ### Running Tests Locally
 
-Running tests locally requires a PostgreSQL database. The easiest way to set up a PostgreSQL database is to use Docker. The following command will create a PostgreSQL database called `dev` with the user `docker` and password `docker`.
+Running tests locally requires a PostgreSQL database. The easiest way to set up a PostgreSQL database is to use Docker. The following command will create a PostgreSQL database called `dev` with the user `docker` and password `docker`:
 
 ```sh
-docker run --name postgres -e POSTGRES_USER=docker -e POSTGRES_PASSWORD=docker -e POSTGRES_DB=dev -p 5432:5432 -d postgres
+docker run --name postgres -e POSTGRES_USER=docker -e POSTGRES_PASSWORD=docker -e POSTGRES_DB=dev -p 5432:5432 -d postgres:latest
 ```
 
-Once initialized, import the test data by running the following command.
+Once initialized, import the test data:
 
 ```sh
-docker exec -i postgres psql -U docker -d dev < tests/data.sql
+docker exec -i postgres psql -U docker -d dev < tests/data/schema_failing.sql
+```
+
+Verify that the tables were created successfully:
+
+```sh
+docker exec -it postgres psql -U docker -d dev -c "
+    SELECT table_schema, table_name
+    FROM information_schema.tables
+    WHERE table_type = 'BASE TABLE'
+    AND table_schema NOT IN ('pg_catalog', 'information_schema')
+    ORDER BY table_schema, table_name;
+"
 ```
 
 Create a `.env` file in the root directory with the following content, modifying the values as needed.

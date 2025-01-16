@@ -18,10 +18,7 @@ tables:
   - "book_authors"
   - "genres"
 exclude_columns:
-  - "alias"
   - "rev_time"
   - "rev_user"
 null_columns:
-  - "alias"
-  - "created_at"
-  - "updated_at"
+  - "book_alias"

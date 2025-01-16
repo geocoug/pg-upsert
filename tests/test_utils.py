@@ -1,12 +1,7 @@
 #!/usr/bin/env python
 
 import logging
-import time
 from datetime import datetime, timedelta
-
-import pytest
-from dotenv import load_dotenv
-from psycopg2.sql import SQL, Identifier, Literal
 
 from pg_upsert.utils import CustomLogFormatter, elapsed_time
 

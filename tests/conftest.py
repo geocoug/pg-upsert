@@ -5,14 +5,14 @@ from pathlib import Path
 
 import pytest
 from dotenv import load_dotenv
-from typer.testing import CliRunner
 
 from pg_upsert import PgUpsert, PostgresDB
 
 load_dotenv()
 
 
-DATA = Path(__file__).parent / "data.sql"
+PASSING_DATA = Path(__file__).parent / "data" / "schema_passing.sql"
+FAILING_DATA = Path(__file__).parent / "data" / "schema_failing.sql"
 
 
 def pytest_addoption(parser):
@@ -50,7 +50,7 @@ def global_variables():
 def db(global_variables):
     """Return a PostgresDB object."""
     db = PostgresDB(uri=global_variables["URI"])
-    db.execute(DATA.read_text())
+    db.execute(PASSING_DATA.read_text())
     db.commit()
     yield db
     db.execute(
