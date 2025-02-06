@@ -6,11 +6,23 @@
 [![PyPI Downloads](https://img.shields.io/pypi/dm/pg-upsert.svg?label=pypi%20downloads)](https://pypi.org/project/pg-upsert/)
 [![Python Version Support](https://img.shields.io/pypi/pyversions/pg-upsert.svg)](https://pypi.org/project/pg-upsert/)
 
-**pg-upsert** is a Python package that provides a method to *interactively* update and insert (upsert) rows of a base table or base tables from the staging table(s) of the same name. The package is designed to work exclusively with PostgreSQL databases.
-
-The program will perform initial table checks in the form of *not-null*, *primary key*, *foreign key*, and *check constraint* checks. If any of these checks fail, the program will exit with an error message. If all checks pass, the program will display the number of rows to be inserted and updated, and ask for confirmation before proceeding (when the `interactive` flag is set to `True`). If the user confirms, the program will perform the upserts and display the number of rows inserted and updated. If the user does not confirm, the program will exit without performing any upserts.
+**pg-upsert** is a Python package that provides a method to *interactively* update and/or insert (upsert) rows of a base table or base tables from the staging table(s) of the same name. It is designed to work exclusively with PostgreSQL databases.
 
 ![Screenshot](https://raw.githubusercontent.com/geocoug/pg-upsert/refs/heads/main/pg-upsert-screenshot.png)
+
+## Why Use `pg-upsert`?
+
+Managing data synchronization between staging and production tables in PostgreSQL can be complex and error-prone. **pg-upsert** simplifies this process by providing a structured, reliable, and interactive approach to upserting data. Here’s why you might want to use it:
+
+- :white_check_mark: **Automated Integrity Checks** – Ensures that [NOT NULL](https://www.postgresql.org/docs/current/ddl-constraints.html#DDL-CONSTRAINTS-NOT-NULL), [PRIMARY KEY](https://www.postgresql.org/docs/current/ddl-constraints.html#DDL-CONSTRAINTS-PRIMARY-KEYS), [FOREIGN KEY](https://www.postgresql.org/docs/current/ddl-constraints.html#DDL-CONSTRAINTS-FK), and [CHECK CONSTRAINT](https://www.postgresql.org/docs/current/ddl-constraints.html#DDL-CONSTRAINTS-CHECK-CONSTRAINTS) rules are validated before any modifications occur. If all checks pass, the program will display the number of rows to be inserted and updated, and ask for confirmation before proceeding (**when the `interactive` flag is set to `True`**).
+- :white_check_mark: **Interactive Confirmation** – Before performing upserts, the tool displays a summary of changes and waits for user confirmation, reducing accidental data corruption.
+- :white_check_mark: **Flexible Upsert Strategies** – Supports multiple upsert methods (upsert, update, insert), allowing you to tailor the process to your needs.
+- :white_check_mark: **Schema-Aware Execution** – Works across different schemas (staging and base) to help maintain data separation and versioning.
+- :white_check_mark: **Minimal Dependencies** – Built specifically for PostgreSQL without requiring complex third-party dependencies.
+- :white_check_mark: **Command-Line and Python API Support** – Run it as a script, integrate it into automated workflows, or execute it interactively via CLI.
+- :white_check_mark: **Safe and Transparent** – Logs detailed messages about operations performed, making debugging and auditing easier.
+
+Whether you need to merge staging data into production, synchronize changes across environments, or validate table integrity before inserts, **pg-upsert** is a lightweight yet powerful solution.
 
 ## Credits
 
@@ -102,34 +114,32 @@ Running `pg-upsert --help` will display the following help message:
 ```txt
  Usage: pg-upsert [OPTIONS]
 
- Run not-NULL, Primary Key, Foreign Key, and Check Constraint checks on staging tables then update and insert (upsert)
- data from staging tables to base tables.
+ Run not-NULL, Primary Key, Foreign Key, and Check Constraint checks on staging tables then update and insert (upsert) data from staging tables to base tables.
 
-╭─ Options ───────────────────────────────────────────────────────────────────────────────────────────────────────────╮
-│ --version             -v               Display the version and exit                                                 │
-│ --debug                                Display debug output                                                         │
-│ --docs                                 Open the documentation in a web browser                                      │
-│ --quiet               -q               Suppress all console output                                                  │
-│ --logfile             -l      PATH     Write log messages to a log file [default: None]                             │
-│ --exclude-columns     -e      TEXT     Comma-separated list of columns to exclude from null checks [default: None]  │
-│ --null-columns        -n      TEXT     Comma-separated list of columns to exclude from null checks [default: None]  │
-│ --commit              -c               Commit changes to database                                                   │
-│ --interactive         -i               Display interactive GUI of important table information                       │
-│ --upsert-method       -m      TEXT     Method to use for upsert (upsert, update, insert) [default: upsert]          │
-│ --host                -h      TEXT     Database host [default: None]                                                │
-│ --port                -p      INTEGER  Database port [default: 5432]                                                │
-│ --database            -d      TEXT     Database name [default: None]                                                │
-│ --user                -u      TEXT     Database user [default: None]                                                │
-│ --staging-schema      -s      TEXT     Staging schema name [default: staging]                                       │
-│ --base-schema         -b      TEXT     Base schema name [default: public]                                           │
-│ --encoding            -e      TEXT     Encoding of the database [default: utf-8]                                    │
-│ --config-file         -f      PATH     Path to configuration YAML file [default: None]                              │
-│ --tables              -t      TEXT     Table name(s) [default: None]                                                │
-│ --install-completion                   Install completion for the current shell.                                    │
-│ --show-completion                      Show completion for the current shell, to copy it or customize the           │
-│                                        installation.                                                                │
-│ --help                                 Show this message and exit.                                                  │
-╰─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+╭─ Options ──────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ --version          -v               Display the version and exit                                                   │
+│ --debug                             Display debug output                                                           │
+│ --docs                              Open the documentation in a web browser                                        │
+│ --quiet            -q               Suppress all console output                                                    │
+│ --logfile          -l      PATH     Write log messages to a log file [default: None]                               │
+│ --exclude-columns  -x      TEXT     Comma-separated list of columns to exclude from null checks [default: None]    │
+│ --null-columns     -n      TEXT     Comma-separated list of columns to exclude from null checks [default: None]    │
+│ --commit           -c               Commit changes to database                                                     │
+│ --interactive      -i               Display interactive GUI of important table information                         │
+│ --upsert-method    -m      TEXT     Method to use for upsert (upsert, update, insert) [default: upsert]            │
+│ --host             -h      TEXT     Database host [default: None]                                                  │
+│ --port             -p      INTEGER  Database port [default: 5432]                                                  │
+│ --database         -d      TEXT     Database name [default: None]                                                  │
+│ --user             -u      TEXT     Database user [default: None]                                                  │
+│ --staging-schema   -s      TEXT     Staging schema name [default: staging]                                         │
+│ --base-schema      -b      TEXT     Base schema name [default: public]                                             │
+│ --encoding         -e      TEXT     Encoding of the database [default: utf-8]                                      │
+│ --config-file      -f      PATH     Path to configuration YAML file [default: None]                                │
+│ --tables           -t      TEXT     Table name(s) [default: None]                                                  │
+│ --generate-config  -g               Generate a template configuration file. If any other options are               │
+│                                     provided, they will be included in the generated file.                         │
+│ --help                              Show this message and exit.                                                    │
+╰────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
 ```
 
 An example of running `pg-upsert` from the command line is shown below:
