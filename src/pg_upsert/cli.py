@@ -20,10 +20,10 @@ logger = logging.getLogger(__title__)
 logger.propagate = False
 
 
-app = typer.Typer()
+app = typer.Typer(add_completion=False)
 
 
-@app.command(help=__description__)
+@app.command(help=__description__, no_args_is_help=True)
 def cli(
     version: Annotated[
         bool,
@@ -64,15 +64,15 @@ def cli(
         ),
     ] = None,
     exclude_columns: Annotated[
-        str | None,
+        list[str] | None,
         typer.Option(
             "--exclude-columns",
-            "-e",
+            "-x",
             help="Comma-separated list of columns to exclude from null checks",
         ),
     ] = None,
     null_columns: Annotated[
-        str | None,
+        list[str] | None,
         typer.Option(
             "--null-columns",
             "-n",
@@ -176,10 +176,18 @@ def cli(
             help="Table name(s)",
         ),
     ] = None,
+    generate_config: Annotated[
+        bool,
+        typer.Option(
+            "--generate-config",
+            "-g",
+            help="Generate a template configuration file. If any other options are provided, they will be included in the generated file.",  # noqa
+        ),
+    ] = False,
 ) -> None:
     args = SimpleNamespace(**locals())
     if args.version:
-        print(f"{__version__}")
+        print(f"[bold]{__title__}[/bold]: {__version__}")
         sys.exit(0)
     if args.docs:
         try:
@@ -188,6 +196,16 @@ def cli(
         except Exception as e:
             logger.error(e)
             raise
+        sys.exit(0)
+    if args.generate_config:
+        with open((Path().cwd() / "pg-upsert-template.yaml").resolve(), "w") as file:
+            del args.version, args.config_file, args.docs, args.generate_config
+            if not args.logfile:
+                args.logfile = Path(f"{__title__}.log").as_posix()
+            yaml.dump(args.__dict__, file, sort_keys=False, indent=2, encoding="utf-8")
+        print(
+            ":file_folder: Configuration file generated: [bold green]pg-upsert-template.yaml[/bold green]",
+        )
         sys.exit(0)
     if args.config_file:
         if args.config_file.resolve().exists():
