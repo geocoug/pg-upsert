@@ -190,14 +190,15 @@ The `-v` flag is used to mount the current directory to the `/app` directory in 
 ## Contributing
 
 1. Fork the repository
-2. Create a new branch (`git checkout -b feature-branch`)
-3. Create a Python virtual environment (`python -m venv .venv`)
+2. Create a new branch (`git checkout -b <feature-branch>`)
+3. Create a Python virtual environment (`python -m venv .venv` | `uv venv`)
 4. Activate the virtual environment (`source .venv/bin/activate`)
-5. Install dependencies (`pip install -r requirements.txt`)
+5. Install dependencies (`pip install ".[dev]"` | `uv pip install ".[dev]"`)
 6. Install pre-commit hooks (`python -m pre-commit install --install-hooks`)
-7. Make your changes and run tests (`make test`)
-8. Push your changes to the branch (`git push origin feature-branch`)
-9. Create a pull request
+7. Make your changes
+8. Run tests with `tox`
+9. Push your changes to the branch (`git push origin <feature-branch>`)
+10. Create a pull request
 
 ### Running Tests Locally
 
@@ -235,4 +236,6 @@ POSTGRES_USER=docker
 POSTGRES_PASSWORD=docker
 ```
 
-Now you can run the tests using `make test`.
+Install the development dependencies: `pip install ".[dev]"` | `uv pip install ".[dev]"`.
+
+Now you can run the tests using `tox`.
