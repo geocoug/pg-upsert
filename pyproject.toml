@@ -1,16 +1,17 @@
 [project]
-name = "pg-upsert"
+name = "pg_upsert"
 dynamic = ["version"]
 authors = [{ name = "Caleb Grant", email = "grantcaleb22@gmail.com" }]
 description = "A Python library for upserting data into postgres."
 readme = { file = "README.md", content-type = "text/markdown" }
 license = { file = "LICENSE" }
-requires-python = ">=3.10"
+requires-python = ">=3.10,<3.14"
 classifiers = [
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Operating System :: OS Independent",
     "Intended Audience :: Developers",
     "Topic :: Database",
@@ -25,6 +26,24 @@ dependencies = [
 ]
 keywords = ["postgresql", "postgres", "dbms", "etl", "upsert", "database"]
 
+[project.optional-dependencies]
+dev = [
+    "build",
+    "bump-my-version",
+    "markdown-include",
+    "mkdocs",
+    "mkdocstrings",
+    "mkdocstrings-python",
+    "mkdocs-material",
+    "pre-commit",
+    "pytest",
+    "pytest-cov",
+    "python-dotenv",
+    "ruff",
+    "tox-uv",
+    "twine",
+]
+
 [project.scripts]
 pg-upsert = "pg_upsert.cli:app"
 
@@ -35,10 +54,6 @@ version = { attr = "pg_upsert.__version__.__version__" }
 Homepage = "https://pg-upsert.readthedocs.io"
 Repository = "https://github.com/geocoug/pg-upsert"
 Issues = "https://github.com/geocoug/pg-upsert/issues"
-
-[tool.pytest.ini_options]
-addopts = ["--cov=pg_upsert", "--cov-report=term-missing"]
-log_cli = true
 
 [tool.ruff]
 # Exclude a variety of commonly ignored directories.
@@ -66,8 +81,8 @@ exclude = [
 ]
 # The line length to use when enforcing long-lines violations (like E501).
 line-length = 120
-# Assume Python 3.11.
-target-version = "py312"
+# Assume Python 3.13.
+target-version = "py313"
 # Whether to automatically exclude files that are ignored by .ignore, .gitignore, .git/info/exclude, and global gitignore files.
 respect-gitignore = true
 # Default autofix behavior
@@ -115,3 +130,44 @@ tag = true
 
 [[tool.bumpversion.files]]
 filename = "pg_upsert/__version__.py"
+
+[tool.pytest.ini_options]
+addopts = [
+    "--cov=pg_upsert",
+    "--cov=tests",
+    "--strict-markers",
+    "--strict-config",
+    "-ra",
+    "--cov-branch",
+    "--color=yes",
+    # "--cov-fail-under=90",
+]
+testpaths = "tests"
+log_cli = true
+
+[tool.tox]
+required = ["tox>=4.24"]
+env_list = ["py310", "py311", "py312", "py313", "build", "docs"]
+skip_missing_interpreters = true
+isolated_build = true
+
+[tool.tox.env_run_base]
+description = "Run tests under {base_python}"
+deps = ["pytest", "pytest-cov", "python-dotenv"]
+commands = [["pytest", "{posargs}"]]
+
+[tool.tox.env.docs]
+description = "Build documentation using MkDocs"
+deps = [
+    "mkdocs",
+    "mkdocstrings",
+    "mkdocstrings-python",
+    "mkdocs-material",
+    "markdown-include",
+]
+commands = [["mkdocs", "build", "-c", "-q"]]
+
+[tool.tox.env.build]
+description = "Build distribution packages"
+deps = ["tox-uv"]
+commands = [["uv", "build"]]
