@@ -39,9 +39,9 @@ class PgUpsert:
         conn (psycopg2.extensions.connection or None, optional): An existing connection object to the PostgreSQL database. Defaults to None. **Note**: If a connection object is not provided, a connection URI must be provided. If both are provided, the connection object will be used.
         encoding (str, optional): The encoding to use for the database connection. Defaults to "utf-8".
         tables (list or tuple or None, optional): List of table names to perform QA checks on and upsert. Defaults to ().
-        stg_schema (str or None, optional): Name of the staging schema where tables are located which will be used for QA checks and upserts. Tables in the staging schema must have the same name as the tables in the base schema that they will be upserted to. Defaults to None.
+        staging_schema (str or None, optional): Name of the staging schema where tables are located which will be used for QA checks and upserts. Tables in the staging schema must have the same name as the tables in the base schema that they will be upserted to. Defaults to None.
         base_schema (str or None, optional): Name of the base schema where tables are located which will be updated or inserted into. Defaults to None.
-        do_commit (bool, optional): If True, changes will be committed to the database once the upsert process is complete. If False, changes will be rolled back. Defaults to False.
+        do_commit (bool, optional): If True, changes will be committed to the database once the upsert process has completed successfully. If False, changes will be rolled back. Defaults to False.
         interactive (bool, optional): If True, the user will be prompted with multiple dialogs to confirm various steps during the upsert process. If False, the upsert process will run without user intervention. Defaults to False.
         upsert_method (str, optional): The method to use for upserting data. Must be one of "upsert", "update", or "insert". Defaults to "upsert".
         exclude_cols (list or tuple or None, optional): List of column names to exclude from the upsert process. These columns will not be updated or inserted to, however, they will still be checked during the QA process.
@@ -56,7 +56,7 @@ class PgUpsert:
     ups  = PgUpsert(
         uri="postgresql://user@localhost:5432/database", # Note the missing password. pg_upsert will prompt for the password.
         tables=("genres", "books", "publishers", "authors", "book_authors"),
-        stg_schema="staging",
+        staging_schema="staging",
         base_schema="public",
         do_commit=False,
         upsert_method="upsert",
@@ -74,7 +74,7 @@ class PgUpsert:
         conn: None | psycopg2.extensions.connection = None,
         encoding: str = "utf-8",
         tables: list | tuple | None = (),
-        stg_schema: str | None = None,
+        staging_schema: str | None = None,
         base_schema: str | None = None,
         do_commit: bool = False,
         interactive: bool = False,
@@ -87,18 +87,18 @@ class PgUpsert:
             raise ValueError(
                 f"Invalid upsert method: {upsert_method}. Must be one of {self._upsert_methods()}",
             )
-        if not base_schema or not stg_schema:
-            if not base_schema and not stg_schema:
+        if not base_schema or not staging_schema:
+            if not base_schema and not staging_schema:
                 raise ValueError("No base or staging schema specified")
             if not base_schema:
                 raise ValueError("No base schema specified")
-            if not stg_schema:
+            if not staging_schema:
                 raise ValueError("No staging schema specified")
         if not tables:
             raise ValueError("No tables specified")
-        if stg_schema == base_schema:
+        if staging_schema == base_schema:
             raise ValueError(
-                f"Staging and base schemas must be different. Got {stg_schema} for both.",
+                f"Staging and base schemas must be different. Got {staging_schema} for both.",
             )
         self.db = PostgresDB(
             uri=uri,
@@ -107,7 +107,7 @@ class PgUpsert:
         )
         logger.debug(f"Connected to {self.db!s}")
         self.tables = tables
-        self.stg_schema = stg_schema
+        self.staging_schema = staging_schema
         self.base_schema = base_schema
         self.do_commit = do_commit
         self.interactive = interactive
@@ -131,7 +131,7 @@ class PgUpsert:
         return ("upsert", "update", "insert")
 
     def __repr__(self) -> str:
-        return f"{self.__class__.__name__}(db={self.db!r}, tables={self.tables}, stg_schema={self.stg_schema}, base_schema={self.base_schema}, do_commit={self.do_commit}, interactive={self.interactive}, upsert_method={self.upsert_method}, exclude_cols={self.exclude_cols}, exclude_null_check_cols={self.exclude_null_check_cols})"  # noqa: E501
+        return f"{self.__class__.__name__}(db={self.db!r}, tables={self.tables}, staging_schema={self.staging_schema}, base_schema={self.base_schema}, do_commit={self.do_commit}, interactive={self.interactive}, upsert_method={self.upsert_method}, exclude_cols={self.exclude_cols}, exclude_null_check_cols={self.exclude_null_check_cols})"  # noqa: E501
 
     def _tabulate_sql(self, sql: str | Composable) -> None | str:
         """Tabulate the results of a SQL query and return the formatted Markdown table.
@@ -151,7 +151,7 @@ class PgUpsert:
 
     def _validate_schemas(self: PgUpsert) -> None:
         """Validate that the base and staging schemas exist."""
-        logger.debug(f"Validating schemas {self.base_schema} and {self.stg_schema}")
+        logger.debug(f"Validating schemas {self.base_schema} and {self.staging_schema}")
         sql = SQL(
             """
             select
@@ -168,7 +168,7 @@ class PgUpsert:
                 union
                 select
 
-                    {stg_schema} as schema_name,
+                    {staging_schema} as schema_name,
                     'staging' as schema_type
                 ) as schemas
                 left join information_schema.schemata as iss
@@ -179,7 +179,7 @@ class PgUpsert:
         """,
         ).format(
             base_schema=Literal(self.base_schema),
-            stg_schema=Literal(self.stg_schema),
+            staging_schema=Literal(self.staging_schema),
         )
         if self.db.execute(sql).rowcount > 0:
             raise ValueError(
@@ -196,7 +196,7 @@ class PgUpsert:
             table (str): The table to validate.
         """
         logger.debug(
-            f"Validating table {table} exists in {self.base_schema} and {self.stg_schema} schemas",
+            f"Validating table {table} exists in {self.base_schema} and {self.staging_schema} schemas",
         )
         sql = SQL(
             """
@@ -211,7 +211,7 @@ class PgUpsert:
                         'base' as schema_type,
                         {table} as table_name
                     union
-                    select {stg_schema} as schema_name,
+                    select {staging_schema} as schema_name,
                         'staging' as schema_type,
                         {table} as table_name
                 ) as tt
@@ -223,7 +223,7 @@ class PgUpsert:
         """,
         ).format(
             base_schema=Literal(self.base_schema),
-            stg_schema=Literal(self.stg_schema),
+            staging_schema=Literal(self.staging_schema),
             table=Literal(table),
         )
         if self.db.execute(sql).rowcount > 0:
@@ -266,7 +266,7 @@ class PgUpsert:
             """
             drop table if exists ups_validate_control cascade;
             select cast({base_schema} as text) as base_schema,
-                cast({stg_schema} as text) as staging_schema,
+                cast({staging_schema} as text) as staging_schema,
                 table_name,
                 False as base_exists,
                 False as staging_exists into temporary table ups_validate_control
@@ -303,7 +303,7 @@ class PgUpsert:
         """,
         ).format(
             base_schema=Literal(self.base_schema),
-            stg_schema=Literal(self.stg_schema),
+            staging_schema=Literal(self.staging_schema),
             control_table=Identifier(self.control_table),
         )
         if self.db.execute(sql).rowcount > 0:
@@ -499,7 +499,7 @@ class PgUpsert:
         PgUpsert(
             uri="postgresql://user@localhost:5432/database",
             tables=("genres", "books", "publishers", "authors", "book_authors"),
-            stg_schema="staging",
+            staging_schema="staging",
             base_schema="public",
             do_commit=False,
             interactive=False,
@@ -654,7 +654,7 @@ class PgUpsert:
         | `ups_null_error_list` | Temporary view containing the list of null errors. |
         """  # noqa: E501
         logger.info(
-            f"Conducting not-null QA checks on table {self.stg_schema}.{table}",
+            f"Conducting not-null QA checks on table {self.staging_schema}.{table}",
         )
         self._validate_table(table)
         # Create a table listing the columns of the base table that must
@@ -702,14 +702,14 @@ class PgUpsert:
                 select nrows
                 from (
                     select count(*) as nrows
-                    from {stg_schema}.{table}
+                    from {staging_schema}.{table}
                     where {column_name} is null
                     ) as nullcount
                 where nrows > 0
                 limit 1;
                 """,
                 ).format(
-                    stg_schema=Identifier(self.stg_schema),
+                    staging_schema=Identifier(self.staging_schema),
                     table=Identifier(table),
                     column_name=Identifier(rows["column_name"]),
                 ),
@@ -818,7 +818,7 @@ class PgUpsert:
         """  # noqa: E501
         pk_errors = []
         logger.info(
-            f"Conducting primary key QA checks on table {self.stg_schema}.{table}",
+            f"Conducting primary key QA checks on table {self.staging_schema}.{table}",
         )
         self._validate_table(table)
         # Create a table listing the primary key columns of the base table.
@@ -863,13 +863,13 @@ class PgUpsert:
             drop view if exists ups_pk_check cascade;
             create temporary view ups_pk_check as
             select {pkcollist}, count(*) as nrows
-            from {stg_schema}.{table} as s
+            from {staging_schema}.{table} as s
             group by {pkcollist}
             having count(*) > 1;
             """,
             ).format(
                 pkcollist=pk_cols,
-                stg_schema=Identifier(self.stg_schema),
+                staging_schema=Identifier(self.staging_schema),
                 table=Identifier(table),
             ),
         )
@@ -887,7 +887,7 @@ class PgUpsert:
                 ),
             )
             tot_errs = next(iter(tot_errs))
-            err_msg = f"{tot_errs['errcount']} duplicate keys ({tot_errs['total_rows']} rows) in table {self.stg_schema}.{table}"  # noqa: E501
+            err_msg = f"{tot_errs['errcount']} duplicate keys ({tot_errs['total_rows']} rows) in table {self.staging_schema}.{table}"  # noqa: E501
             pk_errors.append(err_msg)
             logger.warning("")
             err_sql = SQL("select * from ups_pk_check;")
@@ -967,7 +967,7 @@ class PgUpsert:
         | `ups_fk_check` | Temporary view containing the invalid foreign key values. |
         """  # noqa: E501
         logger.info(
-            f"Conducting foreign key QA checks on table {self.stg_schema}.{table}",
+            f"Conducting foreign key QA checks on table {self.staging_schema}.{table}",
         )
         self._validate_table(table)
         # Create a table of *all* foreign key dependencies in this database.
@@ -1118,10 +1118,10 @@ class PgUpsert:
                 self.db.execute(
                     SQL(
                         """select * from information_schema.tables
-                        where table_name = {table} and table_schema = {stg_schema};""",
+                        where table_name = {table} and table_schema = {staging_schema};""",
                     ).format(
                         table=Literal(const_rows["uq_table"]),
-                        stg_schema=Literal(self.stg_schema),
+                        staging_schema=Literal(self.staging_schema),
                     ),
                 ).rowcount
                 > 0
@@ -1133,12 +1133,12 @@ class PgUpsert:
                 drop view if exists ups_fk_check cascade;
                 create or replace temporary view ups_fk_check as
                 select {s_checked}, count(*) as nrows
-                from {stg_schema}.{table} as s
+                from {staging_schema}.{table} as s
                 left join {uq_schema}.{uq_table} as u on {u_join}
                 """,
             ).format(
                 s_checked=SQL(fk_rows["s_checked"]),
-                stg_schema=Identifier(self.stg_schema),
+                staging_schema=Identifier(self.staging_schema),
                 table=Identifier(table),
                 uq_schema=Identifier(const_rows["uq_schema"]),
                 uq_table=Identifier(const_rows["uq_table"]),
@@ -1146,9 +1146,9 @@ class PgUpsert:
             )
             if su_exists:
                 query += SQL(
-                    """ left join {stg_schema}.{uq_table} as su on {su_join}""",
+                    """ left join {staging_schema}.{uq_table} as su on {su_join}""",
                 ).format(
-                    stg_schema=Identifier(self.stg_schema),
+                    staging_schema=Identifier(self.staging_schema),
                     uq_table=Identifier(const_rows["uq_table"]),
                     su_join=SQL(fk_rows["su_join"]),
                 )
@@ -1330,7 +1330,7 @@ class PgUpsert:
         | `ups_ck_error_list` | Temporary table containing the list of check constraint errors. |
         """  # noqa: E501
         logger.info(
-            f"Conducting check constraint QA checks on table {self.stg_schema}.{table}",
+            f"Conducting check constraint QA checks on table {self.staging_schema}.{table}",
         )
         # Create a table of *all* check constraints in this database.
         # Because this may be an expensive operation (in terms of time), the
@@ -1424,11 +1424,11 @@ class PgUpsert:
                 SQL(
                     """
             create or replace temporary view ups_ck_check_check as
-            select count(*) from {stg_schema}.{table}
+            select count(*) from {staging_schema}.{table}
             where not ({check_sql})
             """,
                 ).format(
-                    stg_schema=Identifier(self.stg_schema),
+                    staging_schema=Identifier(self.staging_schema),
                     table=Identifier(table),
                     check_sql=SQL(const_rows["check_sql"]),
                 ),
@@ -1694,13 +1694,13 @@ class PgUpsert:
             from information_schema.columns as s
                 inner join information_schema.columns as b on s.column_name=b.column_name
             where
-                s.table_schema = {stg_schema}
+                s.table_schema = {staging_schema}
                 and s.table_name = {table}
                 and b.table_schema = {base_schema}
                 and b.table_name = {table}
             """,
         ).format(
-            stg_schema=Literal(self.stg_schema),
+            staging_schema=Literal(self.staging_schema),
             table=Literal(table),
             base_schema=Literal(self.base_schema),
         )
@@ -1808,11 +1808,11 @@ class PgUpsert:
         # tables on the primary key column(s).
         from_clause = SQL(
             """FROM {base_schema}.{table} as b
-            INNER JOIN {stg_schema}.{table} as s ON {join_expr}""",
+            INNER JOIN {staging_schema}.{table} as s ON {join_expr}""",
         ).format(
             base_schema=Identifier(self.base_schema),
             table=Identifier(table),
-            stg_schema=Identifier(self.stg_schema),
+            staging_schema=Identifier(self.staging_schema),
             join_expr=SQL(join_expr[0]),
         )
         # Create SELECT queries to pull all columns with matching keys from both
@@ -1912,12 +1912,12 @@ class PgUpsert:
                         """
                         UPDATE {base_schema}.{table} as b
                         SET {ups_expr}
-                        FROM {stg_schema}.{table} as s WHERE {join_expr}
+                        FROM {staging_schema}.{table} as s WHERE {join_expr}
                     """,
                     ).format(
                         base_schema=Identifier(self.base_schema),
                         table=Identifier(table),
-                        stg_schema=Identifier(self.stg_schema),
+                        staging_schema=Identifier(self.staging_schema),
                         ups_expr=SQL(ups_expr[0]),
                         join_expr=SQL(join_expr[0]),
                     )
@@ -1936,17 +1936,17 @@ class PgUpsert:
                 drop view if exists ups_newrows cascade;
                 create temporary view ups_newrows as with newpks as (
                     select {pk_col_list}
-                    from {stg_schema}.{table}
+                    from {staging_schema}.{table}
                     except
                     select {pk_col_list}
                     from {base_schema}.{table}
                 )
                 select s.*
-                from {stg_schema}.{table} as s
+                from {staging_schema}.{table} as s
                     inner join newpks using ({pk_col_list});
                 """,
                 ).format(
-                    stg_schema=Identifier(self.stg_schema),
+                    staging_schema=Identifier(self.staging_schema),
                     table=Identifier(table),
                     pk_col_list=SQL(pk_col_list),
                     base_schema=Identifier(self.base_schema),
@@ -2035,7 +2035,7 @@ class PgUpsert:
         3. [`PgUpsert.commit()`](pg_upsert.md#pg_upsert.PgUpsert.commit)
         """
         start_time = datetime.now()
-        logger.info(f"Upserting to {self.base_schema} from {self.stg_schema}")
+        logger.info(f"Upserting to {self.base_schema} from {self.staging_schema}")
         if self.interactive:
             logger.debug("Tables selected for upsert:")
             for table in self.tables:
@@ -2116,7 +2116,7 @@ class PgUpsert:
                     logger.info("Changes committed")
                 else:
                     logger.info(
-                        "The do_commit flag is set to FALSE, rolling back changes.",
+                        "The commit flag is set to FALSE, rolling back changes.",
                     )
                     self.db.rollback()
         else:
