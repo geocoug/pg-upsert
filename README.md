@@ -112,34 +112,47 @@ There are two key ways to run `pg-upsert` from the command line: using a configu
 Running `pg-upsert --help` will display the following help message:
 
 ```txt
- Usage: pg-upsert [OPTIONS]
+Usage: pg-upsert [OPTIONS]
 
- Run not-NULL, Primary Key, Foreign Key, and Check Constraint checks on staging tables then update and insert (upsert) data from staging tables to base tables.
+Run not-NULL, Primary Key, Foreign Key, and Check Constraint checks on staging tables then update and insert (upsert) data from staging tables to base tables.
 
-╭─ Options ──────────────────────────────────────────────────────────────────────────────────────────────────────────╮
-│ --version          -v               Display the version and exit                                                   │
-│ --debug                             Display debug output                                                           │
-│ --docs                              Open the documentation in a web browser                                        │
-│ --quiet            -q               Suppress all console output                                                    │
-│ --logfile          -l      PATH     Write log messages to a log file [default: None]                               │
-│ --exclude-columns  -x      TEXT     Comma-separated list of columns to exclude from null checks [default: None]    │
-│ --null-columns     -n      TEXT     Comma-separated list of columns to exclude from null checks [default: None]    │
-│ --commit           -c               Commit changes to database                                                     │
-│ --interactive      -i               Display interactive GUI of important table information                         │
-│ --upsert-method    -m      TEXT     Method to use for upsert (upsert, update, insert) [default: upsert]            │
-│ --host             -h      TEXT     Database host [default: None]                                                  │
-│ --port             -p      INTEGER  Database port [default: 5432]                                                  │
-│ --database         -d      TEXT     Database name [default: None]                                                  │
-│ --user             -u      TEXT     Database user [default: None]                                                  │
-│ --staging-schema   -s      TEXT     Staging schema name [default: staging]                                         │
-│ --base-schema      -b      TEXT     Base schema name [default: public]                                             │
-│ --encoding         -e      TEXT     Encoding of the database [default: utf-8]                                      │
-│ --config-file      -f      PATH     Path to configuration YAML file [default: None]                                │
-│ --tables           -t      TEXT     Table name(s) [default: None]                                                  │
-│ --generate-config  -g               Generate a template configuration file. If any other options are               │
-│                                     provided, they will be included in the generated file.                         │
-│ --help                              Show this message and exit.                                                    │
-╰────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+╭─ Options ─────────────────────────────────────────────────────────────────────────────────────────╮
+│ --version          -v               Display the version and exit.                                 │
+│ --debug                             Display debug output.                                         │
+│ --docs                              Open the documentation in a web browser.                      │
+│ --quiet            -q               Suppress all console output.                                  │
+│ --logfile          -l      PATH     Write log messages to a log file. [default: None]             │
+│ --exclude-columns  -x      TEXT     List of column names to exclude from the upsert process.      │
+│                                     These columns will not be updated or inserted, but will       │
+│                                     still be checked during the QA process. [default: None]       │
+│ --null-columns     -n      TEXT     List of column names to exclude from the not-null check       │
+│                                     during the QA process. Useful for auto-generated timestamps   │
+│                                     or serial columns, which may not be populated immediately.    │
+│                                     [default: None]                                               │
+│ --commit           -c               If True, changes will be committed to the database once the   │
+│                                     upsert process completes. If False, changes will be rolled    │
+│                                     back.                                                         │
+│ --interactive      -i               If True, the user will be prompted to confirm steps during    │
+│                                     the upsert process. If False, the process runs automatically. │
+│ --upsert-method    -m      TEXT     The method for upserting data. Must be 'upsert', 'update',    │
+│                                     or 'insert'. [default: upsert]                                │
+│ --host             -h      TEXT     Database host. [default: None]                                │
+│ --port             -p      INTEGER  Database port. [default: 5432]                                │
+│ --database         -d      TEXT     Database name. [default: None]                                │
+│ --user             -u      TEXT     Database user. [default: None]                                │
+│ --staging-schema   -s      TEXT     Name of the staging schema for QA checks and upserts.         │
+│                                     Tables here must match names in the base schema.              │
+│                                     [default: staging]                                            │
+│ --base-schema      -b      TEXT     Name of the base schema where tables are updated or inserted. │
+│                                     [default: public]                                             │
+│ --encoding         -e      TEXT     The encoding for the database connection. [default: utf-8]    │
+│ --config-file      -f      PATH     Path to configuration YAML file. [default: None]              │
+│ --tables           -t      TEXT     Table names to perform QA checks on and upsert.               │
+│                                     [default: None]                                               │
+│ --generate-config  -g               Generate a template configuration file. Includes provided     │
+│                                     options in the generated file.                                │
+│ --help                              Show this message and exit.                                   │
+╰───────────────────────────────────────────────────────────────────────────────────────────────────╯
 ```
 
 An example of running `pg-upsert` from the command line is shown below:

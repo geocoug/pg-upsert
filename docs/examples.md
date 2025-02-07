@@ -17,25 +17,25 @@ Initialize a PostgreSQL database called `dev` with the following schema and data
 Create a Python script called `upsert_data.py` that calls [PgUpsert](./pg_upsert.md#pgupsert) to upsert data from staging tables to base tables.
 
    ```python
-    import logging
+   import logging
 
-    from pg_upsert import PgUpsert
+   from pg_upsert import PgUpsert
 
-    logger = logging.getLogger("pg_upsert")
-    logger.setLevel(logging.INFO)
-    logger.addHandler(logging.StreamHandler())
+   logger = logging.getLogger("pg_upsert")
+   logger.setLevel(logging.INFO)
+   logger.addHandler(logging.StreamHandler())
 
-    PgUpsert(
-        uri="postgresql://user@localhost:5432/dev", # Note the missing password. pg_upsert will prompt for the password.
-        tables=("genres", "publishers", "books", "authors", "book_authors"),
-        stg_schema="staging",
-        base_schema="public",
-        do_commit=True,
-        upsert_method="upsert",
-        interactive=False,
+   PgUpsert(
+       uri="postgresql://user@localhost:5432/dev", # Note the missing password. pg_upsert will prompt for the password.
+       tables=("genres", "publishers", "books", "authors", "book_authors"),
+       staging_schema="staging",
+       base_schema="public",
+       do_commit=True,
+       upsert_method="upsert",
+       interactive=False,
        exclude_cols=("rev_user", "rev_time"),
        exclude_null_check_cols=("book_alias"),
-    ).run()
+   ).run()
    ```
 
 ### 3 - Run the script

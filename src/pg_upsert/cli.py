@@ -30,21 +30,21 @@ def cli(
         typer.Option(
             "--version",
             "-v",
-            help="Display the version and exit",
+            help="Display the version and exit.",
         ),
     ] = False,
     debug: Annotated[
         bool,
         typer.Option(
             "--debug",
-            help="Display debug output",
+            help="Display debug output.",
         ),
     ] = False,
     docs: Annotated[
         bool,
         typer.Option(
             "--docs",
-            help="Open the documentation in a web browser",
+            help="Open the documentation in a web browser.",
         ),
     ] = False,
     quiet: Annotated[
@@ -52,7 +52,7 @@ def cli(
         typer.Option(
             "--quiet",
             "-q",
-            help="Suppress all console output",
+            help="Suppress all console output.",
         ),
     ] = False,
     logfile: Annotated[
@@ -60,7 +60,7 @@ def cli(
         typer.Option(
             "-l",
             "--logfile",
-            help="Write log messages to a log file",
+            help="Write log messages to a log file.",
         ),
     ] = None,
     exclude_columns: Annotated[
@@ -68,7 +68,7 @@ def cli(
         typer.Option(
             "--exclude-columns",
             "-x",
-            help="Comma-separated list of columns to exclude from null checks",
+            help="List of column names to exclude from the upsert process. These columns will not be updated or inserted to, however, they will still be checked during the QA process.",  # noqa
         ),
     ] = None,
     null_columns: Annotated[
@@ -76,7 +76,7 @@ def cli(
         typer.Option(
             "--null-columns",
             "-n",
-            help="Comma-separated list of columns to exclude from null checks",
+            help="List of column names to exclude from the not-null check during the QA process. You may wish to exclude certain columns from null checks, such as auto-generated timestamps or serial columns as they may not be populated until after records are inserted or updated.",  # noqa
         ),
     ] = None,
     commit: Annotated[
@@ -84,7 +84,7 @@ def cli(
         typer.Option(
             "--commit",
             "-c",
-            help="Commit changes to database",
+            help="If True, changes will be committed to the database once the upsert process has completed successfully. If False, changes will be rolled back.",  # noqa
         ),
     ] = False,
     interactive: Annotated[
@@ -92,7 +92,7 @@ def cli(
         typer.Option(
             "--interactive",
             "-i",
-            help="Display interactive GUI of important table information",
+            help="If True, the user will be prompted with multiple dialogs to confirm various steps during the upsert process. If False, the upsert process will run without user intervention.",  # noqa
         ),
     ] = False,
     upsert_method: Annotated[
@@ -100,7 +100,7 @@ def cli(
         typer.Option(
             "--upsert-method",
             "-m",
-            help="Method to use for upsert (upsert, update, insert)",
+            help="The method to use for upserting data. Must be one of 'upsert', 'update', or 'insert'.",
         ),
     ] = "upsert",
     host: Annotated[
@@ -108,7 +108,7 @@ def cli(
         typer.Option(
             "--host",
             "-h",
-            help="Database host",
+            help="Database host.",
         ),
     ] = None,
     port: Annotated[
@@ -116,7 +116,7 @@ def cli(
         typer.Option(
             "--port",
             "-p",
-            help="Database port",
+            help="Database port.",
         ),
     ] = 5432,
     database: Annotated[
@@ -124,7 +124,7 @@ def cli(
         typer.Option(
             "--database",
             "-d",
-            help="Database name",
+            help="Database name.",
         ),
     ] = None,
     user: Annotated[
@@ -132,7 +132,7 @@ def cli(
         typer.Option(
             "--user",
             "-u",
-            help="Database user",
+            help="Database user.",
         ),
     ] = None,
     staging_schema: Annotated[
@@ -140,7 +140,7 @@ def cli(
         typer.Option(
             "--staging-schema",
             "-s",
-            help="Staging schema name",
+            help="Name of the staging schema where tables are located which will be used for QA checks and upserts. Tables in the staging schema must have the same name as the tables in the base schema that they will be upserted to.",  # noqa
         ),
     ] = "staging",
     base_schema: Annotated[
@@ -148,7 +148,7 @@ def cli(
         typer.Option(
             "--base-schema",
             "-b",
-            help="Base schema name",
+            help="Name of the base schema where tables are located which will be updated or inserted into.",
         ),
     ] = "public",
     encoding: Annotated[
@@ -156,7 +156,7 @@ def cli(
         typer.Option(
             "--encoding",
             "-e",
-            help="Encoding of the database",
+            help="The encoding to use for the database connection.",
         ),
     ] = "utf-8",
     config_file: Annotated[
@@ -173,7 +173,7 @@ def cli(
         typer.Option(
             "--tables",
             "-t",
-            help="Table name(s)",
+            help="Table names to perform QA checks on and upsert.",
         ),
     ] = None,
     generate_config: Annotated[
@@ -297,7 +297,7 @@ def cli(
             uri=f"postgresql://{args.user}@{args.host}:{args.port}/{args.database}",
             encoding="utf-8",
             tables=args.tables,
-            stg_schema=args.staging_schema,
+            staging_schema=args.staging_schema,
             base_schema=args.base_schema,
             do_commit=args.commit,
             upsert_method=args.upsert_method,

@@ -77,7 +77,7 @@ def ups(global_variables, db):
     yield PgUpsert(
         conn=db.conn,
         tables=("genres", "books", "authors", "book_authors", "publishers"),
-        stg_schema="staging",
+        staging_schema="staging",
         base_schema="public",
         do_commit=False,
         interactive=False,

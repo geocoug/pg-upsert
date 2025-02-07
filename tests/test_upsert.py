@@ -13,7 +13,7 @@ load_dotenv()
 def test_pgupsert_init(ups):
     """Test the PgUpsert object was initialized with the correct values."""
     assert ups.tables == ("genres", "books", "authors", "book_authors", "publishers")
-    assert ups.stg_schema == "staging"
+    assert ups.staging_schema == "staging"
     assert ups.base_schema == "public"
     assert ups.do_commit is False
     assert ups.interactive is False
@@ -84,10 +84,10 @@ def test_pgupsert_upsert_methods(ups):
 def test_pgupsert_validate_schemas(ups):
     """Test the validate_schemas function."""
     assert ups._validate_schemas() is None
-    ups.stg_schema = "staging2"
+    ups.staging_schema = "staging2"
     with pytest.raises(ValueError):
         ups._validate_schemas()
-    ups.stg_schema = "staging"
+    ups.staging_schema = "staging"
     ups.base_schema = "public2"
     with pytest.raises(ValueError):
         ups._validate_schemas()
@@ -321,7 +321,7 @@ def test_pgupsert_upsert_one_upsert(ups):
     assert row[1] == 20
 
 
-def test_pgupsert_upsert_no_commit_do_commit_false(ups):
+def test_pgupsert_upsert_no_commit_commit_false(ups):
     """Test that a successful upsert_one call does not commit the
     transaction unless the do_commit attribute is True and no errors are present.
     """
@@ -331,9 +331,9 @@ def test_pgupsert_upsert_no_commit_do_commit_false(ups):
     assert curs.fetchone()[0] == 0
 
 
-def test_pgupsert_upsert_do_commit_true(ups):
+def test_pgupsert_upsert_commit_true(ups):
     """Test that a successful upsert_one call does not commit the
-    transaction unless the do_commit attribute is True and no errors are present.
+    transaction unless the commit attribute is True and no errors are present.
     """
     ups.do_commit = True
     ups.upsert_one("genres").commit()
