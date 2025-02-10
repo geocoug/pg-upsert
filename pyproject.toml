@@ -145,6 +145,13 @@ addopts = [
 testpaths = "tests"
 log_cli = true
 
+[tool.coverage.report]
+exclude_also = [
+    "from .__version__ import __title__",
+    "from .cli import app",
+    "if __name__ == .__main__.:",
+]
+
 [tool.tox]
 required = ["tox>=4.24"]
 env_list = ["py310", "py311", "py312", "py313", "build", "docs"]

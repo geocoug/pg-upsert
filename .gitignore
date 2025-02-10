@@ -9,4 +9,6 @@ build/
 docs/_build/
 site/
 pg-upsert.local.yaml
-.tox
+pg-upsert.template.yaml
+.tox/
+htmlcov/

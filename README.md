@@ -14,13 +14,13 @@
 
 Managing data synchronization between staging and production tables in PostgreSQL can be complex and error-prone. **pg-upsert** simplifies this process by providing a structured, reliable, and interactive approach to upserting data. Here’s why you might want to use it:
 
-- :white_check_mark: **Automated Integrity Checks** – Ensures that [NOT NULL](https://www.postgresql.org/docs/current/ddl-constraints.html#DDL-CONSTRAINTS-NOT-NULL), [PRIMARY KEY](https://www.postgresql.org/docs/current/ddl-constraints.html#DDL-CONSTRAINTS-PRIMARY-KEYS), [FOREIGN KEY](https://www.postgresql.org/docs/current/ddl-constraints.html#DDL-CONSTRAINTS-FK), and [CHECK CONSTRAINT](https://www.postgresql.org/docs/current/ddl-constraints.html#DDL-CONSTRAINTS-CHECK-CONSTRAINTS) rules are validated before any modifications occur. If all checks pass, the program will display the number of rows to be inserted and updated, and ask for confirmation before proceeding (**when the `interactive` flag is set to `True`**).
-- :white_check_mark: **Interactive Confirmation** – Before performing upserts, the tool displays a summary of changes and waits for user confirmation, reducing accidental data corruption.
-- :white_check_mark: **Flexible Upsert Strategies** – Supports multiple upsert methods (upsert, update, insert), allowing you to tailor the process to your needs.
-- :white_check_mark: **Schema-Aware Execution** – Works across different schemas (staging and base) to help maintain data separation and versioning.
-- :white_check_mark: **Minimal Dependencies** – Built specifically for PostgreSQL without requiring complex third-party dependencies.
-- :white_check_mark: **Command-Line and Python API Support** – Run it as a script, integrate it into automated workflows, or execute it interactively via CLI.
-- :white_check_mark: **Safe and Transparent** – Logs detailed messages about operations performed, making debugging and auditing easier.
+- **Automated Integrity Checks** – Ensures that [NOT NULL](https://www.postgresql.org/docs/current/ddl-constraints.html#DDL-CONSTRAINTS-NOT-NULL), [PRIMARY KEY](https://www.postgresql.org/docs/current/ddl-constraints.html#DDL-CONSTRAINTS-PRIMARY-KEYS), [FOREIGN KEY](https://www.postgresql.org/docs/current/ddl-constraints.html#DDL-CONSTRAINTS-FK), and [CHECK CONSTRAINT](https://www.postgresql.org/docs/current/ddl-constraints.html#DDL-CONSTRAINTS-CHECK-CONSTRAINTS) rules are validated before any modifications occur. If all checks pass, the program will display the number of rows to be inserted and updated, and ask for confirmation before proceeding (**when the `interactive` flag is set to `True`**).
+- **Interactive Confirmation** – Before performing upserts, the tool displays a summary of changes and waits for user confirmation, reducing accidental data corruption.
+- **Flexible Upsert Strategies** – Supports multiple upsert methods (upsert, update, insert), allowing you to tailor the process to your needs.
+- **Schema-Aware Execution** – Works across different schemas (staging and base) to help maintain data separation and versioning.
+- **Minimal Dependencies** – Built specifically for PostgreSQL without requiring complex third-party dependencies.
+- **Command-Line and Python API Support** – Run it as a script, integrate it into automated workflows, or execute it interactively via CLI.
+- **Safe and Transparent** – Logs detailed messages about operations performed, making debugging and auditing easier.
 
 Whether you need to merge staging data into production, synchronize changes across environments, or validate table integrity before inserts, **pg-upsert** is a lightweight yet powerful solution.
 
