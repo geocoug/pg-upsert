@@ -24,7 +24,7 @@ def pytest_addoption(parser):
     )
 
 
-def pytest_configure(config):
+def pytest_configure(config):  # pragma: no cover
     if config.getoption("--dev"):
         config.option.verbose = 1
         config.option.setupshow = True

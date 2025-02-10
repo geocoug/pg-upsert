@@ -136,21 +136,21 @@ def cli(
         ),
     ] = None,
     staging_schema: Annotated[
-        str,
+        str | None,
         typer.Option(
             "--staging-schema",
             "-s",
             help="Name of the staging schema where tables are located which will be used for QA checks and upserts. Tables in the staging schema must have the same name as the tables in the base schema that they will be upserted to.",  # noqa
         ),
-    ] = "staging",
+    ] = None,
     base_schema: Annotated[
-        str,
+        str | None,
         typer.Option(
             "--base-schema",
             "-b",
             help="Name of the base schema where tables are located which will be updated or inserted into.",
         ),
-    ] = "public",
+    ] = None,
     encoding: Annotated[
         str,
         typer.Option(
@@ -190,21 +190,17 @@ def cli(
         print(f"[bold]{__title__}[/bold]: {__version__}")
         sys.exit(0)
     if args.docs:
-        try:
-            print(":link: Opening documentation in a web browser...")
-            typer.launch(__docs_url__)
-        except Exception as e:
-            logger.error(e)
-            raise
+        print(":link: Opening documentation in a web browser...")
+        typer.launch(__docs_url__)
         sys.exit(0)
     if args.generate_config:
-        with open((Path().cwd() / "pg-upsert-template.yaml").resolve(), "w") as file:
+        with open((Path().cwd() / "pg-upsert.template.yaml").resolve(), "w") as file:
             del args.version, args.config_file, args.docs, args.generate_config
             if not args.logfile:
                 args.logfile = Path(f"{__title__}.log").as_posix()
             yaml.dump(args.__dict__, file, sort_keys=False, indent=2, encoding="utf-8")
         print(
-            ":file_folder: Configuration file generated: [bold green]pg-upsert-template.yaml[/bold green]",
+            ":file_folder: Configuration file generated: [bold green]pg-upsert.template.yaml[/bold green]",
         )
         sys.exit(0)
     if args.config_file:
@@ -213,10 +209,10 @@ def cli(
                 with open(args.config_file) as file:
                     config = yaml.safe_load(file)
             except Exception as e:
-                logger.error(e)
+                print(f"Error reading configuration file: {e}")
                 sys.exit(1)
         else:
-            logger.error(f"Configuration file not found: {args.config_file}")
+            print(f"Configuration file not found: {args.config_file}")
             sys.exit(1)
         # For each key in the configuration yaml, update the corresponding command line argument
         for key in config:
@@ -226,7 +222,7 @@ def cli(
                 else:
                     setattr(args, key, config[key])
             else:
-                logger.warning(
+                print(
                     f"Invalid configuration key will be ignored in {args.config_file}: {key}",
                 )
     if args.debug:
@@ -282,7 +278,7 @@ def cli(
             args.logfile.unlink()
         except Exception as err:
             logger.error(err)
-    logger.debug(f"{__title__} (v{__version__})")
+    logger.debug(f"{__title__}: {__version__}")
     if args.debug:
         logger.debug("Command line arguments:")
         for arg in vars(args):
