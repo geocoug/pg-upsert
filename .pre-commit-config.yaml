@@ -2,7 +2,7 @@
 exclude: |
   (?x)^(
     build/ |
-    dist/ |
+    dist/
   )$
 
 repos:
@@ -12,7 +12,7 @@ repos:
       - id: check-hooks-apply
   # Protect secrets using Gitleaks
   - repo: https://github.com/zricethezav/gitleaks
-    rev: v8.23.1
+    rev: v8.23.3
     hooks:
       - id: gitleaks
   # Validate pyproject.toml
@@ -32,22 +32,27 @@ repos:
       - id: end-of-file-fixer
       - id: mixed-line-ending
       - id: trailing-whitespace
-  # Markdown lint
-  - repo: https://github.com/igorshubovych/markdownlint-cli
-    rev: v0.43.0
-    hooks:
-      - id: markdownlint
-        types: [file]
-        files: .(md)$
-        args: [--disable, MD013]
   # Add trailing commas to calls and literals.
   - repo: https://github.com/asottile/add-trailing-comma
     rev: v3.1.0
     hooks:
       - id: add-trailing-comma
+  # Markdown lint
+  - repo: https://github.com/igorshubovych/markdownlint-cli
+    rev: v0.44.0
+    hooks:
+      - id: markdownlint
+        types: [file]
+        files: .(md)$
+        args: [--disable, MD013]
+  # Spell check
+  - repo: https://github.com/crate-ci/typos
+    rev: typos-dict-v0.12.4
+    hooks:
+      - id: typos
   # Lint & format
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.9.1
+    rev: v0.9.6
     hooks:
       - id: ruff
         args: [--config=pyproject.toml, --exit-non-zero-on-fix]
