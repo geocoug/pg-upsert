@@ -1,34 +1,31 @@
-FROM python:3.12-slim
+FROM python:3.13-alpine AS builder
 
-ENV HOME=/app
 ENV PYTHONDONTWRITEBYTECODE=1
-ENV PYTHONUNBUFFERED=1
 ENV UV_SYSTEM_PYTHON=1
 
-WORKDIR $HOME
-
-# hadolint ignore=DL3008
-RUN apt-get update -y \
-    && apt-get install --no-install-recommends -y wget \
-    && rm -rf /var/lib/apt/lists/*
+WORKDIR /tmp/build
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/uv
+COPY ./pyproject.toml .
+COPY ./src/pg_upsert ./pg_upsert
 
-COPY ./requirements.txt /tmp/requirements.txt
+RUN /bin/uv pip install --no-cache /tmp/build
 
-RUN /bin/uv pip install --no-cache -r /tmp/requirements.txt \
-    && rm -rf /tmp/requirements.txt
+FROM python:3.13-alpine AS final
 
-COPY ./pg_upsert $HOME/pg_upsert
+ENV PYTHONUNBUFFERED=1
 
-COPY ./pyproject.toml $HOME
+WORKDIR /app
 
-RUN /bin/uv pip install --no-cache $HOME
+RUN apk add --no-cache tk ttf-dejavu fontconfig
 
-RUN addgroup --system app \
-    && adduser --system --group app \
-    && chown -R app:app $HOME
+COPY --from=builder /usr/local/lib/python3.13/site-packages /usr/local/lib/python3.13/site-packages
+COPY --from=builder /usr/local/bin /usr/local/bin
+
+RUN addgroup -S app \
+    && adduser -S -G app app \
+    && chown -R app:app /app
 
 USER app
 
-ENTRYPOINT [ "pg_upsert" ]
+ENTRYPOINT [ "pg-upsert" ]

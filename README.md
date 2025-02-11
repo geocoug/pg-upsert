@@ -169,13 +169,13 @@ To use a configuration file, create a YAML file with the format below. This exam
 debug: false
 quiet: false
 commit: false
-interactive: false
-upsert_method: "upsert"
+interactive: true
+upsert_method: "upsert"  # Options: "upsert", "insert", "update"
 logfile: "pg_upsert.log"
-host: "localhost"
+host: "host.docker.internal"  # If running pg-upsert in Docker, use this to connect to the host machine. Otherwise, use the IP address or hostname of the database server.
 port: 5432
-user: "postgres"
-database: "postgres"
+user: "docker"
+database: "dev"
 staging_schema: "staging"
 base_schema: "public"
 encoding: "utf-8"
@@ -196,19 +196,30 @@ Then, run `pg-upsert -f pg-upsert.example.yaml`.
 
 ### Docker
 
-Pull the latest image from the GitHub Container Registry (GHCR) using the following command:
+In order to run the Docker image, you may need to setup X11 forwarding to allow GUI applications to run in the container. If you're using MacOS, [XQuartz](https://www.xquartz.org/) is a popular choice. To enable X11 forwarding, you need to allow connections from the container to your host machine's X11 server. This is typically done by running the `xhost` command on your host machine.
 
 ```sh
-docker pull ghcr.io/geocoug/pg-upsert:latest
+xhost +localhost
 ```
 
-Once the image is pulled, you can run the image using either of the [cli](#cli) options. Below is an example:
+Next, pull the latest image from the GitHub Container Registry (GHCR) and run it using the following command:
 
 ```sh
-docker run -it --rm ghcr.io/geocoug/pg-upsert:latest -v $(pwd):/app pg-upsert --help
+docker run -it --rm \
+  -e DISPLAY=host.docker.internal:0 \
+  -v /tmp/.X11-unix:/tmp/.X11-unix \
+  -v $(pwd):/app \
+  ghcr.io/geocoug/pg-upsert:latest \
+  --help
 ```
 
-The `-v` flag is used to mount the current directory to the `/app` directory in the container. This is useful for mounting configuration files or retaining log files.
+- The `-it` flag is used to run the container in interactive mode with a pseudo-TTY.
+- The `--rm` flag is used to remove the container after it exits.
+- The `-e` flag is used to set the `DISPLAY` environment variable to allow GUI applications to run in the container.
+- The first `-v` flag is used to mount the X11 socket from the host to the container, allowing GUI applications to display on the host's screen.
+- The second `-v` flag is used to mount the current directory to the `/app` directory in the container (useful for mounting configuration files or retaining log files).
+- `ghcr.io/geocoug/pg-upsert:latest` is the image name and tag.
+- `--help` is the `pg-upsert` command to run inside the container.
 
 ## Contributing
 
@@ -258,7 +269,5 @@ POSTGRES_DB=dev
 POSTGRES_USER=docker
 POSTGRES_PASSWORD=docker
 ```
-
-Install the development dependencies: `pip install ".[dev]"` | `uv pip install ".[dev]"`.
 
 Now you can run the tests using `tox`.

@@ -1,13 +1,13 @@
 debug: false
 quiet: false
 commit: false
-interactive: false
-upsert_method: "upsert"
+interactive: true
+upsert_method: "upsert"  # Options: "upsert", "insert", "update"
 logfile: "pg_upsert.log"
-host: "localhost"
+host: "host.docker.internal"  # If running pg-upsert in Docker, use this to connect to the host machine. Otherwise, use the IP address or hostname of the database server.
 port: 5432
-user: "postgres"
-database: "postgres"
+user: "docker"
+database: "dev"
 staging_schema: "staging"
 base_schema: "public"
 encoding: "utf-8"
