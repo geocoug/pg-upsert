@@ -129,7 +129,7 @@ commit_args = "--no-verify"
 tag = true
 
 [[tool.bumpversion.files]]
-filename = "pg_upsert/__version__.py"
+filename = "src/pg_upsert/__version__.py"
 
 [tool.pytest.ini_options]
 addopts = [
