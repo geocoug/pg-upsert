@@ -8,6 +8,10 @@ ______________________________________________________________________
 
 ## [Unreleased]
 
+### Added
+
+- Test data for column existence and type mismatch failures in `schema_failing.sql` — staging `books` is missing the `notes` column, staging `publishers.publisher_name` is `integer` (vs `varchar` in base).
+
 ______________________________________________________________________
 
 ## [1.9.1] - 2026-04-02

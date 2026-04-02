@@ -836,6 +836,18 @@ class TestFailingData:
         )
         assert cur.rowcount == 1
 
+    def test_failing_column_existence(self, ups_failing):
+        """The failing schema is missing 'notes' column in staging.books."""
+        errors = ups_failing._qa.check_column_existence("books")
+        assert len(errors) == 1
+        assert "notes" in errors[0].details
+
+    def test_failing_type_mismatch(self, ups_failing):
+        """The failing schema has publisher_name as integer in staging (varchar in base)."""
+        errors = ups_failing._qa.check_type_mismatch("publishers")
+        assert len(errors) == 1
+        assert "publisher_name" in errors[0].details
+
 
 # ===================================================================
 # New QA checks: UNIQUE constraints

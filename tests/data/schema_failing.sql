@@ -156,7 +156,7 @@ create table staging.genres (
 drop table if exists staging.publishers cascade;
 create table staging.publishers (
     publisher_id varchar(100),
-    publisher_name varchar(200)
+    publisher_name integer  -- intentionally integer (vs varchar in base) to test type mismatch check
 );
 
 drop table if exists staging.books cascade;
@@ -165,9 +165,12 @@ create table staging.books (
     book_title varchar(200),
     genre varchar(100),
     publisher_id varchar(100),
-    notes text,
+    -- NOTE: 'notes' column intentionally omitted to test column existence check
     book_alias serial
 );
+
+-- NOTE: staging.publishers.publisher_name is intentionally 'integer' (vs varchar in base)
+-- to test column type mismatch check
 
 drop table if exists staging.authors cascade;
 create table staging.authors (
@@ -209,29 +212,31 @@ insert into staging.genres (genre, description) values
     ('Drama', null), -- This row will fail due to NULL description
     ('Comedy', 'Literary works that are intended to be humorous and entertaining');
 
+-- publisher_name is intentionally integer (vs varchar in base) to test type mismatch.
+-- Only publisher_id is inserted; publisher_name gets NULL (valid for integer column).
 insert into staging.publishers (publisher_id, publisher_name) values
-    ('P001', 'Great Publishing House'),
-    ('P002', 'Another Publishing Company'),
-    ('P003', 'Bestseller Books'),
-    (null, 'Famous Authors Press'), -- This row will fail due to NULL publisher_id
-    ('P005', 'New Horizon Publishers'),
-    ('P006', 'Classic Literature Co.'),
-    ('P007', 'Modern Fiction Group'),
-    ('P008', 'Sci-Fi Fantasy Inc.'), -- This row will fail due to duplicate publisher_id
-    ('P008', 'Sci-Fi Fantasy Inc'), -- This row will fail due to duplicate publisher_id
-    ('P009', 'Mystery Thriller Books'),
-    ('P010', 'Romantic Novels Ltd.'),
-    ('P011', 'Horror Stories Publishing'),
-    ('P012', 'Biography Autobiography House'),
-    ('P013', 'Self-Help Guides Inc.'),
-    ('P014', 'Culinary Creations Press'),
-    ('P015', null), -- This row will fail due to NULL publisher_name
-    ('P016', 'Historical Society Books'),
-    ('P017', 'Science Explained Co.'),
-    ('P018', 'Artistic Expressions Ltd.'),
-    ('P019', 'Poetry Lovers Press'),
-    ('P020', 'Dramatic Works Publishing'),
-    ('P021', 'Comedy Central Books');
+    ('P001', null),
+    ('P002', null),
+    ('P003', null),
+    (null, null), -- This row will fail due to NULL publisher_id
+    ('P005', null),
+    ('P006', null),
+    ('P007', null),
+    ('P008', null), -- This row will fail due to duplicate publisher_id
+    ('P008', null), -- This row will fail due to duplicate publisher_id
+    ('P009', null),
+    ('P010', null),
+    ('P011', null),
+    ('P012', null),
+    ('P013', null),
+    ('P014', null),
+    ('P015', null),
+    ('P016', null),
+    ('P017', null),
+    ('P018', null),
+    ('P019', null),
+    ('P020', null),
+    ('P021', null);
 
 insert into staging.authors (author_id, first_name, last_name, email)
 values
@@ -254,26 +259,27 @@ values
     (null, 'Mary', 'Moore', 'mmoore@email.com'), -- This row will fail due to NULL author_id
     ('LLee', 'Larry', 'Lee', 'llee@email.com');
 
-insert into staging.books (book_id, book_title, genre, publisher_id, notes) values
-    ('B001', 'The Great Novel', 'Fiction', 'P001', 'An epic tale of love and loss'),
-    ('B002', 'Not Another Great Novel', 'Non-Fiction', null, 'A comprehensive guide to writing a great novel'),
-    (null,   'Sci-Fi Adventures', 'Sci-Fi', 'P008', 'Explore the universe with these thrilling stories'), -- This row will fail due to NULL book_id
-    ('B004', 'Fantasy Quest', 'Fantasy', 'P006', 'Embark on a magical journey to save the kingdom'),
-    ('B005', 'Mystery Mansion', 'Mystery', 'P009', 'Solve the mystery of the haunted mansion'),
-    ('B006', 'Romantic Escapades', 'Romance', 'P010', 'Fall in love with these romantic tales'),
-    ('B007', 'Horror Stories', 'Horrorr', 'P011', 'Prepare to be scared with these chilling stories'), -- This row will fail due to FK constraint on genre (misspelled)
-    ('B008', 'Thriller Frenzy', 'Thriller', 'P009', 'Fast-paced action and suspense await you'),
-    ('B009', 'Biography of a Legend', 'Biography', 'P012', 'Discover the life of a legendary figure'), -- This row will fail due to PK constraint on book_id
-    ('B009', 'Biography of a Legend 2', 'Biography', 'P012', 'Discover the life of a legendary figure'), -- This row will fail due to PK constraint on book_id
-    ('B010', 'Autobiography of Me', 'Autobiography', 'P012', 'My life story in my own words'),
-    ('B011', 'Self-Help Guide', 'Self-Help', 'P013', 'Improve your life with these practical tips'),
-    ('B012', 'Culinary Creations', null, 'P014', 'Delicious recipes for every occasion'), -- This row will fail due to NULL genre
-    ('B013', 'Travel Tales', 'Travel', 'P015', 'Explore the world through the eyes of the author'),
-    ('B014', 'Historical Events', 'History', 'P016', 'Learn about key events that shaped history'),
-    ('B015', 'Science Explained', 'Science', 'P017', 'Understand complex scientific concepts with ease'),
-    ('B016', 'Poetry Collection', 'Poetry', 'P999', 'Experience the power of poetry in all its forms'), -- This row will fail due to FK constraint on publisher_id
-    ('B017', null, 'Drama', 'P020', 'Plays that will captivate and entertain audiences'), -- This row will fail due to NULL book_title
-    ('B018', 'Comedy Central', 'Comedy', 'P021', 'Laugh out loud with these hilarious stories');
+-- NOTE: 'notes' column intentionally omitted from staging.books to test column existence check.
+insert into staging.books (book_id, book_title, genre, publisher_id) values
+    ('B001', 'The Great Novel', 'Fiction', 'P001'),
+    ('B002', 'Not Another Great Novel', 'Non-Fiction', null),
+    (null,   'Sci-Fi Adventures', 'Sci-Fi', 'P008'), -- This row will fail due to NULL book_id
+    ('B004', 'Fantasy Quest', 'Fantasy', 'P006'),
+    ('B005', 'Mystery Mansion', 'Mystery', 'P009'),
+    ('B006', 'Romantic Escapades', 'Romance', 'P010'),
+    ('B007', 'Horror Stories', 'Horrorr', 'P011'), -- This row will fail due to FK constraint on genre (misspelled)
+    ('B008', 'Thriller Frenzy', 'Thriller', 'P009'),
+    ('B009', 'Biography of a Legend', 'Biography', 'P012'), -- This row will fail due to PK constraint on book_id
+    ('B009', 'Biography of a Legend 2', 'Biography', 'P012'), -- This row will fail due to PK constraint on book_id
+    ('B010', 'Autobiography of Me', 'Autobiography', 'P012'),
+    ('B011', 'Self-Help Guide', 'Self-Help', 'P013'),
+    ('B012', 'Culinary Creations', null, 'P014'), -- This row will fail due to NULL genre
+    ('B013', 'Travel Tales', 'Travel', 'P015'),
+    ('B014', 'Historical Events', 'History', 'P016'),
+    ('B015', 'Science Explained', 'Science', 'P017'),
+    ('B016', 'Poetry Collection', 'Poetry', 'P999'), -- This row will fail due to FK constraint on publisher_id
+    ('B017', null, 'Drama', 'P020'), -- This row will fail due to NULL book_title
+    ('B018', 'Comedy Central', 'Comedy', 'P021');
 
 insert into staging.book_authors (book_id, author_id) values
     ('B001', 'JDoe'),
