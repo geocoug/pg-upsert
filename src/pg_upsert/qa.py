@@ -990,6 +990,8 @@ class QARunner:
                     if supports_interactive
                     else check_func(table)  # type: ignore[call-arg]
                 )
+                if not table_errors:
+                    display.print_check_table_pass(self.staging_schema, table)
                 all_errors.extend(table_errors)
             logger.debug(f"{check_label} checks completed in {elapsed_time(start_time)}")
 
