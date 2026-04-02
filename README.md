@@ -94,6 +94,7 @@ pg-upsert -h localhost -p 5432 -d mydb -u user \
 | `-f`, `--config-file`     | Path to YAML configuration file                           |
 | `-g`, `--generate-config` | Generate a template config file                           |
 | `-v`, `--version`         | Show version and exit                                     |
+| `--docs`                  | Open documentation in browser                             |
 | `--debug`                 | Enable debug output                                       |
 
 > [!NOTE]
@@ -104,25 +105,33 @@ pg-upsert -h localhost -p 5432 -d mydb -u user \
 Create a YAML config file (see [pg-upsert.example.yaml](https://github.com/geocoug/pg-upsert/blob/main/pg-upsert.example.yaml)):
 
 ```yaml
+debug: false
+commit: false
+interactive: false
+upsert_method: "upsert"  # Options: "upsert", "insert", "update"
+logfile: "pg_upsert.log"
 host: "localhost"
 port: 5432
 user: "docker"
 database: "dev"
 staging_schema: "staging"
 base_schema: "public"
-commit: true
-upsert_method: "upsert"
+encoding: "utf-8"
 tables:
-  - "genres"
+  - "authors"
   - "publishers"
   - "books"
-  - "authors"
   - "book_authors"
+  - "genres"
 exclude_columns:
   - "rev_time"
   - "rev_user"
 null_columns:
   - "book_alias"
+output: "text"  # Options: "text", "json"
+check_schema: false
+compact: false
+ui_mode: "auto"  # Options: "auto", "textual", "tkinter"
 ```
 
 Run with: `pg-upsert -f config.yaml`
@@ -152,6 +161,13 @@ pg-upsert runs 7 types of QA checks on staging data before upserting:
 | **Check Constraint** | All CHECK constraint expressions evaluate to true                                             |
 
 See the [QA Checks Reference](https://pg-upsert.readthedocs.io/) for detailed documentation.
+
+## Exit Codes
+
+| Code | Meaning                                            |
+| ---- | -------------------------------------------------- |
+| 0    | QA passed and upsert completed (or user cancelled) |
+| 1    | QA failed, schema check failed, or error           |
 
 ## Contributing
 

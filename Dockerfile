@@ -9,7 +9,7 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/uv
 COPY ./pyproject.toml ./LICENSE ./README.md ./
 COPY ./src/pg_upsert ./pg_upsert
 
-RUN /bin/uv pip install --no-cache /tmp/build
+RUN /bin/uv pip install --no-cache "/tmp/build[tui]"
 
 FROM python:3.13-alpine AS final
 
@@ -17,7 +17,8 @@ ENV PYTHONUNBUFFERED=1
 
 WORKDIR /app
 
-RUN apk add --no-cache tk ttf-dejavu fontconfig
+LABEL org.opencontainers.image.source="https://github.com/geocoug/pg-upsert"
+LABEL org.opencontainers.image.description="PostgreSQL staging-to-base data validation and upsert tool"
 
 COPY --from=builder /usr/local/lib/python3.13/site-packages /usr/local/lib/python3.13/site-packages
 COPY --from=builder /usr/local/bin /usr/local/bin

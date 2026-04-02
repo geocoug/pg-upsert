@@ -106,7 +106,7 @@ With all QA checks passing, pg-upsert shows pass indicators for each check and t
 │  ✓ authors                          │
 │  ✓ book_authors                     │
 │                                     │
-│  All 5 tables passed QA checks     │
+│  All 5 tables passed QA checks      │
 ╰─────────────────────────────────────╯
 
 ──────────────── Upsert ─────────────────────────

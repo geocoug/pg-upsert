@@ -11,6 +11,7 @@ nav = [
     { "Home" = "index.md" },
     { "QA Checks" = "qa_checks.md" },
     { "Examples" = "examples.md" },
+    { "Architecture" = "architecture.md" },
     { "API Reference" = "pg_upsert.md" },
     { "About" = [
         { "Change Log" = "about/change_log.md" },
