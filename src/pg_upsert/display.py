@@ -1,11 +1,11 @@
 """Rich-based display utilities for pg-upsert output.
 
-Replaces ``tabulate`` with ``rich.table.Table`` for data display and
-provides consistent formatting for QA check results, summaries, and
-error reporting.
+Every ``print_*`` function writes rich-formatted output to stderr (via
+:data:`console`) **and** logs a plain-text equivalent so that the logfile
+always stays in sync with what appears on screen.
 
-All output is directed to stderr via :data:`console` so that stdout
-remains clean for ``--output=json``.
+All console output goes to stderr so that stdout remains clean for
+``--output=json``.
 """
 
 from __future__ import annotations
@@ -22,14 +22,10 @@ from rich.text import Text
 if TYPE_CHECKING:
     from .models import QAError, UpsertResult
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("pg_upsert")
 
 # Module-level console writing to stderr so --output=json stays clean.
 console = Console(stderr=True)
-
-# Symbols for pass/fail status.
-PASS = Text("✓", style="bold green")
-FAIL = Text("✗", style="bold red")
 
 
 # ---------------------------------------------------------------------------
@@ -81,9 +77,10 @@ def format_sql_result(
     headers: list[str],
     title: str | None = None,
 ) -> str:
-    """Execute-and-format helper: render row dicts as a string.
+    """Render row dicts as a plain-text table string.
 
     This is the drop-in replacement for the old ``_tabulate_sql`` pattern.
+    Used for logger output and non-rich contexts.
 
     Args:
         rows: List of row dicts.
@@ -91,7 +88,7 @@ def format_sql_result(
         title: Optional table title.
 
     Returns:
-        A string containing the rendered table.
+        A string containing the rendered table (no ANSI codes).
     """
     if not rows:
         return "(no results)"
@@ -115,16 +112,18 @@ def print_check_start(check_label: str) -> None:
     """
     console.print()
     console.rule(f"[bold]{check_label} checks[/bold]", style="cyan")
+    logger.info(f"=== {check_label} checks ===")
 
 
 def print_check_table_pass(schema: str, table: str) -> None:
-    """Print a passing status for a single table check.
+    """Print a passing status line for a single table check.
 
     Args:
         schema: The staging schema name.
         table: The table name.
     """
-    console.print(f"  {PASS} {schema}.{table}")
+    console.print(f"  [bold green]✓[/bold green] {schema}.{table}")
+    logger.info(f"  ✓ {schema}.{table}")
 
 
 def print_check_table_fail(
@@ -134,7 +133,7 @@ def print_check_table_fail(
     detail_rows: list[dict] | None = None,
     detail_headers: list[str] | None = None,
 ) -> None:
-    """Print a failing status for a single table check with optional detail table.
+    """Print a failing status line for a single table check.
 
     Args:
         schema: The staging schema name.
@@ -143,35 +142,49 @@ def print_check_table_fail(
         detail_rows: Optional list of row dicts for a detail table.
         detail_headers: Column headers for the detail table.
     """
-    console.print(f"  {FAIL} {schema}.{table} — {message}")
+    console.print(f"  [bold red]✗[/bold red] {schema}.{table} — {message}")
+    logger.warning(f"  ✗ {schema}.{table} — {message}")
     if detail_rows and detail_headers:
         detail_table = format_table(detail_rows, detail_headers)
         console.print(detail_table)
+        logger.warning(format_sql_result(detail_rows, detail_headers))
 
 
 # ---------------------------------------------------------------------------
-# QA summary
+# QA summary — detailed panel (default)
 # ---------------------------------------------------------------------------
 
 
 def print_qa_summary(
     tables: list[str],
     errors: list[QAError],
+    compact: bool = False,
 ) -> None:
-    """Print a compact QA results summary.
-
-    Shows each table with pass/fail status. Failed tables show their
-    error details indented below. Ends with a count of passed/failed.
+    """Print QA results summary.
 
     Args:
         tables: Ordered list of all table names checked.
         errors: All QA errors across all tables.
+        compact: If ``True``, use the compact grid format (Option B) instead
+            of the default per-table panel.
     """
+    if compact:
+        _print_qa_summary_compact(tables, errors)
+    else:
+        _print_qa_summary_panel(tables, errors)
+
+
+def _print_qa_summary_panel(
+    tables: list[str],
+    errors: list[QAError],
+) -> None:
+    """Default summary: per-table panel with pass/fail + error details."""
     errors_by_table: dict[str, list[QAError]] = {}
     for err in errors:
         errors_by_table.setdefault(err.table, []).append(err)
 
-    lines: list[Text | str] = []
+    rich_lines: list[Text | str] = []
+    log_lines: list[str] = []
     passed = 0
     failed = 0
 
@@ -182,29 +195,34 @@ def print_qa_summary(
             line = Text()
             line.append("  ✓ ", style="bold green")
             line.append(table)
-            lines.append(line)
+            rich_lines.append(line)
+            log_lines.append(f"  [PASS] {table}")
         else:
             failed += 1
             line = Text()
             line.append("  ✗ ", style="bold red")
             line.append(table, style="bold")
-            lines.append(line)
+            rich_lines.append(line)
+            log_lines.append(f"  [FAIL] {table}")
             for err in table_errors:
                 detail = Text()
                 detail.append(f"      {err.check_type.value}: ", style="dim")
                 detail.append(err.details)
-                lines.append(detail)
+                rich_lines.append(detail)
+                log_lines.append(f"    - {err.check_type.value}: {err.details}")
 
     # Footer
-    lines.append("")
+    rich_lines.append("")
     if failed == 0:
         footer = Text(f"  All {passed} tables passed QA checks", style="bold green")
+        footer_log = f"Result: All {passed} tables passed QA checks"
     else:
         footer = Text(f"  {failed} of {passed + failed} tables failed QA checks", style="bold red")
-    lines.append(footer)
+        footer_log = f"Result: {failed} of {passed + failed} tables failed QA checks"
+    rich_lines.append(footer)
 
     panel = Panel(
-        "\n".join(str(line) for line in lines),
+        "\n".join(str(line) for line in rich_lines),
         title="[bold]QA Results[/bold]",
         border_style="red" if failed > 0 else "green",
         expand=False,
@@ -212,6 +230,74 @@ def print_qa_summary(
     )
     console.print()
     console.print(panel)
+
+    # Logfile
+    logger.info("=== QA Results ===")
+    for line in log_lines:
+        logger.info(line)
+    logger.info(footer_log)
+
+
+def _print_qa_summary_compact(
+    tables: list[str],
+    errors: list[QAError],
+) -> None:
+    """Compact summary: grid with ✓/✗ per check type per table."""
+    from .models import QACheckType
+
+    check_types = [
+        ("Col", QACheckType.COLUMN_EXISTENCE),
+        ("Type", QACheckType.TYPE_MISMATCH),
+        ("Null", QACheckType.NULL),
+        ("PK", QACheckType.PRIMARY_KEY),
+        ("UQ", QACheckType.UNIQUE),
+        ("FK", QACheckType.FOREIGN_KEY),
+        ("CK", QACheckType.CHECK_CONSTRAINT),
+    ]
+
+    errors_by_table: dict[str, set[QACheckType]] = {}
+    for err in errors:
+        errors_by_table.setdefault(err.table, set()).add(err.check_type)
+
+    t = Table(show_lines=False, pad_edge=True, expand=False, box=None)
+    t.add_column("Table", style="bold")
+    for label, _ct in check_types:
+        t.add_column(label, justify="center", width=5)
+
+    failed = 0
+    for table in tables:
+        failed_checks = errors_by_table.get(table, set())
+        if failed_checks:
+            failed += 1
+        cells = []
+        for _label, ct in check_types:
+            if ct in failed_checks:
+                cells.append("[bold red]✗[/bold red]")
+            else:
+                cells.append("[green]✓[/green]")
+        t.add_row(table, *cells)
+
+    console.print()
+    console.print(t)
+    passed = len(tables) - failed
+    if failed == 0:
+        console.print(f"\n  [bold green]All {passed} tables passed QA checks[/bold green]")
+    else:
+        console.print(f"\n  [bold red]{failed} of {len(tables)} tables failed QA checks[/bold red]")
+
+    # Logfile — simple text grid
+    header = f"  {'Table':<20}" + "".join(f"{label:>5}" for label, _ct in check_types)
+    logger.info("=== QA Results ===")
+    logger.info(header)
+    logger.info(f"  {'─' * 20}" + "─" * (5 * len(check_types)))
+    for table in tables:
+        failed_checks = errors_by_table.get(table, set())
+        cells = "".join("    ✗" if ct in failed_checks else "    ✓" for _label, ct in check_types)
+        logger.info(f"  {table:<20}{cells}")
+    if failed == 0:
+        logger.info(f"Result: All {passed} tables passed QA checks")
+    else:
+        logger.info(f"Result: {failed} of {len(tables)} tables failed QA checks")
 
 
 # ---------------------------------------------------------------------------
@@ -248,5 +334,13 @@ def print_upsert_summary(result: UpsertResult) -> None:
 
     if result.committed:
         console.print("  [bold green]Changes committed[/bold green]")
+        logger.info("Changes committed")
     else:
         console.print("  [dim]Changes rolled back[/dim]")
+        logger.info("Changes rolled back")
+
+    # Logfile
+    logger.info("=== Upsert Summary ===")
+    for tr in result.tables:
+        logger.info(f"  {tr.table_name}: {tr.rows_updated} updated, {tr.rows_inserted} inserted")
+    logger.info(f"  Total: {result.total_updated} updated, {result.total_inserted} inserted")

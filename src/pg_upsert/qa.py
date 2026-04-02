@@ -72,7 +72,7 @@ class QARunner:
             A list of :class:`QAError` instances for any null violations found.
         """
         errors: list[QAError] = []
-        logger.info(f"Conducting not-null QA checks on table {self.staging_schema}.{table}")
+        logger.debug(f"Conducting not-null QA checks on table {self.staging_schema}.{table}")
 
         self.db.execute(
             SQL(
@@ -132,7 +132,7 @@ class QARunner:
             if null_rowcount > 0:
                 null_row = next(iter(null_rows))
                 nrows = null_row["nrows"]
-                logger.warning(f"    Column {column_name} has {nrows} null values")
+                logger.debug(f"    Column {column_name} has {nrows} null values")
                 self.db.execute(
                     SQL(
                         """
@@ -164,6 +164,7 @@ class QARunner:
             if err_row["null_errors"]:
                 error_str = err_row["null_errors"]
                 self.control.set_qa_errors(table, "null_errors", error_str)
+                display.print_check_table_fail(self.staging_schema, table, error_str)
                 errors.append(
                     QAError(table=table, check_type=QACheckType.NULL, details=error_str),
                 )
@@ -183,7 +184,7 @@ class QARunner:
             A list of :class:`QAError` instances for any PK violations found.
         """
         errors: list[QAError] = []
-        logger.info(f"Conducting primary key QA checks on table {self.staging_schema}.{table}")
+        logger.debug(f"Conducting primary key QA checks on table {self.staging_schema}.{table}")
 
         self.db.execute(
             SQL(
@@ -288,7 +289,7 @@ class QARunner:
             A list of :class:`QAError` instances for any FK violations found.
         """
         errors: list[QAError] = []
-        logger.info(f"Conducting foreign key QA checks on table {self.staging_schema}.{table}")
+        logger.debug(f"Conducting foreign key QA checks on table {self.staging_schema}.{table}")
 
         # Build the full FK map once per session.
         if (
@@ -545,7 +546,7 @@ class QARunner:
             A list of :class:`QAError` instances for any check-constraint violations.
         """
         errors: list[QAError] = []
-        logger.info(f"Conducting check constraint QA checks on table {self.staging_schema}.{table}")
+        logger.debug(f"Conducting check constraint QA checks on table {self.staging_schema}.{table}")
 
         # Build full check-constraint map once per session.
         if (
@@ -697,7 +698,7 @@ class QARunner:
             A list of :class:`QAError` instances for any UNIQUE violations found.
         """
         errors: list[QAError] = []
-        logger.info(f"Conducting unique constraint QA checks on table {self.staging_schema}.{table}")
+        logger.debug(f"Conducting unique constraint QA checks on table {self.staging_schema}.{table}")
 
         # Find all UNIQUE constraints on the base table (excluding PKs).
         self.db.execute(
@@ -810,7 +811,7 @@ class QARunner:
             A list of :class:`QAError` for any base columns missing from staging.
         """
         errors: list[QAError] = []
-        logger.info(f"Conducting column existence checks on table {self.staging_schema}.{table}")
+        logger.debug(f"Conducting column existence checks on table {self.staging_schema}.{table}")
 
         # Get exclude_cols for this table from the control table.
         spec = self.control.get_table_spec(table)
@@ -854,7 +855,7 @@ class QARunner:
             return errors
 
         err_detail = ", ".join(missing_cols)
-        logger.warning(f"    Base columns missing from staging: {err_detail}")
+        display.print_check_table_fail(self.staging_schema, table, f"missing columns: {err_detail}")
         self.control.set_qa_errors(table, "column_errors", err_detail)
         errors.append(
             QAError(table=table, check_type=QACheckType.COLUMN_EXISTENCE, details=err_detail),
@@ -875,7 +876,7 @@ class QARunner:
             A list of :class:`QAError` for any type incompatibilities found.
         """
         errors: list[QAError] = []
-        logger.info(f"Conducting column type mismatch checks on table {self.staging_schema}.{table}")
+        logger.debug(f"Conducting column type mismatch checks on table {self.staging_schema}.{table}")
 
         # Find columns present in both schemas with different types
         # where no implicit/assignment cast exists.
@@ -920,11 +921,11 @@ class QARunner:
 
         mismatch_details: list[str] = []
         for row in mismatch_rows:
-            detail = f"{row['column_name']} ({row['staging_type']} -> {row['base_type']})"
+            detail = f"{row['column_name']} ({row['staging_type']} → {row['base_type']})"
             mismatch_details.append(detail)
-            logger.warning(f"    Type mismatch: {detail}")
 
         err_detail = ", ".join(mismatch_details)
+        display.print_check_table_fail(self.staging_schema, table, err_detail)
         self.control.set_qa_errors(table, "type_errors", err_detail)
         errors.append(
             QAError(table=table, check_type=QACheckType.TYPE_MISMATCH, details=err_detail),

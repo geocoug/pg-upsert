@@ -8,6 +8,12 @@ ______________________________________________________________________
 
 ## [Unreleased]
 
+### Changed
+
+- All `display.print_*` functions now dual-write: rich output to console (stderr) and plain-text equivalent to the logger (logfile). Console and logfile are always in sync.
+- All QA check types (null, column existence, type mismatch) now use consistent `✗` prefix via `print_check_table_fail()`, matching PK/FK/UNIQUE/CK checks.
+- QA summary supports compact grid mode via `compact=True` parameter — shows ✓/✗ per check type per table in a minimal grid.
+
 ______________________________________________________________________
 
 ## [1.11.0] - 2026-04-02
