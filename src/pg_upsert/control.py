@@ -23,7 +23,7 @@ class ControlTable:
         db: An open PostgresDB connection.
         table_name: Name of the temporary control table (default ``ups_control``).
         ui: UI backend used for interactive dialogs. When ``None`` the
-            :class:`~pg_upsert.ui_console.ConsoleBackend` is used.
+            :class:`~pg_upsert.ui.console.ConsoleBackend` is used.
     """
 
     def __init__(self, db: PostgresDB, table_name: str = "ups_control", ui: UIBackend | None = None) -> None:

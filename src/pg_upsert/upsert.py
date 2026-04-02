@@ -520,7 +520,7 @@ class PgUpsert:
             _ver = "unknown"
         try:
             _pg_ver = self.db.execute("SELECT version()").fetchone()[0]
-        except Exception:
+        except (psycopg2.Error, IndexError, TypeError):
             _pg_ver = "unknown"
         _file_logger.info("")
         _file_logger.info("=" * 60)

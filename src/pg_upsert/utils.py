@@ -34,18 +34,18 @@ class CustomLogFormatter(logging.Formatter):
 
 
 def elapsed_time(start_time: datetime) -> str:
-    """Returns a string representing the ellapsed time since the start time.
+    """Returns a string representing the elapsed time since the start time.
 
     Args:
         start_time (datetime): The start time to compare the current time to.
 
     Returns:
-        str: A string representing the ellapsed time since the start time.
+        str: A string representing the elapsed time since the start time.
     """
 
     dt = (datetime.now() - start_time).total_seconds()
     if dt < 60:
-        return f"{round((datetime.now() - start_time).total_seconds(), 3)} seconds"
+        return f"{round(dt, 3)} seconds"
     if dt < 3600:
         return f"{int(dt // 60)} minutes, {round(dt % 60, 3)} seconds"
-    return f"{int(dt // 3600)} hours, {int((dt % 3600)) // 60} minutes, {round(dt % 60, 3)} seconds"  # noqa: UP034
+    return f"{int(dt // 3600)} hours, {int(dt % 3600) // 60} minutes, {round(dt % 60, 3)} seconds"

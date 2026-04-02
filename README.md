@@ -80,6 +80,7 @@ pg-upsert -h localhost -p 5432 -d mydb -u user \
 | `-u`, `--user`            | Database user (see [Authentication](#authentication))     |
 | `-s`, `--staging-schema`  | Staging schema name (default: staging)                    |
 | `-b`, `--base-schema`     | Base schema name (default: public)                        |
+| `-e`, `--encoding`        | Database connection encoding (default: utf-8)             |
 | `-t`, `--table`           | Table name to process (repeatable)                        |
 | `-x`, `--exclude-columns` | Columns to exclude from upsert (repeatable)               |
 | `-n`, `--null-columns`    | Columns to skip during NOT NULL checks (repeatable)       |

@@ -259,7 +259,7 @@ pg-upsert --check-schema -h localhost -d dev -u docker \
   -s staging -b public -t books
 
 # JSON output for CI/CD
-pg-upsert -h localhost -d dev -u docker \
+PGPASSWORD=secret pg-upsert -h localhost -d dev -u docker \
   -s staging -b public -t genres \
   --output json --commit
 

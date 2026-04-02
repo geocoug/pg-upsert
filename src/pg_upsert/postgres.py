@@ -200,7 +200,7 @@ class PostgresDB:
                 else:
                     logger.debug(f"\nSQL:\n{sql}\nParameters:\n{params}")
                     curs.execute(sql.encode(self.encoding), params)
-        except Exception:
+        except psycopg2.Error:
             self.rollback()
             raise
         return curs

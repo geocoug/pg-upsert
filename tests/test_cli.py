@@ -465,3 +465,25 @@ class TestCliPgUpsertCall:
         parsed = json.loads(result.stdout)
         assert parsed["schema_compatible"] is False
         assert len(parsed["errors"]) == 1
+
+    def test_encoding_passed_to_pgupsert(self, monkeypatch):
+        """Verify --encoding is passed through to PgUpsert."""
+        from pg_upsert.models import UpsertResult
+
+        captured_args = {}
+
+        class FakePgUpsert:
+            def __init__(self, **kwargs):
+                captured_args.update(kwargs)
+
+            def run(self):
+                return UpsertResult()
+
+        monkeypatch.setattr("pg_upsert.cli.PgUpsert", FakePgUpsert)
+        monkeypatch.setattr(pg_upsert.postgres.getpass, "getpass", "password")
+        result = runner.invoke(
+            app,
+            shlex.split("-h h -p 5432 -d dev -u u -s stg -b pub -t t1 -e latin1"),
+        )
+        assert result.exit_code == 0
+        assert captured_args["encoding"] == "latin1"
