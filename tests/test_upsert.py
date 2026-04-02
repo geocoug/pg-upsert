@@ -857,6 +857,17 @@ class TestQAUnique:
         assert len(errors) == 1
         assert errors[0].check_type.value == "unique"
 
+    def test_check_unique_nulls_allowed(self, ups):
+        """Multiple NULL values in a UNIQUE column should NOT be flagged.
+
+        PostgreSQL allows multiple NULLs in UNIQUE columns.
+        """
+        ups.db.execute(
+            "UPDATE staging.authors SET email = NULL;",
+        )
+        errors = ups._qa.check_unique("authors")
+        assert errors == []
+
     def test_check_unique_table_without_unique_constraints(self, ups):
         """Tables with no UNIQUE constraints should return no errors."""
         errors = ups._qa.check_unique("genres")

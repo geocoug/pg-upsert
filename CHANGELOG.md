@@ -8,6 +8,10 @@ ______________________________________________________________________
 
 ## [Unreleased]
 
+### Fixed
+
+- Fixed UNIQUE constraint check incorrectly flagging multiple NULL values as duplicates. PostgreSQL allows multiple NULLs in UNIQUE columns; the check now excludes rows with NULL values in constrained columns.
+
 ______________________________________________________________________
 
 ## [1.9.0] - 2026-04-02

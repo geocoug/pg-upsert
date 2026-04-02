@@ -738,6 +738,9 @@ class QARunner:
             logger.debug(f"  Checking unique constraint {constraint_name} on columns {col_names}")
 
             col_ids = SQL(",").join(Identifier(c) for c in col_names)
+            # PostgreSQL allows multiple NULLs in UNIQUE columns, so exclude
+            # rows where any constrained column is NULL.
+            not_null_filter = SQL(" AND ").join(SQL("{col} IS NOT NULL").format(col=Identifier(c)) for c in col_names)
             self.db.execute(
                 SQL(
                     """
@@ -745,6 +748,7 @@ class QARunner:
                 create temporary view ups_uq_check as
                 select {cols}, count(*) as nrows
                 from {staging_schema}.{table}
+                where {not_null_filter}
                 group by {cols}
                 having count(*) > 1;
                 """,
@@ -752,6 +756,7 @@ class QARunner:
                     cols=col_ids,
                     staging_schema=Identifier(self.staging_schema),
                     table=Identifier(table),
+                    not_null_filter=not_null_filter,
                 ),
             )
             uq_errs, uq_headers, uq_err_count = self.db.rowdict("select * from ups_uq_check;")
