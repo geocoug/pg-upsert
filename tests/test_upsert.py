@@ -46,7 +46,7 @@ class TestPgUpsertInit:
         assert ups.interactive is False
         assert ups.upsert_method == "upsert"
         assert ups.control_table == "ups_control"
-        assert ups.exclude_cols == ()
+        assert ups.exclude_cols == ("rev_user", "rev_time")
         assert ups.exclude_null_check_cols == ()
 
     def test_repr(self, ups):
@@ -143,6 +143,9 @@ class TestControlTable:
             "interactive",
             "null_errors",
             "pk_errors",
+            "unique_errors",
+            "column_errors",
+            "type_errors",
             "fk_errors",
             "ck_errors",
             "rows_updated",
@@ -151,11 +154,15 @@ class TestControlTable:
         assert expected == columns
 
     def test_control_table_default_values(self, ups):
+        """Error columns and counters should be null/zero by default.
+
+        Note: exclude_cols IS set because the ups fixture uses exclude_cols.
+        """
         cur = ups.db.execute(
             SQL("""
                 SELECT * FROM {ct}
-                WHERE coalesce(exclude_cols, exclude_null_checks, null_errors,
-                               pk_errors, fk_errors, ck_errors) IS NOT NULL
+                WHERE coalesce(null_errors, pk_errors, fk_errors, ck_errors,
+                               unique_errors, column_errors, type_errors) IS NOT NULL
                    OR interactive
                    OR rows_updated != 0
                    OR rows_inserted != 0
@@ -803,7 +810,8 @@ class TestFailingData:
             SQL(
                 """SELECT * FROM {ct}
                 WHERE null_errors IS NOT NULL OR pk_errors IS NOT NULL
-                   OR fk_errors IS NOT NULL OR ck_errors IS NOT NULL""",
+                   OR fk_errors IS NOT NULL OR ck_errors IS NOT NULL
+                   OR unique_errors IS NOT NULL""",
             ).format(
                 ct=Identifier(ups_failing.control_table),
             ),
@@ -816,3 +824,92 @@ class TestFailingData:
         assert ups_failing.qa_passed is False
         cur = ups_failing.db.execute("SELECT count(*) FROM public.genres;")
         assert cur.fetchone()[0] == 0
+
+    def test_failing_unique_errors(self, ups_failing):
+        """The failing schema has duplicate emails violating UNIQUE constraint."""
+        ups_failing._qa.check_unique("authors")
+        cur = ups_failing.db.execute(
+            SQL("SELECT unique_errors FROM {ct} WHERE table_name = {t} AND unique_errors IS NOT NULL").format(
+                ct=Identifier(ups_failing.control_table),
+                t=Literal("authors"),
+            ),
+        )
+        assert cur.rowcount == 1
+
+
+# ===================================================================
+# New QA checks: UNIQUE constraints
+# ===================================================================
+
+
+class TestQAUnique:
+    def test_check_unique_no_violations(self, ups):
+        """Passing data should have no unique constraint violations."""
+        errors = ups._qa.check_unique("authors")
+        assert errors == []
+
+    def test_check_unique_detects_violation(self, ups):
+        """Insert duplicate email to violate UNIQUE constraint."""
+        ups.db.execute(
+            "UPDATE staging.authors SET email = 'john.doe@email.com' WHERE author_id = 'AAdams';",
+        )
+        errors = ups._qa.check_unique("authors")
+        assert len(errors) == 1
+        assert errors[0].check_type.value == "unique"
+
+    def test_check_unique_table_without_unique_constraints(self, ups):
+        """Tables with no UNIQUE constraints should return no errors."""
+        errors = ups._qa.check_unique("genres")
+        assert errors == []
+
+
+# ===================================================================
+# New QA checks: Column existence
+# ===================================================================
+
+
+class TestQAColumnExistence:
+    def test_column_existence_passing(self, ups):
+        """Staging tables should have all required base columns (exclude_cols excluded)."""
+        errors = ups._qa.check_column_existence("genres")
+        assert errors == []
+
+    def test_column_existence_respects_exclude_cols(self, ups):
+        """rev_time and rev_user are in base but not staging — excluded via exclude_cols."""
+        # ups fixture has exclude_cols=("rev_user", "rev_time")
+        errors = ups._qa.check_column_existence("genres")
+        assert errors == []
+
+    def test_column_existence_detects_missing(self, ups):
+        """Without exclude_cols covering the missing columns, they're flagged.
+
+        Temporarily clear the exclude_cols in the control table to simulate.
+        """
+        ups.db.execute(
+            SQL("UPDATE {ct} SET exclude_cols = NULL WHERE table_name = {t}").format(
+                ct=Identifier(ups.control_table),
+                t=Literal("genres"),
+            ),
+        )
+        errors = ups._qa.check_column_existence("genres")
+        assert len(errors) == 1
+        assert "rev_time" in errors[0].details
+        assert "rev_user" in errors[0].details
+
+
+# ===================================================================
+# New QA checks: Type mismatch
+# ===================================================================
+
+
+class TestQATypeMismatch:
+    def test_type_mismatch_passing(self, ups):
+        """Matching types should produce no errors."""
+        errors = ups._qa.check_type_mismatch("genres")
+        assert errors == []
+
+    def test_type_mismatch_all_tables(self, ups):
+        """All tables in the passing schema should have compatible types."""
+        for table in ups.tables:
+            errors = ups._qa.check_type_mismatch(table)
+            assert errors == [], f"Unexpected type mismatch in {table}: {errors}"

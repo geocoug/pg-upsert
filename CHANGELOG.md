@@ -8,6 +8,19 @@ ______________________________________________________________________
 
 ## [Unreleased]
 
+### Added
+
+- **UNIQUE constraint QA checks** — new `check_unique()` method detects duplicate values in UNIQUE-constrained columns (not just primary keys). Uses `pg_constraint contype='u'`.
+- **Column existence validation** — new `check_column_existence()` method flags base table columns missing from the staging table. Respects `exclude_cols` setting.
+- **Column type mismatch detection** — new `check_type_mismatch()` method detects hard type incompatibilities between staging and base columns using PostgreSQL's `pg_cast` catalog. Only flags types with no implicit or assignment cast.
+- New control table columns: `unique_errors`, `column_errors`, `type_errors`.
+- New facade methods on `PgUpsert`: `qa_all_unique()`, `qa_one_unique()`, `qa_column_existence()`, `qa_type_mismatch()`.
+- UNIQUE constraint (`uq_authors_email`) added to test schema `authors.email` column.
+
+### Changed
+
+- QA check ordering: column existence and type mismatch checks now run before data checks (null, PK, unique, FK, CK) to catch schema issues early.
+
 ______________________________________________________________________
 
 ## [1.7.0] - 2026-04-02

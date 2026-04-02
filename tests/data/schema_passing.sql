@@ -111,7 +111,8 @@ create table public.authors (
 	rev_user varchar(25) DEFAULT currentuser() NULL,
     constraint chk_authors_first_name check (first_name ~ '^[a-zA-Z]+$'),
     constraint chk_authors_last_name check (last_name ~ '^[a-zA-Z]+$'),
-    constraint chk_authors_email check (email ~ '^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$')
+    constraint chk_authors_email check (email ~ '^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'),
+    constraint uq_authors_email unique (email)
 );
 create trigger revtime before insert or update
 on public.authors for each row execute function set_rev_time();

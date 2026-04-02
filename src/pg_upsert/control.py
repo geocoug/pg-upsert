@@ -84,6 +84,9 @@ class ControlTable:
                 pk_errors text,
                 fk_errors text,
                 ck_errors text,
+                unique_errors text,
+                column_errors text,
+                type_errors text,
                 rows_updated integer,
                 rows_inserted integer
             );
@@ -322,7 +325,8 @@ class ControlTable:
         _rows, _headers, rowcount = self.db.rowdict(
             SQL(
                 """select * from {control_table}
-                where coalesce(null_errors, pk_errors, fk_errors, ck_errors) is not null;
+                where coalesce(null_errors, pk_errors, fk_errors, ck_errors,
+                              unique_errors, column_errors, type_errors) is not null;
                 """,
             ).format(
                 control_table=Identifier(self.table_name),
@@ -344,6 +348,9 @@ class ControlTable:
                 pk_errors = null,
                 fk_errors = null,
                 ck_errors = null,
+                unique_errors = null,
+                column_errors = null,
+                type_errors = null,
                 rows_updated = null,
                 rows_inserted = null;
             """,

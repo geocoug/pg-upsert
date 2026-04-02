@@ -111,7 +111,8 @@ create table public.authors (
 	rev_user varchar(25) DEFAULT currentuser() NULL,
     constraint chk_authors_first_name check (first_name ~ '^[a-zA-Z]+$'),
     constraint chk_authors_last_name check (last_name ~ '^[a-zA-Z]+$'),
-    constraint chk_authors_email check (email ~ '^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$')
+    constraint chk_authors_email check (email ~ '^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'),
+    constraint uq_authors_email unique (email)
 );
 create trigger revtime before insert or update
 on public.authors for each row execute function set_rev_time();
@@ -239,7 +240,7 @@ values
     ('AAdams', 'Alice', 'Adams', 'alice.adams@email.com'),
     ('BBrown', 'Bob', 'Brown', null), -- This row will fail due to duplicate author_id
     ('BBrown', 'Bob', 'Brown', null), -- This row will fail due to duplicate author_id
-    ('CCooper', 'Cathy', 'Cooper', 'cathy_cooper2@email.com'),
+    ('CCooper', 'Cathy', 'Cooper', 'alice.adams@email.com'), -- This row will fail due to duplicate email (unique constraint)
     ('DDavis', 'David', 'Davis', 'ddavis@email.com'),
     ('EEvans', null, 'Evans', 'emilyevans@email.com'), -- This row will fail due to NULL first_name
     ('FFisher', 'Frank', 'Fisher', 'frankfisher@email.com'),

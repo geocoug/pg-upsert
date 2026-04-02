@@ -168,6 +168,7 @@ def ups(db):
         do_commit=False,
         interactive=False,
         upsert_method="upsert",
+        exclude_cols=("rev_user", "rev_time"),
     )
 
 
@@ -182,6 +183,7 @@ def ups_failing(db_failing):
         do_commit=False,
         interactive=False,
         upsert_method="upsert",
+        exclude_cols=("rev_user", "rev_time"),
     )
 
 

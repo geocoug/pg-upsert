@@ -685,6 +685,245 @@ class QARunner:
                 )
         return errors
 
+    def check_unique(self, table: str, interactive: bool = False) -> list[QAError]:
+        """Check for duplicate values in UNIQUE-constrained columns of *table*.
+
+        Queries ``pg_constraint`` with ``contype='u'`` to find UNIQUE constraints
+        on the base table, then checks the staging table for violations.
+
+        Args:
+            table: The staging table name to check.
+            interactive: If ``True``, show a Tkinter dialog for any errors found.
+
+        Returns:
+            A list of :class:`QAError` instances for any UNIQUE violations found.
+        """
+        errors: list[QAError] = []
+        logger.info(f"Conducting unique constraint QA checks on table {self.staging_schema}.{table}")
+
+        # Find all UNIQUE constraints on the base table (excluding PKs).
+        self.db.execute(
+            SQL(
+                """
+            drop table if exists ups_unique_constraints cascade;
+            select
+                con.conname as constraint_name,
+                array_agg(att.attname order by u.ord) as column_names
+            into temporary table ups_unique_constraints
+            from pg_constraint con
+            cross join lateral unnest(con.conkey) with ordinality as u(attnum, ord)
+            inner join pg_attribute att
+                on att.attrelid = con.conrelid and att.attnum = u.attnum
+            inner join pg_class cls on cls.oid = con.conrelid
+            inner join pg_namespace nsp on nsp.oid = cls.relnamespace
+            where con.contype = 'u'
+                and nsp.nspname = {base_schema}
+                and cls.relname = {table}
+            group by con.conname;
+            """,
+            ).format(base_schema=Literal(self.base_schema), table=Literal(table)),
+        )
+
+        uq_rows, _uq_headers, uq_rowcount = self.db.rowdict(
+            "select * from ups_unique_constraints;",
+        )
+        if uq_rowcount == 0:
+            logger.debug("  No unique constraints found")
+            return errors
+
+        error_strings: list[str] = []
+        for uq_row in uq_rows:
+            constraint_name = uq_row["constraint_name"]
+            col_names = uq_row["column_names"]  # list from array_agg
+            logger.debug(f"  Checking unique constraint {constraint_name} on columns {col_names}")
+
+            col_ids = SQL(",").join(Identifier(c) for c in col_names)
+            self.db.execute(
+                SQL(
+                    """
+                drop view if exists ups_uq_check cascade;
+                create temporary view ups_uq_check as
+                select {cols}, count(*) as nrows
+                from {staging_schema}.{table}
+                group by {cols}
+                having count(*) > 1;
+                """,
+                ).format(
+                    cols=col_ids,
+                    staging_schema=Identifier(self.staging_schema),
+                    table=Identifier(table),
+                ),
+            )
+            uq_errs, uq_headers, uq_err_count = self.db.rowdict("select * from ups_uq_check;")
+            if uq_err_count > 0:
+                uq_errs = list(uq_errs)
+                tot_rows, _th, _tc = self.db.rowdict(
+                    "select count(*) as errcount, sum(nrows) as total_rows from ups_uq_check;",
+                )
+                tot_row = next(iter(tot_rows))
+                err_detail = f"{constraint_name} ({tot_row['errcount']} duplicates, {tot_row['total_rows']} rows)"
+                logger.warning(f"    {err_detail}")
+                uq_check_sql = SQL("select * from ups_uq_check;")
+                logger.warning(f"{self._tabulate_sql(uq_check_sql)}")
+
+                if interactive:
+                    btn, _return_value = TableUI(
+                        "Unique constraint error",
+                        err_detail,
+                        [
+                            ("Continue", 0, "<Return>"),
+                            ("Cancel", 1, "<Escape>"),
+                        ],
+                        uq_headers,
+                        [[row[header] for header in uq_headers] for row in uq_errs],
+                    ).activate()
+                    if btn != 0:
+                        logger.warning("Script cancelled by user")
+                        raise UserCancelledError("Script cancelled by user during unique constraint check")
+
+                error_strings.append(err_detail)
+                errors.append(
+                    QAError(table=table, check_type=QACheckType.UNIQUE, details=err_detail),
+                )
+
+        if error_strings:
+            self.control.set_qa_errors(table, "unique_errors", ", ".join(error_strings))
+        return errors
+
+    def check_column_existence(self, table: str) -> list[QAError]:
+        """Check that all base table columns exist in the staging table.
+
+        Columns listed in ``exclude_cols`` for this table are not flagged
+        as missing.
+
+        Args:
+            table: The table name to check.
+
+        Returns:
+            A list of :class:`QAError` for any base columns missing from staging.
+        """
+        errors: list[QAError] = []
+        logger.info(f"Conducting column existence checks on table {self.staging_schema}.{table}")
+
+        # Get exclude_cols for this table from the control table.
+        spec = self.control.get_table_spec(table)
+        exclude_cols: list[str] = []
+        if spec and spec.get("exclude_cols"):
+            exclude_cols = [c.strip() for c in spec["exclude_cols"].split(",")]
+
+        # Find base columns missing from staging.
+        self.db.execute(
+            SQL(
+                """
+            drop view if exists ups_missing_cols cascade;
+            create temporary view ups_missing_cols as
+            select b.column_name
+            from information_schema.columns b
+            where b.table_schema = {base_schema}
+                and b.table_name = {table}
+                and b.column_name not in (
+                    select s.column_name
+                    from information_schema.columns s
+                    where s.table_schema = {staging_schema}
+                        and s.table_name = {table}
+                )
+            """,
+            ).format(
+                base_schema=Literal(self.base_schema),
+                staging_schema=Literal(self.staging_schema),
+                table=Literal(table),
+            ),
+        )
+
+        missing_rows, _headers, missing_count = self.db.rowdict(
+            "select * from ups_missing_cols;",
+        )
+        if missing_count == 0:
+            return errors
+
+        # Filter out excluded columns.
+        missing_cols = [row["column_name"] for row in missing_rows if row["column_name"] not in exclude_cols]
+        if not missing_cols:
+            return errors
+
+        err_detail = ", ".join(missing_cols)
+        logger.warning(f"    Base columns missing from staging: {err_detail}")
+        self.control.set_qa_errors(table, "column_errors", err_detail)
+        errors.append(
+            QAError(table=table, check_type=QACheckType.COLUMN_EXISTENCE, details=err_detail),
+        )
+        return errors
+
+    def check_type_mismatch(self, table: str) -> list[QAError]:
+        """Check for hard type incompatibilities between staging and base columns.
+
+        Only flags mismatches where PostgreSQL has no implicit or assignment
+        cast between the types. Soft coercions (e.g., ``varchar`` to ``text``)
+        are not flagged.
+
+        Args:
+            table: The table name to check.
+
+        Returns:
+            A list of :class:`QAError` for any type incompatibilities found.
+        """
+        errors: list[QAError] = []
+        logger.info(f"Conducting column type mismatch checks on table {self.staging_schema}.{table}")
+
+        # Find columns present in both schemas with different types
+        # where no implicit/assignment cast exists.
+        self.db.execute(
+            SQL(
+                """
+            drop view if exists ups_type_mismatches cascade;
+            create temporary view ups_type_mismatches as
+            select
+                b.column_name,
+                s.udt_name as staging_type,
+                b.udt_name as base_type
+            from information_schema.columns b
+            inner join information_schema.columns s
+                on s.table_schema = {staging_schema}
+                and s.table_name = {table}
+                and s.column_name = b.column_name
+            where b.table_schema = {base_schema}
+                and b.table_name = {table}
+                and s.udt_name != b.udt_name
+                and not exists (
+                    select 1 from pg_cast
+                    inner join pg_type src on src.oid = pg_cast.castsource
+                    inner join pg_type tgt on tgt.oid = pg_cast.casttarget
+                    where src.typname = s.udt_name
+                        and tgt.typname = b.udt_name
+                        and pg_cast.castcontext in ('i', 'a')
+                );
+            """,
+            ).format(
+                base_schema=Literal(self.base_schema),
+                staging_schema=Literal(self.staging_schema),
+                table=Literal(table),
+            ),
+        )
+
+        mismatch_rows, _headers, mismatch_count = self.db.rowdict(
+            "select * from ups_type_mismatches;",
+        )
+        if mismatch_count == 0:
+            return errors
+
+        mismatch_details: list[str] = []
+        for row in mismatch_rows:
+            detail = f"{row['column_name']} ({row['staging_type']} -> {row['base_type']})"
+            mismatch_details.append(detail)
+            logger.warning(f"    Type mismatch: {detail}")
+
+        err_detail = ", ".join(mismatch_details)
+        self.control.set_qa_errors(table, "type_errors", err_detail)
+        errors.append(
+            QAError(table=table, check_type=QACheckType.TYPE_MISMATCH, details=err_detail),
+        )
+        return errors
+
     # ------------------------------------------------------------------
     # Orchestration
     # ------------------------------------------------------------------
@@ -714,21 +953,35 @@ class QARunner:
 
         all_errors: list[QAError] = []
 
-        check_types = [
-            ("Non-NULL", self.check_nulls),
-            ("Primary Key", self.check_pks),
-            ("Foreign Key", self.check_fks),
-            ("Check Constraint", self.check_cks),
+        check_types: list[tuple[str, bool]] = [
+            ("Column Existence", False),
+            ("Column Type", False),
+            ("Non-NULL", False),
+            ("Primary Key", True),
+            ("Unique", True),
+            ("Foreign Key", True),
+            ("Check Constraint", False),
         ]
+        check_funcs: dict[str, object] = {
+            "Column Existence": self.check_column_existence,
+            "Column Type": self.check_type_mismatch,
+            "Non-NULL": self.check_nulls,
+            "Primary Key": self.check_pks,
+            "Unique": self.check_unique,
+            "Foreign Key": self.check_fks,
+            "Check Constraint": self.check_cks,
+        }
 
-        for check_label, check_func in check_types:
+        for check_label, supports_interactive in check_types:
             logger.info(f"==={check_label} checks===")
             start_time = _datetime.now()
+            check_func = check_funcs[check_label]
             for table in tables:
-                if check_func in (self.check_pks, self.check_fks):
-                    table_errors = check_func(table, interactive=interactive)  # type: ignore[call-arg]
-                else:
-                    table_errors = check_func(table)  # type: ignore[call-arg]
+                table_errors = (
+                    check_func(table, interactive=interactive)  # type: ignore[call-arg]
+                    if supports_interactive
+                    else check_func(table)  # type: ignore[call-arg]
+                )
                 all_errors.extend(table_errors)
             logger.debug(f"{check_label} checks completed in {elapsed_time(start_time)}")
 

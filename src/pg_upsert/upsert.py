@@ -425,6 +425,40 @@ class PgUpsert:
         self._qa.check_cks(table)
         return self
 
+    def qa_all_unique(self: PgUpsert) -> PgUpsert:
+        """Performs unique constraint checks on all selected staging tables."""
+        for table in self.tables:
+            self._qa.check_unique(table, interactive=self.interactive)
+        return self
+
+    def qa_one_unique(self: PgUpsert, table: str) -> PgUpsert:
+        """Performs unique constraint checks on a single staging table.
+
+        Args:
+            table (str): The name of the staging table to check.
+        """
+        self._validate_table(table)
+        self._qa.check_unique(table, interactive=self.interactive)
+        return self
+
+    def qa_column_existence(self: PgUpsert) -> PgUpsert:
+        """Checks that all base table columns exist in the staging tables.
+
+        Respects the ``exclude_cols`` setting — excluded columns are not flagged.
+        """
+        for table in self.tables:
+            self._qa.check_column_existence(table)
+        return self
+
+    def qa_type_mismatch(self: PgUpsert) -> PgUpsert:
+        """Checks for hard type incompatibilities between staging and base columns.
+
+        Only flags mismatches where PostgreSQL has no implicit or assignment cast.
+        """
+        for table in self.tables:
+            self._qa.check_type_mismatch(table)
+        return self
+
     def upsert_all(self: PgUpsert) -> PgUpsert:
         """Performs upsert operations on all selected tables in the base schema.
 
