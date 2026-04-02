@@ -184,6 +184,21 @@ def cli(
             help="Generate a template configuration file. If any other options are provided, they will be included in the generated file.",  # noqa
         ),
     ] = False,
+    output: Annotated[
+        str,
+        typer.Option(
+            "--output",
+            "-o",
+            help="Output format: 'text' for human-readable logs (default), or 'json' for machine-parseable JSON.",
+        ),
+    ] = "text",
+    check_schema: Annotated[
+        bool,
+        typer.Option(
+            "--check-schema",
+            help="Run column existence and type mismatch checks only, then exit.",  # noqa
+        ),
+    ] = False,
 ) -> None:
     args = SimpleNamespace(**locals())
     if args.version:
@@ -263,7 +278,7 @@ def cli(
             file_handler.setLevel(logging.INFO)
             file_handler.setFormatter(logging.Formatter("%(message)s"))
         logger.addHandler(file_handler)
-    if not args.quiet:
+    if not args.quiet and args.output != "json":
         stream_handler = logging.StreamHandler(sys.stdout)
         if args.debug:
             stream_handler.setLevel(logging.DEBUG)
@@ -310,7 +325,7 @@ def cli(
     if args.null_columns and isinstance(args.null_columns, str):
         args.null_columns = [col.strip() for col in args.null_columns.split(",")]
     try:
-        PgUpsert(
+        ups = PgUpsert(
             uri=f"postgresql://{args.user}@{args.host}:{args.port}/{args.database}",
             encoding=args.encoding,
             tables=args.tables,
@@ -321,7 +336,35 @@ def cli(
             interactive=args.interactive,
             exclude_cols=args.exclude_columns,
             exclude_null_check_cols=args.null_columns,
-        ).run()
+        )
+        if args.check_schema:
+            errors = []
+            for table in args.tables:
+                errors.extend(ups._qa.check_column_existence(table))
+                errors.extend(ups._qa.check_type_mismatch(table))
+            from .models import UpsertResult
+
+            result = UpsertResult(tables=[])
+            if args.output == "json":
+                import json
+
+                print(
+                    json.dumps(
+                        {"schema_compatible": len(errors) == 0, "errors": [e.to_dict() for e in errors]},
+                        indent=2,
+                    ),
+                )  # noqa: E501
+            else:
+                if errors:
+                    for err in errors:
+                        logger.error(f"  {err.table}: {err.details} ({err.check_type.value})")
+                    logger.error(f"Schema check failed: {len(errors)} issue(s) found.")
+                else:
+                    logger.info("Schema check passed: all staging tables are compatible with base tables.")
+            sys.exit(1 if errors else 0)
+        result = ups.run()
+        if args.output == "json":
+            print(result.to_json())
     except UserCancelledError:
         sys.exit(0)
     except Exception as e:

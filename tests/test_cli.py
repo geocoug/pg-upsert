@@ -345,6 +345,8 @@ class TestCliPgUpsertCall:
 
     def test_successful_run(self, monkeypatch):
         """Verify a successful PgUpsert.run() exits cleanly."""
+        from pg_upsert.models import UpsertResult
+
         monkeypatch.setattr(pg_upsert.postgres.getpass, "getpass", "password")
 
         class FakePgUpsert:
@@ -352,7 +354,7 @@ class TestCliPgUpsertCall:
                 pass
 
             def run(self):
-                return self
+                return UpsertResult()
 
         monkeypatch.setattr("pg_upsert.cli.PgUpsert", FakePgUpsert)
         result = runner.invoke(
@@ -360,3 +362,104 @@ class TestCliPgUpsertCall:
             shlex.split("-h h -p 5432 -d dev -u u -s stg -b pub -t t1"),
         )
         assert result.exit_code == 0
+
+    def test_json_output(self, monkeypatch):
+        """Verify --output=json produces valid JSON on stdout."""
+        import json
+
+        from pg_upsert.models import UpsertResult
+
+        monkeypatch.setattr(pg_upsert.postgres.getpass, "getpass", "password")
+
+        class FakePgUpsert:
+            def __init__(self, **kw):
+                pass
+
+            def run(self):
+                return UpsertResult()
+
+        monkeypatch.setattr("pg_upsert.cli.PgUpsert", FakePgUpsert)
+        result = runner.invoke(
+            app,
+            shlex.split("-h h -p 5432 -d dev -u u -s stg -b pub -t t1 --output json"),
+        )
+        assert result.exit_code == 0
+        parsed = json.loads(result.stdout)
+        assert "qa_passed" in parsed
+        assert "tables" in parsed
+
+    def test_check_schema_no_errors(self, monkeypatch):
+        """Verify --check-schema exits 0 when no schema issues."""
+        monkeypatch.setattr(pg_upsert.postgres.getpass, "getpass", "password")
+
+        class FakeQA:
+            def check_column_existence(self, table):
+                return []
+
+            def check_type_mismatch(self, table):
+                return []
+
+        class FakePgUpsert:
+            def __init__(self, **kw):
+                self._qa = FakeQA()
+
+        monkeypatch.setattr("pg_upsert.cli.PgUpsert", FakePgUpsert)
+        result = runner.invoke(
+            app,
+            shlex.split("-h h -p 5432 -d dev -u u -s stg -b pub -t t1 --check-schema"),
+        )
+        assert result.exit_code == 0
+        assert "passed" in result.stdout.lower()
+
+    def test_check_schema_with_errors(self, monkeypatch):
+        """Verify --check-schema exits 1 when schema issues found."""
+        from pg_upsert.models import QACheckType, QAError
+
+        monkeypatch.setattr(pg_upsert.postgres.getpass, "getpass", "password")
+
+        class FakeQA:
+            def check_column_existence(self, table):
+                return [QAError(table="t1", check_type=QACheckType.COLUMN_EXISTENCE, details="col_x")]
+
+            def check_type_mismatch(self, table):
+                return []
+
+        class FakePgUpsert:
+            def __init__(self, **kw):
+                self._qa = FakeQA()
+
+        monkeypatch.setattr("pg_upsert.cli.PgUpsert", FakePgUpsert)
+        result = runner.invoke(
+            app,
+            shlex.split("-h h -p 5432 -d dev -u u -s stg -b pub -t t1 --check-schema"),
+        )
+        assert result.exit_code == 1
+
+    def test_check_schema_json_output(self, monkeypatch):
+        """Verify --check-schema --output=json produces valid JSON."""
+        import json
+
+        from pg_upsert.models import QACheckType, QAError
+
+        monkeypatch.setattr(pg_upsert.postgres.getpass, "getpass", "password")
+
+        class FakeQA:
+            def check_column_existence(self, table):
+                return [QAError(table="t1", check_type=QACheckType.COLUMN_EXISTENCE, details="col_x")]
+
+            def check_type_mismatch(self, table):
+                return []
+
+        class FakePgUpsert:
+            def __init__(self, **kw):
+                self._qa = FakeQA()
+
+        monkeypatch.setattr("pg_upsert.cli.PgUpsert", FakePgUpsert)
+        result = runner.invoke(
+            app,
+            shlex.split("-h h -p 5432 -d dev -u u -s stg -b pub -t t1 --check-schema --output json"),
+        )
+        assert result.exit_code == 1
+        parsed = json.loads(result.stdout)
+        assert parsed["schema_compatible"] is False
+        assert len(parsed["errors"]) == 1

@@ -8,6 +8,11 @@ ______________________________________________________________________
 
 ## [Unreleased]
 
+### Added
+
+- `--output=json` CLI flag — outputs `UpsertResult` as machine-parseable JSON to stdout. Log messages are suppressed when JSON output is enabled.
+- `--check-schema` CLI flag — pre-flight validation mode that runs column existence and type mismatch checks only, then exits. Exit code 0 = compatible, 1 = issues found. Works with `--output=json`.
+
 ______________________________________________________________________
 
 ## [1.8.0] - 2026-04-02
