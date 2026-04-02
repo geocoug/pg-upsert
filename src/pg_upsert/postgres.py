@@ -48,9 +48,12 @@ class PostgresDB:
                 "Connection URI ignored as an existing connection object is provided.",
             )
             uri = None
-        # If a URI is supplied, check for a password and prompt if necessary
+        # If a URI is supplied, extract the password separately to avoid storing
+        # it in the dsn (which would be exposed via conn.dsn / repr).
+        self._password: str | None = None
+        self._sanitized_uri: str | None = None
         if uri:
-            uri = self._prompt_for_password(uri)
+            uri, self._password, self._sanitized_uri = self._extract_password(uri)
         self.conn = conn or psycopg2.connect(uri, **kwargs)
         self.encoding = encoding
         self.in_transaction = False
@@ -68,20 +71,35 @@ class PostgresDB:
         if hasattr(self, "conn") and self.conn and not self.conn.closed:
             self.close()
 
-    def _prompt_for_password(self, uri: str) -> str:
-        """Prompt the user for a password."""
-        try:
-            parsed_uri = urlparse(uri)
-            if parsed_uri.password:
-                return uri
+    def _extract_password(self, uri: str) -> tuple[str, str | None, str]:
+        """Extract password from URI, prompt if missing, and return (full_uri, password, sanitized_uri).
+
+        Args:
+            uri: The connection URI potentially containing a password.
+
+        Returns:
+            A tuple of (uri_with_password, password_or_none, sanitized_uri_without_password).
+        """
+        parsed = urlparse(uri)
+        password = parsed.password
+        if not password:
             prompt = f"The library {__title__} wants the password for PostgresDB(uri={uri}): "
-            return urlunparse(
-                parsed_uri._replace(
-                    netloc=f"{parsed_uri.username}:{getpass.getpass(prompt)}@{parsed_uri.hostname}:{parsed_uri.port}",
-                ),
-            )
-        except (KeyboardInterrupt, EOFError) as err:
-            raise err
+            try:
+                password = getpass.getpass(prompt)
+            except (KeyboardInterrupt, EOFError) as err:
+                raise err
+            netloc = f"{parsed.username}:{password}@{parsed.hostname}"
+            if parsed.port:
+                netloc += f":{parsed.port}"
+            uri = urlunparse(parsed._replace(netloc=netloc))
+            parsed = urlparse(uri)
+
+        # Build a sanitized URI with the password replaced by ***
+        sanitized_netloc = f"{parsed.username}:***@{parsed.hostname}"
+        if parsed.port:
+            sanitized_netloc += f":{parsed.port}"
+        sanitized_uri = urlunparse(parsed._replace(netloc=sanitized_netloc))
+        return uri, password, sanitized_uri
 
     def _is_valid_connection(self) -> bool:
         """Check if the database connection is valid."""
@@ -96,13 +114,19 @@ class PostgresDB:
         """Ensure the database connection is open."""
         if not self.conn or self.conn.closed:
             logger.debug("Opening database connection.")
-            self.conn = psycopg2.connect(self.conn.dsn, **self.kwargs)
+            dsn = self.conn.dsn if self.conn else None
+            if dsn:
+                self.conn = psycopg2.connect(dsn, **self.kwargs)
+            elif self._password is not None:
+                # Reconnect using stored sanitized URI + password kwarg
+                import re
+
+                clean_uri = re.sub(r":[^:@]+@", "@", self._sanitized_uri or "")
+                self.conn = psycopg2.connect(clean_uri, password=self._password, **self.kwargs)
+            else:
+                raise psycopg2.OperationalError("Cannot reopen connection: no DSN or credentials available.")
             self.conn.set_client_encoding(self.encoding)
             self.conn.set_session(autocommit=False)
-        elif self.conn.closed:
-            logger.warning("Connection is closed; attempting to reopen.")
-            self.conn = psycopg2.connect(self.conn.dsn, **self.kwargs)
-            self.conn.set_client_encoding(self.encoding)
 
     def cursor(self):
         """Return a cursor for executing database queries."""

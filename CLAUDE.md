@@ -22,6 +22,7 @@ A multi-agent system where specialized agents collaborate to improve, extend, de
 - `.claude/docs-drafts/` — Scribe's documentation drafts
 - `.claude/releases/` — Herald's release notes and changelog entries
 - `.claude/state/` — Shared state (current phase, active task, agent status)
+- `../execsql/.claude/agents/liaison.md` — execsql-side Liaison agent (read-only reference)
 
 ## Communication Protocol
 
@@ -50,3 +51,4 @@ A multi-agent system where specialized agents collaborate to improve, extend, de
 - **Every user-visible change must be reflected in `CHANGELOG.md`** under the `[Unreleased]` section using [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) categories: Added, Changed, Fixed, Removed. Do not leave changelog updates for later — include them in the same commit or PR as the code change.
 - **Every user-visible change must also update documentation** — review and revise `README.md`, `docs/`, and any other relevant documentation to stay consistent with the code. New CLI options, features, or behavior changes must be reflected in the docs. Do not leave doc updates for later.
 - **After every version bump and push, monitor CI** — push with `git push && git push --tags` to include version tags, then run `gh run list --limit 1` to get the run ID, then `gh run watch <id> --exit-status` to block until it completes. Bump commits trigger PyPI publish and GitHub Release, so failures must be caught and fixed immediately.
+- **execsql2 integration contract** — pg-upsert is planned as an optional dependency for execsql2 (`../execsql/`). The Liaison agent guards the API surface that execsql depends on: `PgUpsert(conn=...)` constructor, `qa_all()`/`upsert_all()`/`run()`/`commit()` methods returning `self`, `qa_passed` attribute, and the `ups_control` temp table schema. Any change to these interfaces must be flagged. See `.claude/plans/refactor-and-execsql-integration.md` for the full plan.

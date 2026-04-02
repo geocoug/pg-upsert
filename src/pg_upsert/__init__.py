@@ -9,7 +9,16 @@ from .__version__ import (
     __version__,
 )
 from .cli import app
+from .models import QACheckType, QAError, TableResult, UpsertResult
 from .postgres import PostgresDB
 from .upsert import PgUpsert, UserCancelledError
 
-__all__ = ["PgUpsert", "PostgresDB", "UserCancelledError"]
+__all__ = [
+    "PgUpsert",
+    "PostgresDB",
+    "UserCancelledError",
+    "UpsertResult",
+    "TableResult",
+    "QAError",
+    "QACheckType",
+]

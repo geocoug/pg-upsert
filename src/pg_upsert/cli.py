@@ -215,12 +215,33 @@ def cli(
             rprint(f"Configuration file not found: {args.config_file}")
             sys.exit(1)
         # For each key in the configuration yaml, update the corresponding command line argument
+        # only when the CLI arg is still at its default value (config file loses to explicit args).
+        _cli_defaults: dict[str, object] = {
+            "debug": False,
+            "quiet": False,
+            "logfile": None,
+            "exclude_columns": None,
+            "null_columns": None,
+            "commit": False,
+            "interactive": False,
+            "upsert_method": "upsert",
+            "host": None,
+            "port": 5432,
+            "database": None,
+            "user": None,
+            "staging_schema": None,
+            "base_schema": None,
+            "encoding": "utf-8",
+            "tables": None,
+        }
         for key in config:
             if key in args.__dict__:
-                if key == "logfile":
-                    setattr(args, key, Path(config[key]))
-                else:
-                    setattr(args, key, config[key])
+                # Only override if the current value is the CLI default.
+                if getattr(args, key) == _cli_defaults.get(key):
+                    if key == "logfile":
+                        setattr(args, key, Path(config[key]))
+                    else:
+                        setattr(args, key, config[key])
             else:
                 rprint(
                     f"Invalid configuration key will be ignored in {args.config_file}: {key}",

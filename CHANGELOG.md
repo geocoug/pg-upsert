@@ -8,6 +8,29 @@ ______________________________________________________________________
 
 ## [Unreleased]
 
+### Added
+
+- `UpsertResult` dataclass — `run()` now returns structured results with `qa_passed`, `total_updated`, `total_inserted`, `to_dict()`, and `to_json()` methods.
+- `TableResult` dataclass — per-table stats and QA errors.
+- `QAError` dataclass — individual QA finding with table name, check type, and details.
+- `QACheckType` enum — types of QA checks (null, pk, unique, fk, ck, type_mismatch, column_existence).
+- New modules: `control.py` (ControlTable), `qa.py` (QARunner), `executor.py` (UpsertExecutor), `models.py` (dataclasses).
+
+### Changed
+
+- **BREAKING**: `run()` now returns `UpsertResult` instead of `self`. This is a breaking change for callers that chained methods after `run()`, but `run()` is designed as a terminal call.
+- Decomposed the 2,100-line `PgUpsert` class into focused modules: `QARunner` (QA checks), `UpsertExecutor` (upsert operations), `ControlTable` (temp table management). `PgUpsert` is now a thin facade preserving the existing constructor API.
+- Replaced while-True/processed-flag database loops with Python iteration in QA checks.
+- `qa_one_ck()` now updates the control table directly, consistent with `qa_one_null/pk/fk`.
+- Config file no longer silently overrides explicit CLI arguments — CLI args take precedence.
+- Password is no longer embedded in the connection URI; extracted and stored separately for reconnection.
+
+### Fixed
+
+- Fixed `rows_updated` count — now uses `cursor.rowcount` from the actual UPDATE execution instead of the staging match count.
+- Fixed `_validate_schemas()` executing the same query twice.
+- Fixed `open_db()` unreachable dead code branch and reconnection failure.
+
 ______________________________________________________________________
 
 ## [1.6.1] - 2026-04-02
