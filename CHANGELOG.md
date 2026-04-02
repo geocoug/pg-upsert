@@ -8,6 +8,25 @@ ______________________________________________________________________
 
 ## [Unreleased]
 
+### Added
+
+- New `display.py` module — rich-based output formatting with `rich.table.Table`, `rich.panel.Panel`, and colored pass/fail indicators.
+- `print_qa_summary()` — compact per-table QA results with pass/fail status and indented error details.
+- `print_check_start()`, `print_check_table_pass()`, `print_check_table_fail()` — consistent check-level output formatting.
+- `print_upsert_summary()` — clean upsert results table with per-table row counts and totals.
+
+### Changed
+
+- Replaced `tabulate` dependency with `rich` for all data table rendering. Tables now auto-size, have box borders, and support color.
+- QA check output now uses colored status indicators (green ✓ / red ✗) instead of raw markdown tables.
+- QA error summary uses a vertical per-table layout instead of one wide table — much easier to read.
+- `rich` is now an explicit direct dependency (was previously transitive via `typer`).
+
+### Removed
+
+- Removed `tabulate` dependency.
+- Removed `_tabulate_sql()` helper methods from `qa.py`, `control.py`, and `upsert.py`.
+
 ______________________________________________________________________
 
 ## [1.9.2] - 2026-04-02

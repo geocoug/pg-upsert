@@ -5,8 +5,8 @@ from __future__ import annotations
 import logging
 
 from psycopg2.sql import SQL, Identifier, Literal
-from tabulate import tabulate
 
+from . import display
 from .postgres import PostgresDB
 from .ui import TableUI
 
@@ -32,21 +32,6 @@ class ControlTable:
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
-
-    def _tabulate_sql(self, sql: str | SQL) -> str | None:
-        """Execute *sql* and return a formatted GitHub-flavoured Markdown table.
-
-        Args:
-            sql: The SQL query to execute.
-
-        Returns:
-            A formatted Markdown table string, or ``None`` if no rows were found.
-        """
-        rows, headers, rowcount = self.db.rowdict(sql)
-        if rowcount == 0:
-            logger.info("No results found")
-            return None
-        return f"{tabulate(rows, headers='keys', tablefmt='github', showindex=False)}"
 
     # ------------------------------------------------------------------
     # Public API
@@ -143,8 +128,9 @@ class ControlTable:
         debug_sql = SQL("select * from {control_table}").format(
             control_table=Identifier(self.table_name),
         )
+        rows, headers, _rowcount = self.db.rowdict(debug_sql)
         logger.debug(
-            f"Control table after being initialized:\n{self._tabulate_sql(debug_sql)}",
+            f"Control table after being initialized:\n{display.format_sql_result(list(rows), headers)}",
         )
 
     def validate(self, base_schema: str, staging_schema: str) -> None:
@@ -383,4 +369,5 @@ class ControlTable:
                 [[row[header] for header in ctrl_headers] for row in ctrl_rows],
             ).activate()
         else:
-            logger.info(f"Control table contents:\n{self._tabulate_sql(sql)}")
+            rows, headers, _rowcount = self.db.rowdict(sql)
+            logger.info(f"Control table contents:\n{display.format_sql_result(list(rows), headers)}")

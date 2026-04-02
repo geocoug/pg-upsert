@@ -5,8 +5,8 @@ from __future__ import annotations
 import logging
 
 from psycopg2.sql import SQL, Identifier, Literal
-from tabulate import tabulate
 
+from . import display
 from .control import ControlTable
 from .models import QACheckType, QAError, UserCancelledError
 from .postgres import PostgresDB
@@ -47,20 +47,6 @@ class QARunner:
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
-
-    def _tabulate_sql(self, sql: str | SQL) -> str | None:
-        """Execute *sql* and return a formatted Markdown table.
-
-        Args:
-            sql: The SQL query to execute.
-
-        Returns:
-            A formatted GitHub-flavoured Markdown table string, or ``None``.
-        """
-        rows, headers, rowcount = self.db.rowdict(sql)
-        if rowcount == 0:
-            return None
-        return f"{tabulate(rows, headers='keys', tablefmt='github', showindex=False)}"
 
     # ------------------------------------------------------------------
     # Check methods
@@ -252,10 +238,13 @@ class QARunner:
             )
             tot_errs = next(iter(tot_errs))
             err_msg = f"{tot_errs['errcount']} duplicate keys ({tot_errs['total_rows']} rows) in table {self.staging_schema}.{table}"  # noqa: E501
-            logger.warning("")
-            pk_check_sql = SQL("select * from ups_pk_check;")
-            logger.warning(self._tabulate_sql(pk_check_sql))
-            logger.warning("")
+            display.print_check_table_fail(
+                self.staging_schema,
+                table,
+                err_msg,
+                detail_rows=pk_errs,
+                detail_headers=pk_headers,
+            )
             if interactive:
                 btn, _return_value = TableUI(
                     "Duplicate key error",
@@ -483,12 +472,14 @@ class QARunner:
             fk_check_rows, fk_check_headers, fk_check_rowcount = self.db.rowdict(check_sql)
             if fk_check_rowcount > 0:
                 fk_check_rows = list(fk_check_rows)
-                logger.warning(
-                    f"    Foreign key error referencing {const_row['uq_schema']}.{const_row['uq_table']}",
+                fk_err_msg = f"Foreign key error referencing {const_row['uq_schema']}.{const_row['uq_table']}"
+                display.print_check_table_fail(
+                    self.staging_schema,
+                    table,
+                    fk_err_msg,
+                    detail_rows=fk_check_rows,
+                    detail_headers=fk_check_headers,
                 )
-                logger.warning("")
-                logger.warning(f"{self._tabulate_sql(check_sql)}")
-                logger.warning("")
                 if fk_check_rows:
                     if interactive:
                         btn, _return_value = TableUI(
@@ -767,9 +758,13 @@ class QARunner:
                 )
                 tot_row = next(iter(tot_rows))
                 err_detail = f"{constraint_name} ({tot_row['errcount']} duplicates, {tot_row['total_rows']} rows)"
-                logger.warning(f"    {err_detail}")
-                uq_check_sql = SQL("select * from ups_uq_check;")
-                logger.warning(f"{self._tabulate_sql(uq_check_sql)}")
+                display.print_check_table_fail(
+                    self.staging_schema,
+                    table,
+                    err_detail,
+                    detail_rows=uq_errs,
+                    detail_headers=uq_headers,
+                )
 
                 if interactive:
                     btn, _return_value = TableUI(
@@ -978,7 +973,7 @@ class QARunner:
         }
 
         for check_label, supports_interactive in check_types:
-            logger.info(f"==={check_label} checks===")
+            display.print_check_start(check_label)
             start_time = _datetime.now()
             check_func = check_funcs[check_label]
             for table in tables:
@@ -990,30 +985,23 @@ class QARunner:
                 all_errors.extend(table_errors)
             logger.debug(f"{check_label} checks completed in {elapsed_time(start_time)}")
 
-        if self.control.has_errors():
+        display.print_qa_summary(list(tables), all_errors)
+
+        if self.control.has_errors() and interactive:
             ctrl_sql = SQL("select * from {control_table};").format(
                 control_table=Identifier(self.control.table_name),
             )
-            if interactive:
-                rows, headers, _rowcount = self.db.rowdict(ctrl_sql)
-                rows = list(rows)
-                TableUI(
-                    "QA Errors",
-                    "QA checks failed. Below is a summary of the errors:",
-                    [
-                        ("Continue", 0, "<Return>"),
-                        ("Cancel", 1, "<Escape>"),
-                    ],
-                    headers,
-                    [[row[header] for header in headers] for row in rows],
-                ).activate()
-            else:
-                from tabulate import tabulate as _tabulate
-
-                rows, headers, _rowcount = self.db.rowdict(ctrl_sql)
-                logger.error("===QA checks failed. Below is a summary of the errors===")
-                logger.error(
-                    _tabulate(rows, headers="keys", tablefmt="github", showindex=False),
-                )
+            rows, headers, _rowcount = self.db.rowdict(ctrl_sql)
+            rows = list(rows)
+            TableUI(
+                "QA Errors",
+                "QA checks failed. Below is a summary of the errors:",
+                [
+                    ("Continue", 0, "<Return>"),
+                    ("Cancel", 1, "<Escape>"),
+                ],
+                headers,
+                [[row[header] for header in headers] for row in rows],
+            ).activate()
 
         return all_errors

@@ -6,9 +6,9 @@ import logging
 from datetime import datetime
 
 import psycopg2
-from psycopg2.sql import SQL, Composable, Identifier, Literal
-from tabulate import tabulate
+from psycopg2.sql import SQL, Identifier, Literal
 
+from . import display
 from .control import ControlTable
 from .executor import UpsertExecutor
 from .models import QAError, TableResult, UpsertResult, UserCancelledError
@@ -159,21 +159,6 @@ class PgUpsert:
 
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}(db={self.db!r}, tables={self.tables}, staging_schema={self.staging_schema}, base_schema={self.base_schema}, do_commit={self.do_commit}, interactive={self.interactive}, upsert_method={self.upsert_method}, exclude_cols={self.exclude_cols}, exclude_null_check_cols={self.exclude_null_check_cols})"  # noqa: E501
-
-    def _tabulate_sql(self, sql: str | Composable) -> None | str:
-        """Tabulate the results of a SQL query and return the formatted Markdown table.
-
-        Args:
-            sql (str or Composable): The SQL query to execute.
-
-        Returns:
-            None or str: The formatted Markdown table, if results are found.
-        """
-        rows, headers, rowcount = self.db.rowdict(sql)
-        if rowcount == 0:
-            logger.info("No results found")
-            return None
-        return f"{tabulate(rows, headers='keys', tablefmt='github', showindex=False)}"
 
     def _validate_schemas(self: PgUpsert) -> None:
         """Validate that the base and staging schemas exist."""
@@ -598,9 +583,8 @@ class PgUpsert:
             ).activate()
         else:
             btn = 0
-            logger.info("")
             logger.info("Summary of changes:")
-            logger.info(self._tabulate_sql(final_ctrl_sql))
+            logger.info(display.format_sql_result(final_ctrl_rows, final_ctrl_headers))
 
         logger.info("")
 

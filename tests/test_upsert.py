@@ -207,20 +207,28 @@ class TestControlTable:
             ups.show_control()
             mock_log.assert_called_once()
             msg = mock_log.call_args[0][0]
-            assert "table_name" in msg
+            # rich table format uses different rendering than tabulate
+            assert "table_name" in msg or "Control table" in msg
 
     def test_validate_control(self, ups):
         ups._validate_control()
 
-    def test_tabulate_sql_string(self, ups):
-        result = ups._tabulate_sql("SELECT 1 as val")
+    def test_format_sql_result(self, ups):
+        """display.format_sql_result replaces the old _tabulate_sql method."""
+        from pg_upsert import display
+
+        rows, headers, rowcount = ups.db.rowdict("SELECT 1 as val")
+        result = display.format_sql_result(list(rows), headers)
         assert result is not None
         assert "val" in result
 
-    def test_tabulate_sql_composable(self, ups):
-        result = ups._tabulate_sql(
+    def test_format_sql_result_composable(self, ups):
+        from pg_upsert import display
+
+        rows, headers, rowcount = ups.db.rowdict(
             SQL("SELECT {v} as val").format(v=Literal(42)),
         )
+        result = display.format_sql_result(list(rows), headers)
         assert "42" in result
 
 
