@@ -12,6 +12,24 @@ ______________________________________________________________________
 
 ## [1.15.0] - 2026-04-02
 
+### Added
+
+- pg-upsert version and PostgreSQL version now logged in logfile header.
+- Progress counters in QA check output: phase `(3/7)` in section headers, table `[1/5]` on pass lines.
+- Logfile run header/footer with `====` separators and timestamps for easy navigation in appended logs.
+- Table count shown in "Tables selected for upsert" message.
+- Exit code 1 when QA checks fail — CI pipelines can detect failures without parsing output.
+- New `docs/architecture.md` — module structure, pipeline flow, design decisions for contributors.
+- API reference now documents `UpsertResult`, `TableResult`, `QAError`, `QACheckType`, `UserCancelledError`.
+- `--docs` added to CLI options table in README.
+- Exit Codes section in README.
+
+### Changed
+
+- README config file example updated to show all available options.
+- Config file now supports `output`, `check_schema`, `compact`, `ui_mode` keys.
+- Dockerfile: removed tkinter GUI deps (useless in Docker), installs `[tui]` extra (textual) instead. Added OCI labels.
+
 ______________________________________________________________________
 
 ## [1.14.0] - 2026-04-02
