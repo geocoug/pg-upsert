@@ -87,10 +87,22 @@ class UpsertResult:
     Attributes:
         tables: Per-table results.
         committed: Whether the transaction was committed.
+        staging_schema: Name of the staging schema.
+        base_schema: Name of the base schema.
+        upsert_method: The upsert method used (upsert, update, insert).
+        started_at: ISO 8601 timestamp when the run started.
+        finished_at: ISO 8601 timestamp when the run finished.
+        duration_seconds: Elapsed time in seconds.
     """
 
     tables: list[TableResult] = field(default_factory=list)
     committed: bool = False
+    staging_schema: str = ""
+    base_schema: str = ""
+    upsert_method: str = ""
+    started_at: str = ""
+    finished_at: str = ""
+    duration_seconds: float = 0.0
 
     @property
     def qa_passed(self) -> bool:
@@ -110,10 +122,16 @@ class UpsertResult:
     def to_dict(self) -> dict:
         """Serialize to a dictionary for JSON output."""
         return {
+            "staging_schema": self.staging_schema,
+            "base_schema": self.base_schema,
+            "upsert_method": self.upsert_method,
             "qa_passed": self.qa_passed,
             "committed": self.committed,
             "total_updated": self.total_updated,
             "total_inserted": self.total_inserted,
+            "started_at": self.started_at,
+            "finished_at": self.finished_at,
+            "duration_seconds": self.duration_seconds,
             "tables": [t.to_dict() for t in self.tables],
         }
 

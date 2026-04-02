@@ -601,9 +601,16 @@ class PgUpsert:
                 result_map[table] = TableResult(table_name=table)
             result_map[table].qa_errors = error_map.get(table, [])
 
+        duration_seconds = (end_time - start_time).total_seconds()
         return UpsertResult(
             tables=[result_map[t] for t in self.tables if t in result_map],
             committed=committed,
+            staging_schema=self.staging_schema,
+            base_schema=self.base_schema,
+            upsert_method=self.upsert_method,
+            started_at=start_str,
+            finished_at=end_str,
+            duration_seconds=round(duration_seconds, 3),
         )
 
     def _do_commit(self) -> bool:
