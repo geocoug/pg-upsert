@@ -215,7 +215,7 @@ class TestControlTable:
 
     def test_format_sql_result(self, ups):
         """display.format_sql_result replaces the old _tabulate_sql method."""
-        from pg_upsert import display
+        from pg_upsert.ui import display
 
         rows, headers, rowcount = ups.db.rowdict("SELECT 1 as val")
         result = display.format_sql_result(list(rows), headers)
@@ -223,7 +223,7 @@ class TestControlTable:
         assert "val" in result
 
     def test_format_sql_result_composable(self, ups):
-        from pg_upsert import display
+        from pg_upsert.ui import display
 
         rows, headers, rowcount = ups.db.rowdict(
             SQL("SELECT {v} as val").format(v=Literal(42)),

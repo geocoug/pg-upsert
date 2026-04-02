@@ -6,9 +6,8 @@ import logging
 
 from psycopg2.sql import SQL, Identifier, Literal
 
-from . import display
 from .postgres import PostgresDB
-from .ui_base import UIBackend
+from .ui import UIBackend, display
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +30,7 @@ class ControlTable:
         self.db = db
         self.table_name = table_name
         if ui is None:
-            from .ui_console import ConsoleBackend
+            from .ui.console import ConsoleBackend
 
             self._ui: UIBackend = ConsoleBackend()
         else:
@@ -219,13 +218,13 @@ class ControlTable:
             control_table=Identifier(self.table_name),
         )
         if self.db.execute(sql).rowcount > 0:
-            logger.error("Invalid table(s) specified:")
             rows, _headers, _rowcount = self.db.rowdict(
                 SQL("select schema_table from ups_ctrl_invl_table"),
             )
-            for row in rows:
-                logger.error(f"  {row['schema_table']}")
-            raise ValueError("Invalid table(s) specified")
+            missing = [row["schema_table"] for row in rows]
+            for t in missing:
+                display.console.print(f"  [bold red]✗[/bold red] Table not found: {t}")
+            raise ValueError(f"Table(s) not found: {', '.join(missing)}")
 
     def set_qa_errors(self, table: str, column_name: str, errors_str: str) -> None:
         """Set a QA error column for *table* in the control table.
@@ -295,7 +294,7 @@ class ControlTable:
         )
         if rowcount == 0:
             return None
-        return next(iter(rows))
+        return next(iter(rows))  # guarded by rowcount check above
 
     def get_all_specs(self) -> list[dict]:
         """Return all rows from the control table as a list of dicts.

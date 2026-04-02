@@ -14,6 +14,7 @@ build/
 # Zensical / MkDocs
 site/
 .cache
+docs/index.md
 docs/about/change_log.md
 
 # OS

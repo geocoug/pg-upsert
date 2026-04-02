@@ -8,7 +8,7 @@ this module can be imported safely in headless environments as long as
 
 from __future__ import annotations
 
-from .ui_base import UIBackend
+from .base import UIBackend
 
 
 class TkinterBackend(UIBackend):
@@ -40,7 +40,7 @@ class TkinterBackend(UIBackend):
         Returns:
             ``(button_value, None)`` from the activated dialog.
         """
-        from .ui import TableUI
+        from .legacy import TableUI
 
         return TableUI(title, message, buttons, headers, rows).activate()
 
@@ -72,7 +72,7 @@ class TkinterBackend(UIBackend):
         Returns:
             ``(button_value, None)`` from the activated dialog.
         """
-        from .ui import CompareUI
+        from .legacy import CompareUI
 
         return CompareUI(
             title,

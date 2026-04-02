@@ -8,6 +8,46 @@ ______________________________________________________________________
 
 ## [Unreleased]
 
+### Added
+
+- Start and end timestamps with elapsed duration logged for every `run()` invocation.
+- Row matching in Textual TUI comparison view — clicking a row in either table scrolls to the matching PK row in the other table.
+- New documentation page: QA Checks Reference (`docs/qa_checks.md`) with PostgreSQL documentation links.
+- Codecov badge in README.
+
+### Changed
+
+- **BREAKING**: Removed `__version__.py` — version is now read from package metadata via `importlib.metadata.version("pg_upsert")` at runtime.
+- **BREAKING**: `--tables` CLI option renamed to `--table` (singular, since each flag specifies one table).
+- Reorganized source into `ui/` subpackage: `ui/base.py`, `ui/factory.py`, `ui/console.py`, `ui/tkinter_backend.py`, `ui/textual_backend.py`, `ui/display.py`, `ui/legacy.py`.
+- Textual comparison view row matching now uses `RowHighlighted` event (matching execsql's pattern) instead of `CursorChanged`. Pre-builds PK→row-index maps at mount time for O(1) lookup.
+- Password prompt shows rich-formatted connection info: `PostgreSQL → user@host:port/db`.
+- Invalid schema/table errors show rich `✗` formatting.
+- "Tables selected for upsert" shown as labeled list with `staging → public` context.
+- `--check-schema` output uses rich section header, per-table ✓/✗, and bold summary.
+- All CLI validation errors use consistent rich formatting via `_cli_error()` helper.
+- `--ui` validated before password prompt to avoid unnecessary prompting.
+- Logfile appends instead of being deleted and recreated on each run.
+- Display logger uses `propagate=False` to prevent duplicate console output.
+- Removed `console` as a public `--ui` option — console backend is internal-only for non-interactive runs.
+- Updated README: complete rewrite with CLI options table, fixed parameter names, documented UpsertResult.
+- Updated `pyproject.toml` description, removed `markdown-include` dependency.
+- `docs/index.md` auto-generated from `README.md` via justfile/RTD build.
+
+### Fixed
+
+- Fixed `_validate_schemas` and `_validate_table` executing same query twice — now caches cursor result.
+- Guarded all `next(iter())` calls against StopIteration — replaced with `[0]` indexing or added safety comments.
+- Fixed `strict=False` in `ui/console.py` zip — now `strict=True`.
+- Fixed broad `except Exception` in config file loading — now catches `yaml.YAMLError, OSError`.
+- Fixed misleading "No columns found in base table" log message — now says "No shared columns".
+- Fixed dead code: unreachable `else` branch in postgres.py rowdict encoding check.
+
+### Removed
+
+- `src/pg_upsert/__version__.py` — version, title, description, and other metadata are no longer maintained in a separate file.
+- `markdown-include` dependency (no longer used after docs migration to zensical).
+
 ______________________________________________________________________
 
 ## [1.11.2] - 2026-04-02

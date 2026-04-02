@@ -16,7 +16,7 @@ import yaml
 from typer.testing import CliRunner
 
 import pg_upsert
-from pg_upsert import __title__, __version__
+from pg_upsert import __version__
 from pg_upsert.cli import app
 
 runner = CliRunner()
@@ -46,7 +46,7 @@ class TestCliExitZero:
     def test_version(self):
         result = runner.invoke(app, ["--version"])
         assert result.exit_code == 0
-        assert __title__ in result.stdout
+        assert "pg_upsert" in result.stdout
         assert __version__ in result.stdout
 
     def test_docs(self, monkeypatch):

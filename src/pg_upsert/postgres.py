@@ -10,8 +10,6 @@ import psycopg2
 from psycopg2.extras import DictCursor
 from psycopg2.sql import Composable
 
-from .__version__ import __title__
-
 logger = logging.getLogger(__name__)
 
 
@@ -83,19 +81,29 @@ class PostgresDB:
         parsed = urlparse(uri)
         password = parsed.password
         if not password:
-            prompt = f"The library {__title__} wants the password for PostgresDB(uri={uri}): "
+            user = parsed.username or "unknown"
+            host = parsed.hostname or "localhost"
+            port = parsed.port or 5432
+            dbname = parsed.path.lstrip("/") if parsed.path else "unknown"
+            from rich.console import Console as _Console
+
+            _con = _Console(stderr=True)
+            _con.print(
+                f"\n  [bold]PostgreSQL[/bold] [dim]→[/dim] "
+                f"[cyan]{user}[/cyan]@[cyan]{host}[/cyan]:[cyan]{port}[/cyan]/[cyan]{dbname}[/cyan]",
+            )
             try:
-                password = getpass.getpass(prompt)
-            except (KeyboardInterrupt, EOFError) as err:
-                raise err
+                password = getpass.getpass("  Password: ")
+            except (KeyboardInterrupt, EOFError):
+                raise
             netloc = f"{parsed.username}:{password}@{parsed.hostname}"
             if parsed.port:
                 netloc += f":{parsed.port}"
             uri = urlunparse(parsed._replace(netloc=netloc))
             parsed = urlparse(uri)
 
-        # Build a sanitized URI with the password replaced by ***
-        sanitized_netloc = f"{parsed.username}:***@{parsed.hostname}"
+        # Build a sanitized URI (no password) for display/logging.
+        sanitized_netloc = f"{parsed.username}@{parsed.hostname}"
         if parsed.port:
             sanitized_netloc += f":{parsed.port}"
         sanitized_uri = urlunparse(parsed._replace(netloc=sanitized_netloc))
@@ -203,10 +211,7 @@ class PostgresDB:
             """Convert a data row to a dictionary."""
             row = curs.fetchone()
             if row:
-                if self.encoding:
-                    r = [(c.decode(self.encoding, "backslashreplace") if isinstance(c, bytes) else c) for c in row]
-                else:
-                    r = row
+                r = [(c.decode(self.encoding, "backslashreplace") if isinstance(c, bytes) else c) for c in row]
                 return dict(zip(headers, r, strict=True))
             return None
 

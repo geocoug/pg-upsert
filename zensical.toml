@@ -1,7 +1,7 @@
 [project]
 site_name = "pg_upsert"
 site_author = "Caleb Grant"
-site_description = "A Python library for upserting data into PostgreSQL"
+site_description = "A Python library for validating and upserting data into PostgreSQL"
 site_url = "https://pg-upsert.readthedocs.io/"
 repo_url = "https://github.com/geocoug/pg-upsert"
 repo_name = "geocoug/pg-upsert"
@@ -9,6 +9,7 @@ docs_dir = "docs"
 copyright = "Copyright &copy; 2024-present Caleb Grant"
 nav = [
     { "Home" = "index.md" },
+    { "QA Checks" = "qa_checks.md" },
     { "Examples" = "examples.md" },
     { "API Reference" = "pg_upsert.md" },
     { "About" = [

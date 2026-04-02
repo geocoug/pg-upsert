@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 
 from . import display
-from .ui_base import UIBackend
+from .base import UIBackend
 
 logger = logging.getLogger(__name__)
 
@@ -43,7 +43,7 @@ class ConsoleBackend(UIBackend):
             ``(0, None)``
         """
         logger.info(title)
-        row_dicts = [dict(zip(headers, row, strict=False)) for row in rows]
+        row_dicts = [dict(zip(headers, row, strict=True)) for row in rows]
         table = display.format_table(row_dicts, headers=headers, title=message)
         display.console.print(table)
         return (0, None)
@@ -78,10 +78,10 @@ class ConsoleBackend(UIBackend):
         """
         logger.info(title)
         display.console.print(message)
-        stg_dicts = [dict(zip(stg_headers, row, strict=False)) for row in stg_data]
+        stg_dicts = [dict(zip(stg_headers, row, strict=True)) for row in stg_data]
         stg_table = display.format_table(stg_dicts, headers=stg_headers, title="New data (staging)")
         display.console.print(stg_table)
-        base_dicts = [dict(zip(base_headers, row, strict=False)) for row in base_data]
+        base_dicts = [dict(zip(base_headers, row, strict=True)) for row in base_data]
         base_table = display.format_table(base_dicts, headers=base_headers, title="Existing data (base)")
         display.console.print(base_table)
         return (0, None)

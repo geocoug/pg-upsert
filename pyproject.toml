@@ -6,7 +6,7 @@ build-backend = "hatchling.build"
 name = "pg_upsert"
 version = "1.11.2"
 authors = [{ name = "Caleb Grant", email = "grantcaleb22@gmail.com" }]
-description = "A Python library for upserting data into postgres."
+description = "A Python library for validating and upserting data into PostgreSQL with automated QA checks."
 readme = { file = "README.md", content-type = "text/markdown" }
 license = { file = "LICENSE" }
 requires-python = ">=3.10"
@@ -36,7 +36,6 @@ tui = ["textual>=0.47.0"]
 dev = [
     "build",
     "bump-my-version",
-    "markdown-include",
     "mkdocstrings-python",
     "pre-commit",
     "pytest",
@@ -106,9 +105,6 @@ pre_commit_hooks = ["uv lock", "git add uv.lock"]
 filename = "pyproject.toml"
 
 [[tool.bumpversion.files]]
-filename = "src/pg_upsert/__version__.py"
-
-[[tool.bumpversion.files]]
 filename = "CHANGELOG.md"
 search = "## [Unreleased]"
 replace = """## [Unreleased]
@@ -122,7 +118,7 @@ addopts = [
     "--cov=pg_upsert",
     "--cov-branch",
     "--cov-report=xml",
-    "--cov-fail-under=80",
+    "--cov-fail-under=90",
     "--strict-markers",
     "--strict-config",
     "--color=yes",
@@ -133,15 +129,14 @@ log_cli = true
 
 [tool.coverage.report]
 exclude_also = [
-    "from .__version__ import __title__",
     "from .cli import app",
     "if __name__ == .__main__.:",
 ]
 omit = [
     # GUI modules require a display/event loop to test
-    "*/pg_upsert/ui.py",
-    "*/pg_upsert/ui_tkinter.py",
-    "*/pg_upsert/ui_textual.py",
+    "*/pg_upsert/ui/legacy.py",
+    "*/pg_upsert/ui/tkinter_backend.py",
+    "*/pg_upsert/ui/textual_backend.py",
 ]
 
 [tool.typos.default.extend-words]

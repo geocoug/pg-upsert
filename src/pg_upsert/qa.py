@@ -6,11 +6,10 @@ import logging
 
 from psycopg2.sql import SQL, Identifier, Literal
 
-from . import display
 from .control import ControlTable
 from .models import QACheckType, QAError, UserCancelledError
 from .postgres import PostgresDB
-from .ui_base import UIBackend
+from .ui import UIBackend, display
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +44,7 @@ class QARunner:
         self.base_schema = base_schema
         self.exclude_null_check_cols: list[str] | tuple[str, ...] = exclude_null_check_cols or ()
         if ui is None:
-            from .ui_console import ConsoleBackend
+            from .ui.console import ConsoleBackend
 
             self._ui: UIBackend = ConsoleBackend()
         else:
@@ -130,7 +129,7 @@ class QARunner:
                 SQL("select * from ups_qa_nonnull_col;"),
             )
             if null_rowcount > 0:
-                null_row = next(iter(null_rows))
+                null_row = next(iter(null_rows))  # guarded by rowcount check above
                 nrows = null_row["nrows"]
                 logger.debug(f"    Column {column_name} has {nrows} null values")
                 self.db.execute(
@@ -160,7 +159,7 @@ class QARunner:
             SQL("select * from ups_null_error_list;"),
         )
         if err_rowcount > 0:
-            err_row = next(iter(err_rows))
+            err_row = next(iter(err_rows))  # guarded by rowcount check above
             if err_row["null_errors"]:
                 error_str = err_row["null_errors"]
                 self.control.set_qa_errors(table, "null_errors", error_str)
@@ -244,7 +243,7 @@ class QARunner:
             tot_errs, _tot_headers, _tot_rowcount = self.db.rowdict(
                 SQL("select count(*) as errcount, sum(nrows) as total_rows from ups_pk_check;"),
             )
-            tot_errs = next(iter(tot_errs))
+            tot_errs = next(iter(tot_errs))  # guarded by pk_rowcount > 0 check above
             err_msg = f"{tot_errs['errcount']} duplicate keys ({tot_errs['total_rows']} rows) in table {self.staging_schema}.{table}"  # noqa: E501
             display.print_check_table_fail(
                 self.staging_schema,
@@ -265,7 +264,7 @@ class QARunner:
                     [[row[header] for header in pk_headers] for row in pk_errs],
                 )
                 if btn != 0:
-                    logger.warning("Script cancelled by user")
+                    display.print_check_table_fail(self.staging_schema, table, "Script cancelled by user")
                     raise UserCancelledError("Script cancelled by user during primary key check")
             self.control.set_qa_errors(table, "pk_errors", err_msg)
             errors.append(
@@ -421,7 +420,7 @@ class QARunner:
                     """,
                 ),
             )
-            fk_join_row = next(iter(fk_join_rows))
+            fk_join_row = next(iter(fk_join_rows))  # string_agg always returns exactly one aggregate row
 
             su_exists = (
                 self.db.execute(
@@ -501,7 +500,7 @@ class QARunner:
                             [[row[header] for header in fk_check_headers] for row in [fk_check_rows[0]]],
                         )
                         if btn != 0:
-                            logger.warning("Script cancelled by user")
+                            display.print_check_table_fail(self.staging_schema, table, "Script cancelled by user")
                             raise UserCancelledError("Script cancelled by user during foreign key check")
                     self.db.execute(
                         SQL(
@@ -618,7 +617,7 @@ class QARunner:
                     table_name=Literal(ck_row["table_name"]),
                 ),
             )
-            const_row = next(iter(const_rows))
+            const_row = next(iter(const_rows))  # guarded: iterating over ck_rows from ups_sel_cks guarantees a match
             self.db.execute(
                 SQL(
                     """
@@ -636,7 +635,7 @@ class QARunner:
                 "select * from ups_ck_check_check where count > 0;",
             )
             if ck_check_rowcount > 0:
-                ck_check_row = next(iter(ck_check_rows))
+                ck_check_row = next(iter(ck_check_rows))  # guarded by rowcount check above
                 logger.warning(
                     f"    Check constraint {ck_row['constraint_name']} has {ck_check_rowcount} failing rows",
                 )
@@ -675,7 +674,7 @@ class QARunner:
             "select * from ups_ck_error_list;",
         )
         if err_rowcount > 0:
-            err_row = next(iter(err_rows))
+            err_row = next(iter(err_rows))  # guarded by rowcount check above
             if err_row["ck_errors"]:
                 error_str = err_row["ck_errors"]
                 self.control.set_qa_errors(table, "ck_errors", error_str)
@@ -764,7 +763,7 @@ class QARunner:
                 tot_rows, _th, _tc = self.db.rowdict(
                     "select count(*) as errcount, sum(nrows) as total_rows from ups_uq_check;",
                 )
-                tot_row = next(iter(tot_rows))
+                tot_row = next(iter(tot_rows))  # guarded by uq_err_count > 0 check above
                 err_detail = f"{constraint_name} ({tot_row['errcount']} duplicates, {tot_row['total_rows']} rows)"
                 display.print_check_table_fail(
                     self.staging_schema,
@@ -786,7 +785,7 @@ class QARunner:
                         [[row[header] for header in uq_headers] for row in uq_errs],
                     )
                     if btn != 0:
-                        logger.warning("Script cancelled by user")
+                        display.print_check_table_fail(self.staging_schema, table, "Script cancelled by user")
                         raise UserCancelledError("Script cancelled by user during unique constraint check")
 
                 error_strings.append(err_detail)

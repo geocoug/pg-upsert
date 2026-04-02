@@ -6,22 +6,23 @@ based on the requested mode and the runtime environment.
 
 from __future__ import annotations
 
-from .ui_base import UIBackend
+from .base import UIBackend
 
 
 def get_ui_backend(ui_mode: str = "auto") -> UIBackend:
     """Return the appropriate :class:`UIBackend` for *ui_mode*.
 
     Args:
-        ui_mode: One of ``"auto"``, ``"console"``, ``"tkinter"``, or
-            ``"textual"``.
+        ui_mode: One of ``"auto"``, ``"tkinter"``, ``"textual"``, or
+            ``"_console"`` (internal only — used for non-interactive runs).
 
-            - ``"auto"`` — Try tkinter when a graphical display is available
+            - ``"auto"`` — Use tkinter when a graphical display is available
               (``DISPLAY`` or ``WAYLAND_DISPLAY`` environment variable is set),
-              then fall back to textual if installed, then fall back to console.
-            - ``"console"`` — Always use the console (non-interactive, no prompts).
+              otherwise use textual.
             - ``"tkinter"`` — Force the tkinter GUI backend.
             - ``"textual"`` — Force the textual TUI backend.
+            - ``"_console"`` — Internal: non-interactive, auto-continues
+              without prompting. Not exposed as a CLI option.
 
     Returns:
         A concrete :class:`UIBackend` instance.
@@ -29,22 +30,23 @@ def get_ui_backend(ui_mode: str = "auto") -> UIBackend:
     Raises:
         ValueError: If *ui_mode* is not one of the recognised values.
     """
-    valid_modes = ("auto", "console", "tkinter", "textual")
+    valid_modes = ("auto", "tkinter", "textual", "_console")
+    public_modes = ("auto", "tkinter", "textual")
     if ui_mode not in valid_modes:
-        raise ValueError(f"Invalid ui_mode {ui_mode!r}. Must be one of {valid_modes}.")
+        raise ValueError(f"Invalid --ui value {ui_mode!r}. Must be one of: {', '.join(public_modes)}")
 
-    if ui_mode == "console":
-        from .ui_console import ConsoleBackend
+    if ui_mode == "_console":
+        from .console import ConsoleBackend
 
         return ConsoleBackend()
 
     if ui_mode == "tkinter":
-        from .ui_tkinter import TkinterBackend
+        from .tkinter_backend import TkinterBackend
 
         return TkinterBackend()
 
     if ui_mode == "textual":
-        from .ui_textual import TextualBackend
+        from .textual_backend import TextualBackend
 
         return TextualBackend()
 
@@ -55,21 +57,12 @@ def get_ui_backend(ui_mode: str = "auto") -> UIBackend:
         try:
             import tkinter  # noqa: F401
 
-            from .ui_tkinter import TkinterBackend
+            from .tkinter_backend import TkinterBackend
 
             return TkinterBackend()
         except ImportError:
             pass
 
-    try:
-        import textual  # noqa: F401
+    from .textual_backend import TextualBackend
 
-        from .ui_textual import TextualBackend
-
-        return TextualBackend()
-    except ImportError:
-        pass
-
-    from .ui_console import ConsoleBackend
-
-    return ConsoleBackend()
+    return TextualBackend()

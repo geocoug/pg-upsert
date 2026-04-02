@@ -9,9 +9,13 @@ from psycopg2.sql import SQL, Identifier, Literal
 from .control import ControlTable
 from .models import TableResult, UserCancelledError
 from .postgres import PostgresDB
-from .ui_base import UIBackend
+from .ui import UIBackend, display
 
 logger = logging.getLogger(__name__)
+
+# File-only logger for messages that also appear on the rich console.
+# Uses the same child logger as display.py to avoid stream handler duplication.
+_file_logger = logging.getLogger("pg_upsert.display")
 
 
 class UpsertExecutor:
@@ -44,7 +48,7 @@ class UpsertExecutor:
         self.base_schema = base_schema
         self.upsert_method = upsert_method
         if ui is None:
-            from .ui_console import ConsoleBackend
+            from .ui.console import ConsoleBackend
 
             self._ui: UIBackend = ConsoleBackend()
         else:
@@ -182,7 +186,8 @@ class UpsertExecutor:
         """
         rows_updated = 0
         rows_inserted = 0
-        logger.info(f"Performing upsert on table {self.base_schema}.{table}")
+        display.console.print(f"\n  [bold]{self.base_schema}.{table}[/bold]")
+        _file_logger.info(f"Performing upsert on table {self.base_schema}.{table}")
 
         spec = self.control.get_table_spec(table)
         if spec is None:
@@ -252,34 +257,34 @@ class UpsertExecutor:
         all_col_list = self.db.execute(
             SQL("select string_agg(column_name, ', ') as cols from ups_cols;"),
         ).fetchone()
-        if not all_col_list:
-            logger.warning("No columns found in base table")
+        if not all_col_list or all_col_list[0] is None:
+            logger.warning("No shared columns between staging and base tables")
             return TableResult(table_name=table)
-        all_col_list = next(iter(all_col_list))
+        all_col_list = all_col_list[0]
 
         base_col_list = self.db.execute(
             SQL("select string_agg('b.' || column_name, ', ') as cols from ups_cols;"),
         ).fetchone()
-        if not base_col_list:
-            logger.warning("No columns found in base table")
+        if not base_col_list or base_col_list[0] is None:
+            logger.warning("No shared columns between staging and base tables")
             return TableResult(table_name=table)
-        base_col_list = next(iter(base_col_list))
+        base_col_list = base_col_list[0]
 
         stg_col_list = self.db.execute(
             SQL("select string_agg('s.' || column_name, ', ') as cols from ups_cols;"),
         ).fetchone()
-        if not stg_col_list:
-            logger.warning("No columns found in staging table")
+        if not stg_col_list or stg_col_list[0] is None:
+            logger.warning("No shared columns between staging and base tables")
             return TableResult(table_name=table)
-        stg_col_list = next(iter(stg_col_list))
+        stg_col_list = stg_col_list[0]
 
         pk_col_list = self.db.execute(
             SQL("select string_agg(column_name, ', ') as cols from ups_pks;"),
         ).fetchone()
-        if not pk_col_list:
+        if not pk_col_list or pk_col_list[0] is None:
             logger.warning("Base table has no primary key")
             return TableResult(table_name=table)
-        pk_col_list = next(iter(pk_col_list))
+        pk_col_list = pk_col_list[0]
 
         join_expr = self.db.execute(
             SQL(
@@ -370,7 +375,7 @@ class UpsertExecutor:
                 else:
                     btn = 0
                 if btn == 2:
-                    logger.warning("Script cancelled by user")
+                    display.print_check_table_fail(self.staging_schema, table, "Script cancelled by user")
                     raise UserCancelledError("Script cancelled by user during update confirmation")
                 if btn == 0:
                     do_updates = True
@@ -401,7 +406,8 @@ class UpsertExecutor:
                         join_expr=SQL(join_expr[0]),
                     )
             else:
-                logger.info("  No rows to update")
+                display.console.print("    [dim]no rows to update[/dim]")
+                _file_logger.info("    no rows to update")
 
         do_inserts = False
         insert_stmt = None
@@ -448,7 +454,7 @@ class UpsertExecutor:
                 else:
                     btn = 0
                 if btn == 2:
-                    logger.warning("Script cancelled by user")
+                    display.print_check_table_fail(self.staging_schema, table, "Script cancelled by user")
                     raise UserCancelledError("Script cancelled by user during insert confirmation")
                 if btn == 0:
                     do_inserts = True
@@ -463,23 +469,24 @@ class UpsertExecutor:
                         all_col_list=SQL(all_col_list),
                     )
             else:
-                logger.info("  No new data to insert")
+                display.console.print("    [dim]no new data to insert[/dim]")
+                _file_logger.info("    no new data to insert")
 
         # Execute and capture accurate rowcounts from the cursor.
         if do_updates and update_stmt and self.upsert_method in ("upsert", "update"):
-            logger.info(f"  Updating {self.base_schema}.{table}")
             logger.debug(f"    UPDATE statement for {self.base_schema}.{table}")
             logger.debug(f"{update_stmt.as_string(self.db.cursor())}")
             update_curs = self.db.execute(update_stmt)
             rows_updated = update_curs.rowcount  # fixed: was stg_rowcount
-            logger.info(f"    {rows_updated} rows updated")
+            display.console.print(f"    [green]↑[/green] {rows_updated} rows updated")
+            _file_logger.info(f"    {rows_updated} rows updated")
         if do_inserts and insert_stmt and self.upsert_method in ("upsert", "insert"):
-            logger.info(f"  Adding data to {self.base_schema}.{table}")
             logger.debug(f"    INSERT statement for {self.base_schema}.{table}")
             logger.debug(f"{insert_stmt.as_string(self.db.cursor())}")
             insert_curs = self.db.execute(insert_stmt)
             rows_inserted = insert_curs.rowcount
-            logger.info(f"    {rows_inserted} rows inserted")
+            display.console.print(f"    [green]+[/green] {rows_inserted} rows inserted")
+            _file_logger.info(f"    {rows_inserted} rows inserted")
 
         self.control.set_row_counts(table, rows_updated, rows_inserted)
         return TableResult(table_name=table, rows_updated=rows_updated, rows_inserted=rows_inserted)

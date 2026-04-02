@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import sys
+from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Annotated
@@ -12,18 +13,28 @@ import typer
 import yaml
 from rich import print as rprint
 
-from .__version__ import __description__, __docs_url__, __title__, __version__
 from .upsert import PgUpsert, UserCancelledError
 from .utils import CustomLogFormatter
 
-logger = logging.getLogger(__title__)
+_TITLE = "pg_upsert"
+_DOCS_URL = "https://pg-upsert.readthedocs.io/"
+_DESCRIPTION = (
+    "Run not-NULL, Primary Key, Foreign Key, Unique, and Check Constraint checks "
+    "on staging tables then update and insert (upsert) data from staging tables to base tables."
+)
+try:
+    _VERSION = version(_TITLE)
+except PackageNotFoundError:
+    _VERSION = "unknown"
+
+logger = logging.getLogger(_TITLE)
 logger.propagate = False
 
 
 app = typer.Typer(add_completion=False)
 
 
-@app.command(help=__description__, no_args_is_help=True)
+@app.command(help=_DESCRIPTION, no_args_is_help=True)
 def cli(
     version: Annotated[
         bool,
@@ -171,9 +182,9 @@ def cli(
     tables: Annotated[
         list[str] | None,
         typer.Option(
-            "--tables",
+            "--table",
             "-t",
-            help="Table names to perform QA checks on and upsert.",
+            help="Table name to process (repeatable).",
         ),
     ] = None,
     generate_config: Annotated[
@@ -203,23 +214,23 @@ def cli(
         str,
         typer.Option(
             "--ui",
-            help="UI backend: 'auto' (default), 'console', 'tkinter', or 'textual'.",
+            help="UI backend for interactive mode: 'auto' (default), 'tkinter', or 'textual'.",
         ),
     ] = "auto",
 ) -> None:
     args = SimpleNamespace(**locals())
     if args.version:
-        rprint(f"[bold]{__title__}[/bold]: {__version__}")
+        rprint(f"[bold]{_TITLE}[/bold]: {_VERSION}")
         sys.exit(0)
     if args.docs:
         rprint(":link: Opening documentation in a web browser...")
-        typer.launch(__docs_url__)
+        typer.launch(_DOCS_URL)
         sys.exit(0)
     if args.generate_config:
         with open((Path().cwd() / "pg-upsert.template.yaml").resolve(), "w") as file:
             del args.version, args.config_file, args.docs, args.generate_config
             if not args.logfile:
-                args.logfile = Path(f"{__title__}.log").as_posix()
+                args.logfile = Path(f"{_TITLE}.log").as_posix()
             yaml.dump(args.__dict__, file, sort_keys=False, indent=2, encoding="utf-8")
         rprint(
             ":file_folder: Configuration file generated: [bold green]pg-upsert.template.yaml[/bold green]",
@@ -230,7 +241,7 @@ def cli(
             try:
                 with open(args.config_file) as file:
                     config = yaml.safe_load(file)
-            except Exception as e:
+            except (yaml.YAMLError, OSError) as e:
                 rprint(f"Error reading configuration file: {e}")
                 sys.exit(1)
         else:
@@ -274,7 +285,7 @@ def cli(
     else:
         logger.setLevel(logging.INFO)
     if args.logfile:
-        file_handler = logging.FileHandler(args.logfile)
+        file_handler = logging.FileHandler(args.logfile, mode="a")
         if args.debug:
             file_handler.setLevel(logging.DEBUG)
             file_handler.setFormatter(
@@ -286,6 +297,9 @@ def cli(
             file_handler.setLevel(logging.INFO)
             file_handler.setFormatter(logging.Formatter("%(message)s"))
         logger.addHandler(file_handler)
+        # Also attach the file handler to the display logger so that
+        # display.print_* functions write plain-text to the logfile.
+        logging.getLogger("pg_upsert.display").addHandler(file_handler)
     if not args.quiet and args.output != "json":
         stream_handler = logging.StreamHandler(sys.stdout)
         if args.debug:
@@ -299,30 +313,27 @@ def cli(
             stream_handler.setLevel(logging.INFO)
             stream_handler.setFormatter(logging.Formatter("%(message)s"))
         logger.addHandler(stream_handler)
+
+    def _cli_error(msg: str) -> None:
+        from .ui import display
+
+        display.console.print(f"  [bold red]Error:[/bold red] {msg}")
+        logging.getLogger("pg_upsert.display").error(msg)
+        sys.exit(1)
+
     if not args.host:
-        logger.error("Database host is required.")
-        sys.exit(1)
+        _cli_error("Database host is required.")
     if not args.database:
-        logger.error("Database name is required.")
-        sys.exit(1)
+        _cli_error("Database name is required.")
     if not args.user:
-        logger.error("Database user is required.")
-        sys.exit(1)
+        _cli_error("Database user is required.")
     if not args.staging_schema:
-        logger.error("Staging schema is required.")
-        sys.exit(1)
+        _cli_error("Staging schema is required.")
     if not args.base_schema:
-        logger.error("Base schema is required.")
-        sys.exit(1)
+        _cli_error("Base schema is required.")
     if not args.tables:
-        logger.error("One or more table names are required.")
-        sys.exit(1)
-    if args.logfile and args.logfile.exists():
-        try:
-            args.logfile.unlink()
-        except Exception as err:
-            logger.error(err)
-    logger.debug(f"{__title__}: {__version__}")
+        _cli_error("One or more table names are required.")
+    logger.debug(f"{_TITLE}: {_VERSION}")
     if args.debug:
         logger.debug("Command line arguments:")
         for arg in vars(args):
@@ -332,6 +343,9 @@ def cli(
         args.exclude_columns = [col.strip() for col in args.exclude_columns.split(",")]
     if args.null_columns and isinstance(args.null_columns, str):
         args.null_columns = [col.strip() for col in args.null_columns.split(",")]
+    # Validate --ui before connecting (so the user doesn't enter a password for nothing).
+    if args.ui_mode not in ("auto", "tkinter", "textual"):
+        _cli_error(f"Invalid --ui value {args.ui_mode!r}. Must be one of: auto, tkinter, textual")
     try:
         ups = PgUpsert(
             uri=f"postgresql://{args.user}@{args.host}:{args.port}/{args.database}",
@@ -347,13 +361,21 @@ def cli(
             ui_mode=args.ui_mode,
         )
         if args.check_schema:
+            from .ui import display
+
+            _fl = logging.getLogger("pg_upsert.display")
+            if args.output != "json":
+                display.console.print()
+                display.console.rule("[bold]Schema Check[/bold]", style="cyan")
+            _fl.info("=== Schema Check ===")
             errors = []
             for table in args.tables:
-                errors.extend(ups._qa.check_column_existence(table))
-                errors.extend(ups._qa.check_type_mismatch(table))
-            from .models import UpsertResult
-
-            result = UpsertResult(tables=[])
+                col_errs = ups._qa.check_column_existence(table)
+                type_errs = ups._qa.check_type_mismatch(table)
+                table_errs = col_errs + type_errs
+                if not table_errs and args.output != "json":
+                    display.print_check_table_pass(args.staging_schema, table)
+                errors.extend(table_errs)
             if args.output == "json":
                 import json
 
@@ -362,14 +384,20 @@ def cli(
                         {"schema_compatible": len(errors) == 0, "errors": [e.to_dict() for e in errors]},
                         indent=2,
                     ),
-                )  # noqa: E501
+                )
             else:
+                display.console.print()
                 if errors:
-                    for err in errors:
-                        logger.error(f"  {err.table}: {err.details} ({err.check_type.value})")
-                    logger.error(f"Schema check failed: {len(errors)} issue(s) found.")
+                    display.console.print(
+                        f"  [bold red]Schema check failed:[/bold red] {len(errors)} issue(s) found.",
+                    )
+                    _fl.error(f"Schema check failed: {len(errors)} issue(s) found.")
                 else:
-                    logger.info("Schema check passed: all staging tables are compatible with base tables.")
+                    display.console.print(
+                        "  [bold green]Schema check passed:[/bold green] "
+                        "all staging tables are compatible with base tables.",
+                    )
+                    _fl.info("Schema check passed: all staging tables are compatible with base tables.")
             sys.exit(1 if errors else 0)
         result = ups.run()
         if args.output == "json":
@@ -377,5 +405,8 @@ def cli(
     except UserCancelledError:
         sys.exit(0)
     except Exception as e:
-        logger.error(e)
+        from .ui import display
+
+        display.console.print(f"  [bold red]Error:[/bold red] {e}")
+        logging.getLogger("pg_upsert.display").error(str(e))
         sys.exit(1)

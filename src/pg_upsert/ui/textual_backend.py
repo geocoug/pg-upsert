@@ -7,7 +7,7 @@ installed as long as :class:`TextualBackend` is never instantiated.
 
 from __future__ import annotations
 
-from .ui_base import UIBackend
+from .base import UIBackend
 
 
 def _run_table_app(
@@ -184,7 +184,7 @@ def _run_comparison_app(
     )
 
     class CompareApp(App[int]):
-        """Two-table comparison dialog."""
+        """Two-table comparison dialog with row matching on PK columns."""
 
         TITLE = title
         CSS = (
@@ -202,6 +202,9 @@ def _run_comparison_app(
         Button {
             margin: 0 1;
         }
+        DataTable:focus {
+            border: tall $accent;
+        }
         """
             + _table_css
         )
@@ -209,14 +212,24 @@ def _run_comparison_app(
         def __init__(self) -> None:
             super().__init__()
             self._result: int = _buttons[0][1] if _buttons else 0
+            self._syncing: bool = False
+            # PK column index lookups.
+            self._stg_pk_idx = [i for i, h in enumerate(_stg_headers) if h in _pk_cols]
+            self._base_pk_idx = [i for i, h in enumerate(_base_headers) if h in _pk_cols]
+            # PK-value → row-index maps, built at mount time for O(1) lookup.
+            self._stg_pk_map: dict[tuple, int] = {}
+            self._base_pk_map: dict[tuple, int] = {}
+            # Column keys, set at mount time.
+            self._stg_col_keys: list = []
+            self._base_col_keys: list = []
 
         def compose(self) -> ComposeResult:
             yield Header()
             yield Label(_message, id="message")
             container_cls = Horizontal if _sidebyside else Vertical
             with container_cls(id="tables"):
-                yield DataTable(id="stg-table", classes="table-panel")
-                yield DataTable(id="base-table", classes="table-panel")
+                yield DataTable(id="stg-table", classes="table-panel", cursor_type="row")
+                yield DataTable(id="base-table", classes="table-panel", cursor_type="row")
             with Horizontal(id="button-bar"):
                 for label, value, _key in _buttons:
                     yield Button(
@@ -226,22 +239,71 @@ def _run_comparison_app(
                     )
             yield Footer()
 
+        def _add_rows_and_build_map(
+            self,
+            tbl: DataTable,
+            headers: list[str],
+            data: list,
+            pk_idx: list[int],
+        ) -> tuple[list, dict[tuple, int]]:
+            """Add rows to a DataTable and build a PK → row-index map."""
+            col_keys = tbl.add_columns(*headers)
+            pk_map: dict[tuple, int] = {}
+            for row_num, row in enumerate(data):
+                cells = [str(cell) if cell is not None else "" for cell in row]
+                tbl.add_row(*cells)
+                pk_vals = tuple(cells[i] for i in pk_idx)
+                pk_map[pk_vals] = row_num
+            return list(col_keys), pk_map
+
         def on_mount(self) -> None:
             stg_tbl = self.query_one("#stg-table", DataTable)
             stg_tbl.border_title = f"New data (staging) — PK: {', '.join(_pk_cols)}"
-            stg_tbl.add_columns(*_stg_headers)
-            for row in _stg_data:
-                stg_tbl.add_row(*[str(cell) if cell is not None else "" for cell in row])
+            self._stg_col_keys, self._stg_pk_map = self._add_rows_and_build_map(
+                stg_tbl,
+                _stg_headers,
+                _stg_data,
+                self._stg_pk_idx,
+            )
 
             base_tbl = self.query_one("#base-table", DataTable)
             base_tbl.border_title = "Existing data (base)"
-            base_tbl.add_columns(*_base_headers)
-            for row in _base_data:
-                base_tbl.add_row(*[str(cell) if cell is not None else "" for cell in row])
+            self._base_col_keys, self._base_pk_map = self._add_rows_and_build_map(
+                base_tbl,
+                _base_headers,
+                _base_data,
+                self._base_pk_idx,
+            )
 
-            if _buttons:
-                first_btn = self.query_one(f"#btn-{_buttons[0][1]}", Button)
-                first_btn.focus()
+            stg_tbl.focus()
+
+        def on_data_table_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
+            """Sync cursor: when a row is highlighted in one table, jump to the matching PK row in the other."""
+            if self._syncing:
+                return
+            source = event.data_table
+            if source.id not in ("stg-table", "base-table"):
+                return
+
+            self._syncing = True
+            try:
+                stg_tbl = self.query_one("#stg-table", DataTable)
+                base_tbl = self.query_one("#base-table", DataTable)
+                row_key = event.row_key
+
+                if source.id == "stg-table":
+                    # Extract PK values from the highlighted staging row.
+                    pk_vals = tuple(str(source.get_cell(row_key, self._stg_col_keys[i])) for i in self._stg_pk_idx)
+                    match_idx = self._base_pk_map.get(pk_vals)
+                    if match_idx is not None:
+                        base_tbl.move_cursor(row=match_idx, animate=False)
+                else:
+                    pk_vals = tuple(str(source.get_cell(row_key, self._base_col_keys[i])) for i in self._base_pk_idx)
+                    match_idx = self._stg_pk_map.get(pk_vals)
+                    if match_idx is not None:
+                        stg_tbl.move_cursor(row=match_idx, animate=False)
+            finally:
+                self._syncing = False
 
         def on_button_pressed(self, event: Button.Pressed) -> None:
             btn_id = event.button.id or ""

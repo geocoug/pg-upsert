@@ -9,9 +9,10 @@ build:
     python: "3.13"
   jobs:
     install:
-      - pip install zensical mkdocstrings-python markdown-include
+      - pip install zensical mkdocstrings-python
       - pip install -e .
     pre_build:
+      - cp README.md docs/index.md
       - cp CHANGELOG.md docs/about/change_log.md
     build:
       html:

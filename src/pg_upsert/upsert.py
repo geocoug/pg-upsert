@@ -8,16 +8,16 @@ from datetime import datetime
 import psycopg2
 from psycopg2.sql import SQL, Identifier, Literal
 
-from . import display
 from .control import ControlTable
 from .executor import UpsertExecutor
 from .models import QAError, TableResult, UpsertResult, UserCancelledError
 from .postgres import PostgresDB
 from .qa import QARunner
-from .ui_factory import get_ui_backend
+from .ui import display, get_ui_backend
 from .utils import elapsed_time
 
 logger = logging.getLogger(__name__)
+_file_logger = logging.getLogger("pg_upsert.display")
 
 # Re-export for backward compatibility — UserCancelledError lives in models.py.
 __all__ = ["PgUpsert", "UserCancelledError"]
@@ -126,7 +126,7 @@ class PgUpsert:
             self._validate_table(table)
 
         # Initialise sub-components.
-        _effective_ui_mode = ui_mode if interactive else "console"
+        _effective_ui_mode = ui_mode if interactive else "_console"
         self._ui = get_ui_backend(_effective_ui_mode)
         self._control = ControlTable(self.db, table_name=control_table, ui=self._ui)
         self._qa = QARunner(
@@ -197,10 +197,13 @@ class PgUpsert:
             base_schema=Literal(self.base_schema),
             staging_schema=Literal(self.staging_schema),
         )
-        if self.db.execute(sql).rowcount > 0:
-            raise ValueError(
-                f"Invalid schema(s): {next(iter(self.db.rowdict(sql)[0]))['schema_string']}",
-            )
+        curs = self.db.execute(sql)
+        if curs.rowcount > 0:
+            row = curs.fetchone()
+            schema_string = row[0] if row else "unknown"
+            msg = f"Schema(s) not found: {schema_string}"
+            display.console.print(f"  [bold red]✗[/bold red] {msg}")
+            raise ValueError(msg)
 
     def _validate_table(self, table: str) -> None:
         """Utility script to validate one table in both base and staging schema.
@@ -242,10 +245,13 @@ class PgUpsert:
             staging_schema=Literal(self.staging_schema),
             table=Literal(table),
         )
-        if self.db.execute(sql).rowcount > 0:
-            raise ValueError(
-                f"Invalid table(s): {next(iter(self.db.rowdict(sql)[0]))['schema_table']}",
-            )
+        curs = self.db.execute(sql)
+        if curs.rowcount > 0:
+            row = curs.fetchone()
+            schema_table = row[0] if row else "unknown"
+            msg = f"Table not found: {schema_table}"
+            display.console.print(f"  [bold red]✗[/bold red] {msg}")
+            raise ValueError(msg)
 
     def _validate_control(self: PgUpsert) -> None:
         """Validate contents of control table against base and staging schema.
@@ -465,7 +471,11 @@ class PgUpsert:
             logger.warning(
                 "QA checks have not been run or have failed. Continuing anyway.",
             )
-        logger.info(f"===Starting upsert procedures (COMMIT={self.do_commit})===")
+        display.console.print()
+        display.console.rule("[bold]Upsert[/bold]", style="cyan")
+        commit_label = "[green]ON[/green]" if self.do_commit else "[dim]OFF[/dim]"
+        display.console.print(f"  method={self.upsert_method}  commit={commit_label}")
+        _file_logger.info(f"=== Upsert (method={self.upsert_method}, commit={self.do_commit}) ===")
         # Sync any runtime change to upsert_method before delegating.
         self._executor.upsert_method = self.upsert_method
         self._executor.upsert_all(list(self.tables), interactive=self.interactive)
@@ -496,11 +506,16 @@ class PgUpsert:
             UpsertResult: Structured result containing QA outcomes and row counts.
         """
         start_time = datetime.now()
-        logger.info(f"Upserting to {self.base_schema} from {self.staging_schema}")
+        start_str = start_time.strftime("%Y-%m-%d %H:%M:%S")
+        display.console.print()
+        display.console.print(f"  [dim]Started at {start_str}[/dim]")
+        _file_logger.info(f"Started at {start_str}")
+        display.console.print(
+            f"  Tables selected for upsert "
+            f"[dim]([/dim][bold]{self.staging_schema}[/bold] [dim]→[/dim] [bold]{self.base_schema}[/bold][dim])[/dim]",
+        )
+        _file_logger.info(f"Tables selected for upsert ({self.staging_schema} → {self.base_schema}):")
         if self.interactive:
-            logger.debug("Tables selected for upsert:")
-            for table in self.tables:
-                logger.debug(f"  {table}")
             btn, _return_value = self._ui.show_table(
                 "Upsert Tables",
                 "Tables selected for upsert",
@@ -512,12 +527,12 @@ class PgUpsert:
                 [[table] for table in self.tables],
             )
             if btn != 0:
-                logger.info("Upsert cancelled")
+                display.console.print("  [dim]Upsert cancelled[/dim]")
+                _file_logger.info("Upsert cancelled")
                 return UpsertResult(tables=[], committed=False)
-        else:
-            logger.info("Tables selected for upsert:")
-            for table in self.tables:
-                logger.info(f"  {table}")
+        for table in self.tables:
+            display.console.print(f"    [dim]•[/dim] {table}")
+            _file_logger.info(f"  {table}")
 
         # Reset qa_passed and reinitialise the control table for a fresh run.
         self.qa_passed = False
@@ -539,10 +554,15 @@ class PgUpsert:
                 )
                 committed = self._do_commit()
         except UserCancelledError:
-            logger.info("Rolling back changes due to user cancellation")
+            display.console.print("  [bold yellow]Rolling back changes due to user cancellation[/bold yellow]")
+            _file_logger.info("Rolling back changes due to user cancellation")
             self.db.rollback()
 
-        logger.debug(f"Upsert completed in {elapsed_time(start_time)}")
+        end_time = datetime.now()
+        end_str = end_time.strftime("%Y-%m-%d %H:%M:%S")
+        duration = elapsed_time(start_time)
+        display.console.print(f"\n  [dim]Finished at {end_str} ({duration})[/dim]")
+        _file_logger.info(f"Finished at {end_str} ({duration})")
 
         # Merge QA errors into table results.
         error_map: dict[str, list[QAError]] = {}
@@ -568,49 +588,55 @@ class PgUpsert:
             bool: Whether the transaction was actually committed.
         """
         self._validate_control()
-        final_ctrl_sql = SQL("select * from {control_table}").format(
-            control_table=Identifier(self.control_table),
-        )
-        final_ctrl_rows, final_ctrl_headers, _final_ctrl_rowcount = self.db.rowdict(
-            final_ctrl_sql,
-        )
-        final_ctrl_rows = list(final_ctrl_rows)
+
+        # Build a clean summary showing only table name + row counts (no error columns).
+        summary_sql = SQL(
+            """select table_name,
+                      coalesce(rows_updated, 0) as rows_updated,
+                      coalesce(rows_inserted, 0) as rows_inserted
+               from {control_table}""",
+        ).format(control_table=Identifier(self.control_table))
+        summary_rows, summary_headers, _summary_rowcount = self.db.rowdict(summary_sql)
+        summary_rows = list(summary_rows)
+
         if self.interactive:
             btn, _return_value = self._ui.show_table(
                 "Upsert Summary",
-                "Below is a summary of changes. Do you want to commit these changes? ",
+                "Below is a summary of changes. Do you want to commit these changes?",
                 [
                     ("Continue", 0, "<Return>"),
                     ("Cancel", 1, "<Escape>"),
                 ],
-                final_ctrl_headers,
-                [[row[header] for header in final_ctrl_headers] for row in final_ctrl_rows],
+                summary_headers,
+                [[row[header] for header in summary_headers] for row in summary_rows],
             )
         else:
             btn = 0
-            logger.info("Summary of changes:")
-            logger.info(display.format_sql_result(final_ctrl_rows, final_ctrl_headers))
+            display.console.print()
+            summary_table = display.format_table(summary_rows, summary_headers, title="Summary of Changes")
+            display.console.print(summary_table)
+            _file_logger.info("Summary of changes:")
+            _file_logger.info(display.format_sql_result(summary_rows, summary_headers))
 
-        logger.info("")
+        has_changes = any(row["rows_updated"] > 0 or row["rows_inserted"] > 0 for row in summary_rows)
 
         if btn == 0:
-            upsert_rows, _upsert_headers, upsert_rowcount = self.db.rowdict(
-                SQL(
-                    "select * from {control_table} where rows_updated > 0 or rows_inserted > 0",
-                ).format(control_table=Identifier(self.control_table)),
-            )
-            if upsert_rowcount == 0:
-                logger.info("No changes to commit")
+            if not has_changes:
+                display.console.print("  [dim]No changes to commit[/dim]")
+                _file_logger.info("No changes to commit")
                 self.db.rollback()
                 return False
             if self.do_commit:
                 self.db.commit()
-                logger.info("Changes committed")
+                display.console.print("  [bold green]Changes committed[/bold green]")
+                _file_logger.info("Changes committed")
                 return True
-            logger.info("The commit flag is set to FALSE, rolling back changes.")
+            display.console.print("  [dim]Commit flag is FALSE — rolling back changes[/dim]")
+            _file_logger.info("The commit flag is set to FALSE, rolling back changes.")
             self.db.rollback()
             return False
-        logger.info("Rolling back changes")
+        display.console.print("  [dim]Rolling back changes[/dim]")
+        _file_logger.info("Rolling back changes")
         self.db.rollback()
         return False
 

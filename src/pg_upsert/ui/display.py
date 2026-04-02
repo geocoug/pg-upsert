@@ -20,9 +20,15 @@ from rich.table import Table
 from rich.text import Text
 
 if TYPE_CHECKING:
-    from .models import QAError, UpsertResult
+    from ..models import QAError, UpsertResult
 
-logger = logging.getLogger("pg_upsert")
+# Logger for file-only output. Display functions write rich output to the
+# console (stderr) for the user, and plain-text to this logger for the
+# logfile. The logger is a child of "pg_upsert" so it inherits file handlers,
+# but propagation is disabled so messages don't also appear on the stream
+# handler (which would cause duplicate console output).
+_file_logger = logging.getLogger("pg_upsert.display")
+_file_logger.propagate = False
 
 # Module-level console writing to stderr so --output=json stays clean.
 console = Console(stderr=True)
@@ -112,7 +118,7 @@ def print_check_start(check_label: str) -> None:
     """
     console.print()
     console.rule(f"[bold]{check_label} checks[/bold]", style="cyan")
-    logger.info(f"=== {check_label} checks ===")
+    _file_logger.info(f"=== {check_label} checks ===")
 
 
 def print_check_table_pass(schema: str, table: str) -> None:
@@ -123,7 +129,7 @@ def print_check_table_pass(schema: str, table: str) -> None:
         table: The table name.
     """
     console.print(f"  [bold green]✓[/bold green] {schema}.{table}")
-    logger.info(f"  ✓ {schema}.{table}")
+    _file_logger.info(f"  ✓ {schema}.{table}")
 
 
 def print_check_table_fail(
@@ -143,11 +149,13 @@ def print_check_table_fail(
         detail_headers: Column headers for the detail table.
     """
     console.print(f"  [bold red]✗[/bold red] {schema}.{table} — {message}")
-    logger.warning(f"  ✗ {schema}.{table} — {message}")
+    _file_logger.warning(f"  ✗ {schema}.{table} — {message}")
     if detail_rows and detail_headers:
         detail_table = format_table(detail_rows, detail_headers)
-        console.print(detail_table)
-        logger.warning(format_sql_result(detail_rows, detail_headers))
+        from rich.padding import Padding
+
+        console.print(Padding(detail_table, (0, 0, 0, 6)))  # indent 6 spaces
+        _file_logger.warning(format_sql_result(detail_rows, detail_headers))
 
 
 # ---------------------------------------------------------------------------
@@ -232,10 +240,10 @@ def _print_qa_summary_panel(
     console.print(panel)
 
     # Logfile
-    logger.info("=== QA Results ===")
+    _file_logger.info("=== QA Results ===")
     for line in log_lines:
-        logger.info(line)
-    logger.info(footer_log)
+        _file_logger.info(line)
+    _file_logger.info(footer_log)
 
 
 def _print_qa_summary_compact(
@@ -243,7 +251,7 @@ def _print_qa_summary_compact(
     errors: list[QAError],
 ) -> None:
     """Compact summary: grid with ✓/✗ per check type per table."""
-    from .models import QACheckType
+    from ..models import QACheckType
 
     check_types = [
         ("Col", QACheckType.COLUMN_EXISTENCE),
@@ -287,17 +295,17 @@ def _print_qa_summary_compact(
 
     # Logfile — simple text grid
     header = f"  {'Table':<20}" + "".join(f"{label:>5}" for label, _ct in check_types)
-    logger.info("=== QA Results ===")
-    logger.info(header)
-    logger.info(f"  {'─' * 20}" + "─" * (5 * len(check_types)))
+    _file_logger.info("=== QA Results ===")
+    _file_logger.info(header)
+    _file_logger.info(f"  {'─' * 20}" + "─" * (5 * len(check_types)))
     for table in tables:
         failed_checks = errors_by_table.get(table, set())
         cells = "".join("    ✗" if ct in failed_checks else "    ✓" for _label, ct in check_types)
-        logger.info(f"  {table:<20}{cells}")
+        _file_logger.info(f"  {table:<20}{cells}")
     if failed == 0:
-        logger.info(f"Result: All {passed} tables passed QA checks")
+        _file_logger.info(f"Result: All {passed} tables passed QA checks")
     else:
-        logger.info(f"Result: {failed} of {len(tables)} tables failed QA checks")
+        _file_logger.info(f"Result: {failed} of {len(tables)} tables failed QA checks")
 
 
 # ---------------------------------------------------------------------------
@@ -334,13 +342,13 @@ def print_upsert_summary(result: UpsertResult) -> None:
 
     if result.committed:
         console.print("  [bold green]Changes committed[/bold green]")
-        logger.info("Changes committed")
+        _file_logger.info("Changes committed")
     else:
         console.print("  [dim]Changes rolled back[/dim]")
-        logger.info("Changes rolled back")
+        _file_logger.info("Changes rolled back")
 
     # Logfile
-    logger.info("=== Upsert Summary ===")
+    _file_logger.info("=== Upsert Summary ===")
     for tr in result.tables:
-        logger.info(f"  {tr.table_name}: {tr.rows_updated} updated, {tr.rows_inserted} inserted")
-    logger.info(f"  Total: {result.total_updated} updated, {result.total_inserted} inserted")
+        _file_logger.info(f"  {tr.table_name}: {tr.rows_updated} updated, {tr.rows_inserted} inserted")
+    _file_logger.info(f"  Total: {result.total_updated} updated, {result.total_inserted} inserted")

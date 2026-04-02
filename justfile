@@ -54,11 +54,13 @@ clean:
 
 # Build documentation
 docs:
+    cp README.md docs/index.md
     cp CHANGELOG.md docs/about/change_log.md
     uv run zensical build
 
 # Serve documentation locally
 docs-serve:
+    cp README.md docs/index.md
     cp CHANGELOG.md docs/about/change_log.md
     uv run zensical serve
 
