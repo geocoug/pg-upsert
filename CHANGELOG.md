@@ -8,6 +8,10 @@ ______________________________________________________________________
 
 ## [Unreleased]
 
+______________________________________________________________________
+
+## [1.13.0] - 2026-04-02
+
 ### Added
 
 - 91 new tests: `test_models.py`, `test_display.py`, `test_ui_factory.py`, `test_console_backend.py`, facade method tests. Total: 256 tests, 93% coverage.
