@@ -10,7 +10,6 @@ build/
 
 # uv / venv
 .venv/
-uv.lock
 
 # Zensical / MkDocs
 site/
