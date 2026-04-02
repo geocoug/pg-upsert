@@ -84,6 +84,11 @@ class PostgresDB:
         parsed = urlparse(uri)
         password = parsed.password
         if not password:
+            # Check PGPASSWORD environment variable (standard PostgreSQL convention).
+            import os
+
+            password = os.environ.get("PGPASSWORD")
+        if not password:
             user = parsed.username or "unknown"
             host = parsed.hostname or "localhost"
             port = parsed.port or 5432
