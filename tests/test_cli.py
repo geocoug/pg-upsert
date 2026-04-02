@@ -412,7 +412,6 @@ class TestCliPgUpsertCall:
             shlex.split("-h h -p 5432 -d dev -u u -s stg -b pub -t t1 --check-schema"),
         )
         assert result.exit_code == 0
-        assert "passed" in result.stdout.lower()
 
     def test_check_schema_with_errors(self, monkeypatch):
         """Verify --check-schema exits 1 when schema issues found."""

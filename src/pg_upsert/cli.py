@@ -301,7 +301,12 @@ def cli(
         # Also attach the file handler to the display logger so that
         # display.print_* functions write plain-text to the logfile.
         logging.getLogger("pg_upsert.display").addHandler(file_handler)
-    if args.output != "json":
+    if args.output == "json":
+        # Suppress all rich console output — only JSON goes to stdout.
+        from .ui import display
+
+        display.console.quiet = True
+    else:
         stream_handler = logging.StreamHandler(sys.stdout)
         if args.debug:
             stream_handler.setLevel(logging.DEBUG)
