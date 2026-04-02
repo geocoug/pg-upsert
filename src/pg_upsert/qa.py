@@ -73,100 +73,54 @@ class QARunner:
         errors: list[QAError] = []
         logger.debug(f"Conducting not-null QA checks on table {self.staging_schema}.{table}")
 
-        self.db.execute(
-            SQL(
-                """
-            drop table if exists ups_nonnull_cols cascade;
-            select column_name,
-                0::integer as null_rows,
-                False as processed
-            into temporary table ups_nonnull_cols
-            from information_schema.columns
+        # Find non-nullable columns (excluding defaults and excluded columns).
+        col_query = SQL(
+            """select column_name from information_schema.columns
             where table_schema = {base_schema}
                 and table_name = {table}
                 and is_nullable = 'NO'
-                and column_default is null
-                and column_name not in ({exclude_null_check_cols});
-            """,
-            ).format(
-                base_schema=Literal(self.base_schema),
-                table=Literal(table),
-                exclude_null_check_cols=(
-                    SQL(",").join(Literal(col) for col in self.exclude_null_check_cols)
-                    if self.exclude_null_check_cols
-                    else Literal("")
-                ),
+                and column_default is null""",
+        ).format(base_schema=Literal(self.base_schema), table=Literal(table))
+        if self.exclude_null_check_cols:
+            col_query += SQL(" and column_name not in ({cols})").format(
+                cols=SQL(",").join(Literal(col) for col in self.exclude_null_check_cols),
+            )
+        col_rows, _ch, _cc = self.db.rowdict(col_query)
+        nonnull_cols = [r["column_name"] for r in col_rows]
+        if not nonnull_cols:
+            return errors
+
+        # Single query: count NULLs for all non-nullable columns at once.
+        count_exprs = SQL(", ").join(
+            SQL("sum(case when {col} is null then 1 else 0 end) as {alias}").format(
+                col=Identifier(c),
+                alias=Identifier(c),
+            )
+            for c in nonnull_cols
+        )
+        null_counts = self.db.execute(
+            SQL("select {exprs} from {schema}.{table}").format(
+                exprs=count_exprs,
+                schema=Identifier(self.staging_schema),
+                table=Identifier(table),
             ),
-        )
+        ).fetchone()
 
-        # Iterate over non-nullable columns using a Python loop.
-        col_rows, _col_headers, _col_rowcount = self.db.rowdict(
-            SQL("select * from ups_nonnull_cols;"),
-        )
-        for col_row in col_rows:
-            column_name = col_row["column_name"]
-            logger.debug(f"  Checking column {column_name} for nulls")
-            self.db.execute(
-                SQL(
-                    """
-                create or replace temporary view ups_qa_nonnull_col as
-                select nrows
-                from (
-                    select count(*) as nrows
-                    from {staging_schema}.{table}
-                    where {column_name} is null
-                    ) as nullcount
-                where nrows > 0
-                limit 1;
-                """,
-                ).format(
-                    staging_schema=Identifier(self.staging_schema),
-                    table=Identifier(table),
-                    column_name=Identifier(column_name),
-                ),
-            )
-            null_rows, _null_headers, null_rowcount = self.db.rowdict(
-                SQL("select * from ups_qa_nonnull_col;"),
-            )
-            if null_rowcount > 0:
-                null_row = next(iter(null_rows))  # guarded by rowcount check above
-                nrows = null_row["nrows"]
-                logger.debug(f"    Column {column_name} has {nrows} null values")
-                self.db.execute(
-                    SQL(
-                        """
-                        update ups_nonnull_cols
-                        set null_rows = (
-                                select nrows
-                                from ups_qa_nonnull_col
-                                limit 1
-                            )
-                        where column_name = {column_name};
-                    """,
-                    ).format(column_name=Literal(column_name)),
-                )
+        # Build error string from columns with null_count > 0.
+        null_details: list[str] = []
+        if null_counts:
+            for i, col in enumerate(nonnull_cols):
+                count = null_counts[i] or 0
+                if count > 0:
+                    null_details.append(f"{col} ({count})")
 
-        # Build the error string from accumulated null counts.
-        self.db.execute(
-            """
-            create or replace temporary view ups_null_error_list as
-            select string_agg(column_name || ' (' || null_rows || ')', ', ') as null_errors
-            from ups_nonnull_cols
-            where coalesce(null_rows, 0) > 0;
-        """,
-        )
-        err_rows, _err_headers, err_rowcount = self.db.rowdict(
-            SQL("select * from ups_null_error_list;"),
-        )
-        if err_rowcount > 0:
-            err_row = next(iter(err_rows))  # guarded by rowcount check above
-            if err_row["null_errors"]:
-                error_str = err_row["null_errors"]
-                self.control.set_qa_errors(table, "null_errors", error_str)
-                display.print_check_table_fail(self.staging_schema, table, error_str)
-                errors.append(
-                    QAError(table=table, check_type=QACheckType.NULL, details=error_str),
-                )
+        if null_details:
+            error_str = ", ".join(null_details)
+            self.control.set_qa_errors(table, "null_errors", error_str)
+            display.print_check_table_fail(self.staging_schema, table, error_str)
+            errors.append(
+                QAError(table=table, check_type=QACheckType.NULL, details=error_str),
+            )
         return errors
 
     def check_pks(self, table: str, interactive: bool = False) -> list[QAError]:

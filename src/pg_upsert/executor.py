@@ -202,7 +202,7 @@ class UpsertExecutor:
         query = SQL(
             """
             drop table if exists ups_cols cascade;
-            select s.column_name
+            select s.column_name, s.ordinal_position
             into temporary table ups_cols
             from information_schema.columns as s
                 inner join information_schema.columns as b on s.column_name=b.column_name
@@ -235,7 +235,7 @@ class UpsertExecutor:
             SQL(
                 """
             drop table if exists ups_pks cascade;
-            select k.column_name
+            select k.column_name, k.ordinal_position
             into temporary table ups_pks
             from information_schema.table_constraints as tc
             inner join information_schema.key_column_usage as k
@@ -254,60 +254,39 @@ class UpsertExecutor:
             ).format(table=Literal(table), base_schema=Literal(self.base_schema)),
         )
 
-        all_col_list = self.db.execute(
-            SQL("select string_agg(column_name, ', ') as cols from ups_cols;"),
-        ).fetchone()
-        if not all_col_list or all_col_list[0] is None:
+        # Fetch column names from the temp tables and build SQL fragments in Python
+        # using Identifier() for proper escaping (instead of string_agg in SQL).
+        col_rows, _ch, col_count = self.db.rowdict("select column_name from ups_cols order by ordinal_position;")
+        col_names = [r["column_name"] for r in col_rows]
+        if not col_names:
             logger.warning("No shared columns between staging and base tables")
             return TableResult(table_name=table)
-        all_col_list = all_col_list[0]
 
-        base_col_list = self.db.execute(
-            SQL("select string_agg('b.' || column_name, ', ') as cols from ups_cols;"),
-        ).fetchone()
-        if not base_col_list or base_col_list[0] is None:
-            logger.warning("No shared columns between staging and base tables")
-            return TableResult(table_name=table)
-        base_col_list = base_col_list[0]
-
-        stg_col_list = self.db.execute(
-            SQL("select string_agg('s.' || column_name, ', ') as cols from ups_cols;"),
-        ).fetchone()
-        if not stg_col_list or stg_col_list[0] is None:
-            logger.warning("No shared columns between staging and base tables")
-            return TableResult(table_name=table)
-        stg_col_list = stg_col_list[0]
-
-        pk_col_list = self.db.execute(
-            SQL("select string_agg(column_name, ', ') as cols from ups_pks;"),
-        ).fetchone()
-        if not pk_col_list or pk_col_list[0] is None:
+        pk_rows, _ph, pk_count = self.db.rowdict("select column_name from ups_pks order by ordinal_position;")
+        pk_names = [r["column_name"] for r in pk_rows]
+        if not pk_names:
             logger.warning("Base table has no primary key")
             return TableResult(table_name=table)
-        pk_col_list = pk_col_list[0]
 
-        join_expr = self.db.execute(
+        # Build Composable SQL fragments from column names.
+        all_col_sql = SQL(", ").join(Identifier(c) for c in col_names)
+        base_col_sql = SQL(", ").join(SQL("b.") + Identifier(c) for c in col_names)
+        stg_col_sql = SQL(", ").join(SQL("s.") + Identifier(c) for c in col_names)
+        pk_col_sql = SQL(", ").join(Identifier(c) for c in pk_names)
+        join_sql = SQL(" AND ").join(SQL("b.") + Identifier(c) + SQL(" = s.") + Identifier(c) for c in pk_names)
+        # Keep string versions for non-SQL uses (e.g., passing to UI as pk_cols list).
+        pk_col_list = ", ".join(pk_names)
+
+        from_clause = (
             SQL(
-                """
-            select
-                string_agg('b.' || column_name || ' = s.' || column_name, ' and ') as expr
-            from
-                ups_pks;
-            """,
-            ),
-        ).fetchone()
-        if not join_expr:
-            logger.warning("Base table has no primary key")
-            return TableResult(table_name=table)
-
-        from_clause = SQL(
-            """FROM {base_schema}.{table} as b
-            INNER JOIN {staging_schema}.{table} as s ON {join_expr}""",
-        ).format(
-            base_schema=Identifier(self.base_schema),
-            table=Identifier(table),
-            staging_schema=Identifier(self.staging_schema),
-            join_expr=SQL(join_expr[0]),
+                """FROM {base_schema}.{table} as b
+            INNER JOIN {staging_schema}.{table} as s ON """,
+            ).format(
+                base_schema=Identifier(self.base_schema),
+                table=Identifier(table),
+                staging_schema=Identifier(self.staging_schema),
+            )
+            + join_sql
         )
 
         self.db.execute(
@@ -320,8 +299,8 @@ class UpsertExecutor:
             create temporary view ups_stgmatches as select {stg_col_list} {from_clause};
             """,
             ).format(
-                base_col_list=SQL(base_col_list),
-                stg_col_list=SQL(stg_col_list),
+                base_col_list=base_col_sql,
+                stg_col_list=stg_col_sql,
                 from_clause=from_clause,
             ),
         )
@@ -379,31 +358,27 @@ class UpsertExecutor:
                     raise UserCancelledError("Script cancelled by user during update confirmation")
                 if btn == 0:
                     do_updates = True
-                    ups_expr = self.db.execute(
-                        SQL(
-                            """
-                        select string_agg(
-                            column_name || ' = s.' || column_name, ', '
-                            ) as col
-                        from ups_nk;
-                        """,
-                        ),
-                    ).fetchone()
-                    if not ups_expr:
-                        logger.warning("Unexpected error in upsert_one")
+                    # Build SET clause from non-key columns using Identifier().
+                    nk_names = [c for c in col_names if c not in pk_names]
+                    if not nk_names:
+                        logger.warning("No non-key columns to update")
                         return TableResult(table_name=table)
-                    update_stmt = SQL(
-                        """
-                        UPDATE {base_schema}.{table} as b
-                        SET {ups_expr}
-                        FROM {staging_schema}.{table} as s WHERE {join_expr}
-                    """,
-                    ).format(
-                        base_schema=Identifier(self.base_schema),
-                        table=Identifier(table),
-                        staging_schema=Identifier(self.staging_schema),
-                        ups_expr=SQL(ups_expr[0]),
-                        join_expr=SQL(join_expr[0]),
+                    ups_set_sql = SQL(", ").join(Identifier(c) + SQL(" = s.") + Identifier(c) for c in nk_names)
+                    update_stmt = (
+                        SQL(
+                            "UPDATE {base_schema}.{table} as b SET ",
+                        ).format(
+                            base_schema=Identifier(self.base_schema),
+                            table=Identifier(table),
+                        )
+                        + ups_set_sql
+                        + SQL(
+                            " FROM {staging_schema}.{table} as s WHERE ",
+                        ).format(
+                            staging_schema=Identifier(self.staging_schema),
+                            table=Identifier(table),
+                        )
+                        + join_sql
                     )
             else:
                 display.console.print("    [dim]no rows to update[/dim]")
@@ -430,7 +405,7 @@ class UpsertExecutor:
                 ).format(
                     staging_schema=Identifier(self.staging_schema),
                     table=Identifier(table),
-                    pk_col_list=SQL(pk_col_list),
+                    pk_col_list=pk_col_sql,
                     base_schema=Identifier(self.base_schema),
                 ),
             )
@@ -466,7 +441,7 @@ class UpsertExecutor:
                     ).format(
                         base_schema=Identifier(self.base_schema),
                         table=Identifier(table),
-                        all_col_list=SQL(all_col_list),
+                        all_col_list=all_col_sql,
                     )
             else:
                 display.console.print("    [dim]no new data to insert[/dim]")
