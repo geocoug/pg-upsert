@@ -12,6 +12,21 @@ ______________________________________________________________________
 
 ## [1.14.0] - 2026-04-02
 
+### Added
+
+- `--compact` CLI flag for grid-style QA summary (✓/✗ per check type per table).
+- Composite UNIQUE constraint (`uq_books_title_genre`) added to test schemas.
+- Tests: composite UNIQUE violations, empty staging table edge cases (null/pk/unique/upsert with 0 rows), FK dependency ordering validation.
+- 263 total tests, 93% coverage.
+
+### Changed
+
+- Removed `--quiet` CLI flag (no longer functional — all output goes through rich console).
+
+### Fixed
+
+- Fixed `open_db` reconnect fragility — now stores original URI at init time for reliable reconnection instead of regex-based URI reconstruction.
+
 ______________________________________________________________________
 
 ## [1.13.1] - 2026-04-02
