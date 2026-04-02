@@ -8,6 +8,20 @@ ______________________________________________________________________
 
 ## [Unreleased]
 
+### Added
+
+- `UpsertResult` now includes `staging_schema`, `base_schema`, `upsert_method`, `started_at`, `finished_at`, and `duration_seconds` in `to_dict()`/`to_json()` output.
+- `PGPASSWORD` environment variable support for non-interactive authentication (standard PostgreSQL convention).
+- `--output json` now suppresses all console output — only clean JSON on stdout.
+- `--encoding` documented in README CLI options table.
+- Authentication section in README explaining password resolution order.
+
+### Fixed
+
+- Fixed `elapsed_time()` calling `datetime.now()` twice — now uses cached value.
+- Narrowed `except Exception` to specific exception types in `postgres.py` and `upsert.py`.
+- Fixed stale docstring reference to `pg_upsert.ui_console` → `pg_upsert.ui.console`.
+
 ______________________________________________________________________
 
 ## [1.15.0] - 2026-04-02

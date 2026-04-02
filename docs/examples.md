@@ -228,10 +228,16 @@ Example JSON output (`--output json`):
 
 ```json
 {
+  "staging_schema": "staging",
+  "base_schema": "public",
+  "upsert_method": "upsert",
   "qa_passed": true,
   "committed": true,
   "total_updated": 0,
   "total_inserted": 90,
+  "started_at": "2026-04-02 18:30:15",
+  "finished_at": "2026-04-02 18:30:23",
+  "duration_seconds": 8.234,
   "tables": [
     {
       "table_name": "genres",
