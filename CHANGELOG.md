@@ -8,6 +8,10 @@ ______________________________________________________________________
 
 ## [Unreleased]
 
+______________________________________________________________________
+
+## [1.11.1] - 2026-04-02
+
 ### Changed
 
 - All `display.print_*` functions now dual-write: rich output to console (stderr) and plain-text equivalent to the logger (logfile). Console and logfile are always in sync.
