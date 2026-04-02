@@ -1059,3 +1059,108 @@ class TestFacadeMethods:
             ),
         )
         assert cur.fetchone()[0] == 0
+
+
+# ===================================================================
+# Composite UNIQUE constraint
+# ===================================================================
+
+
+class TestCompositeUnique:
+    def test_composite_unique_no_violations(self, ups):
+        """Passing data should have no violations on the (book_title, genre) unique constraint."""
+        errors = ups._qa.check_unique("books")
+        assert errors == []
+
+    def test_composite_unique_detects_violation(self, ups):
+        """Insert duplicate (book_title, genre) pair to violate the composite unique constraint."""
+        # Copy an existing book with same title+genre
+        ups.db.execute(
+            """INSERT INTO staging.books (book_id, book_title, genre, publisher_id)
+            SELECT 'BDUP', book_title, genre, publisher_id
+            FROM staging.books WHERE book_id = 'B001'""",
+        )
+        errors = ups._qa.check_unique("books")
+        assert len(errors) == 1
+        assert "uq_books_title_genre" in errors[0].details
+
+    def test_composite_unique_different_genre_ok(self, ups):
+        """Same title with different genre should NOT be a violation."""
+        ups.db.execute(
+            """INSERT INTO staging.books (book_id, book_title, genre, publisher_id)
+            VALUES ('BNEW', 'The Great Novel', 'Non-Fiction', 'P001')""",
+        )
+        errors = ups._qa.check_unique("books")
+        assert errors == []
+
+
+# ===================================================================
+# Empty staging table edge case
+# ===================================================================
+
+
+class TestEmptyStagingTable:
+    def test_null_check_empty_staging(self, ups):
+        """Null checks should pass on a table with 0 rows."""
+        ups.db.execute("DELETE FROM staging.genres;")
+        errors = ups._qa.check_nulls("genres")
+        assert errors == []
+
+    def test_pk_check_empty_staging(self, ups):
+        """PK check should pass on a table with 0 rows."""
+        ups.db.execute("DELETE FROM staging.genres;")
+        errors = ups._qa.check_pks("genres")
+        assert errors == []
+
+    def test_unique_check_empty_staging(self, ups):
+        """Unique check should pass on a table with 0 rows."""
+        ups.db.execute("DELETE FROM staging.authors;")
+        errors = ups._qa.check_unique("authors")
+        assert errors == []
+
+    def test_upsert_one_empty_staging(self, ups):
+        """Upsert on an empty staging table should succeed with 0 inserts/updates."""
+        ups.db.execute("DELETE FROM staging.genres;")
+        ups.upsert_one("genres")
+        cur = ups.db.execute(
+            SQL("SELECT rows_inserted, rows_updated FROM {ct} WHERE table_name = {t}").format(
+                ct=Identifier(ups.control_table),
+                t=Literal("genres"),
+            ),
+        )
+        row = cur.fetchone()
+        assert row[0] == 0
+        assert row[1] == 0
+
+
+# ===================================================================
+# Dependency order validation
+# ===================================================================
+
+
+class TestDependencyOrder:
+    def test_upsert_all_respects_fk_order(self, ups):
+        """Tables with FK dependencies must be upserted after their parents.
+
+        In our schema: books depends on genres and publishers,
+        book_authors depends on books and authors.
+        So genres/publishers must come before books,
+        and books/authors must come before book_authors.
+        """
+        ups.qa_all()
+        assert ups.qa_passed is True
+
+        # Get the dependency-ordered table list from the executor.
+        ordered = ups._executor._get_dependency_order()
+
+        # Verify parent tables come before children.
+        genres_idx = ordered.index("genres")
+        publishers_idx = ordered.index("publishers")
+        books_idx = ordered.index("books")
+        authors_idx = ordered.index("authors")
+        book_authors_idx = ordered.index("book_authors")
+
+        assert genres_idx < books_idx, "genres must be upserted before books"
+        assert publishers_idx < books_idx, "publishers must be upserted before books"
+        assert books_idx < book_authors_idx, "books must be upserted before book_authors"
+        assert authors_idx < book_authors_idx, "authors must be upserted before book_authors"

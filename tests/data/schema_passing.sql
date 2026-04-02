@@ -95,7 +95,8 @@ create table public.books (
         on delete restrict,
     foreign key (publisher_id) references public.publishers(publisher_id)
         on update cascade
-        on delete restrict
+        on delete restrict,
+    constraint uq_books_title_genre unique (book_title, genre)
 );
 create trigger revtime before insert or update
 on public.books for each row execute function set_rev_time();

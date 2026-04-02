@@ -50,8 +50,11 @@ class PostgresDB:
         # it in the dsn (which would be exposed via conn.dsn / repr).
         self._password: str | None = None
         self._sanitized_uri: str | None = None
+        self._connect_uri: str | None = None  # full URI with password for reconnection
+        self._owns_connection = conn is None  # only manage connections we created
         if uri:
             uri, self._password, self._sanitized_uri = self._extract_password(uri)
+            self._connect_uri = uri
         self.conn = conn or psycopg2.connect(uri, **kwargs)
         self.encoding = encoding
         self.in_transaction = False
@@ -119,20 +122,24 @@ class PostgresDB:
             return False
 
     def open_db(self) -> None:
-        """Ensure the database connection is open."""
+        """Ensure the database connection is open.
+
+        Reconnects using the original URI (stored at init time) if the
+        connection was created by this instance.  External connections
+        (passed via ``conn=``) cannot be reopened.
+        """
         if not self.conn or self.conn.closed:
             logger.debug("Opening database connection.")
-            dsn = self.conn.dsn if self.conn else None
-            if dsn:
-                self.conn = psycopg2.connect(dsn, **self.kwargs)
-            elif self._password is not None:
-                # Reconnect using stored sanitized URI + password kwarg
-                import re
-
-                clean_uri = re.sub(r":[^:@]+@", "@", self._sanitized_uri or "")
-                self.conn = psycopg2.connect(clean_uri, password=self._password, **self.kwargs)
+            if self._connect_uri:
+                self.conn = psycopg2.connect(self._connect_uri, **self.kwargs)
+            elif not self._owns_connection and self.conn:
+                # External connection — try DSN (may lack password).
+                self.conn = psycopg2.connect(self.conn.dsn, **self.kwargs)
             else:
-                raise psycopg2.OperationalError("Cannot reopen connection: no DSN or credentials available.")
+                raise psycopg2.OperationalError(
+                    "Cannot reopen connection: no stored credentials. "
+                    "Connections passed via conn= cannot be automatically reopened.",
+                )
             self.conn.set_client_encoding(self.encoding)
             self.conn.set_session(autocommit=False)
 
