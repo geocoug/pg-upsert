@@ -221,7 +221,6 @@ class TestCliLogging:
         [
             ("-h h -p 5432 -d dev -u u -s stg -b pub -t t1", logging.INFO),
             ("--debug -h h -p 5432 -d dev -u u -s stg -b pub -t t1", logging.DEBUG),
-            ("--quiet -h h -p 5432 -d dev -u u -s stg -b pub -t t1", logging.INFO),
         ],
     )
     def test_log_levels(self, monkeypatch, flags, expected_level):

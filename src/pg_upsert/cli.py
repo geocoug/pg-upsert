@@ -58,14 +58,6 @@ def cli(
             help="Open the documentation in a web browser.",
         ),
     ] = False,
-    quiet: Annotated[
-        bool,
-        typer.Option(
-            "--quiet",
-            "-q",
-            help="Suppress all console output.",
-        ),
-    ] = False,
     logfile: Annotated[
         Path | None,
         typer.Option(
@@ -251,7 +243,6 @@ def cli(
         # only when the CLI arg is still at its default value (config file loses to explicit args).
         _cli_defaults: dict[str, object] = {
             "debug": False,
-            "quiet": False,
             "logfile": None,
             "exclude_columns": None,
             "null_columns": None,
@@ -300,7 +291,7 @@ def cli(
         # Also attach the file handler to the display logger so that
         # display.print_* functions write plain-text to the logfile.
         logging.getLogger("pg_upsert.display").addHandler(file_handler)
-    if not args.quiet and args.output != "json":
+    if args.output != "json":
         stream_handler = logging.StreamHandler(sys.stdout)
         if args.debug:
             stream_handler.setLevel(logging.DEBUG)

@@ -94,7 +94,6 @@ pg-upsert -h localhost -p 5432 -d mydb -u user \
 | `-g`, `--generate-config` | Generate a template config file                           |
 | `-v`, `--version`         | Show version and exit                                     |
 | `--debug`                 | Enable debug output                                       |
-| `-q`, `--quiet`           | Suppress console output                                   |
 
 > [!NOTE]
 > CLI arguments take precedence over configuration file values. Explicit CLI flags are never overridden by the config file.
