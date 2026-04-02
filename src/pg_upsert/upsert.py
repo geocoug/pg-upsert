@@ -512,10 +512,21 @@ class PgUpsert:
         num_tables = len(self.tables)
 
         # Logfile header — clear separator for appended runs.
+        from importlib.metadata import PackageNotFoundError, version
+
+        try:
+            _ver = version("pg_upsert")
+        except PackageNotFoundError:
+            _ver = "unknown"
+        try:
+            _pg_ver = self.db.execute("SELECT version()").fetchone()[0]
+        except Exception:
+            _pg_ver = "unknown"
         _file_logger.info("")
         _file_logger.info("=" * 60)
-        _file_logger.info(f"pg-upsert run started at {start_str}")
+        _file_logger.info(f"pg-upsert {_ver} — run started at {start_str}")
         _file_logger.info(f"  {self.staging_schema} → {self.base_schema} ({num_tables} tables)")
+        _file_logger.info(f"  PostgreSQL: {_pg_ver}")
         _file_logger.info("=" * 60)
 
         display.console.print()

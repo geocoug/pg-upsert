@@ -404,6 +404,9 @@ def cli(
         result = ups.run()
         if args.output == "json":
             print(result.to_json())
+        # Exit 1 if QA failed — so CI pipelines detect failures.
+        if not result.qa_passed:
+            sys.exit(1)
     except UserCancelledError:
         sys.exit(0)
     except Exception as e:

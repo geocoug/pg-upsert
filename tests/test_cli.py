@@ -199,7 +199,9 @@ class TestCliConfigFile:
                 captured_args.update(kwargs)
 
             def run(self):
-                return self
+                from pg_upsert.models import UpsertResult
+
+                return UpsertResult()
 
         monkeypatch.setattr("pg_upsert.cli.PgUpsert", FakePgUpsert)
         monkeypatch.setattr(pg_upsert.postgres.getpass, "getpass", "password")
@@ -256,7 +258,9 @@ class TestCliLogging:
                 pass
 
             def run(self):
-                return self
+                from pg_upsert.models import UpsertResult
+
+                return UpsertResult()
 
         monkeypatch.setattr("pg_upsert.cli.PgUpsert", FakePgUpsert)
         monkeypatch.setattr(pg_upsert.postgres.getpass, "getpass", "password")
