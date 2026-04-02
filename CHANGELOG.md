@@ -8,6 +8,10 @@ ______________________________________________________________________
 
 ## [Unreleased]
 
+______________________________________________________________________
+
+## [1.11.2] - 2026-04-02
+
 ### Added
 
 - Green ✓ checkmarks now shown for QA checks that pass, not just ✗ for failures. Gives users confidence that checks actually ran.
