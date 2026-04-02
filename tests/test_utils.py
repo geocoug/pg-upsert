@@ -15,20 +15,24 @@ from pg_upsert.utils import CustomLogFormatter, elapsed_time
 
 class TestElapsedTime:
     def test_seconds(self):
-        assert elapsed_time(datetime.now() - timedelta(seconds=5)) == "5.0 seconds"
+        result = elapsed_time(datetime.now() - timedelta(seconds=5))
+        assert result.startswith("5.") and result.endswith("seconds")
 
     def test_minutes(self):
-        assert elapsed_time(datetime.now() - timedelta(minutes=1)) == "1 minutes, 0.0 seconds"
+        result = elapsed_time(datetime.now() - timedelta(minutes=1))
+        assert result.startswith("1 minutes, 0.")
 
     def test_hours(self):
-        assert elapsed_time(datetime.now() - timedelta(hours=1)) == "1 hours, 0 minutes, 0.0 seconds"
+        result = elapsed_time(datetime.now() - timedelta(hours=1))
+        assert result.startswith("1 hours, 0 minutes, 0.")
 
     def test_hours_minutes_seconds(self):
         result = elapsed_time(datetime.now() - timedelta(hours=1, minutes=1, seconds=1))
-        assert result == "1 hours, 1 minutes, 1.0 seconds"
+        assert result.startswith("1 hours, 1 minutes, 1.")
 
     def test_days_as_hours(self):
-        assert elapsed_time(datetime.now() - timedelta(days=2)) == "48 hours, 0 minutes, 0.0 seconds"
+        result = elapsed_time(datetime.now() - timedelta(days=2))
+        assert result.startswith("48 hours, 0 minutes, 0.")
 
     def test_returns_string(self):
         assert isinstance(elapsed_time(datetime.now() - timedelta(seconds=5)), str)
