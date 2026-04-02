@@ -1,14 +1,48 @@
-.venv/
-*.log
-*cache*
-.coverage
-.env
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+*.egg
 dist/
-*.egg-info
 build/
-docs/_build/
+.eggs/
+.ruff_cache/
+
+# uv / venv
+.venv/
+uv.lock
+
+# Zensical / MkDocs
 site/
-pg-upsert.local.yaml
-pg-upsert.template.yaml
+.cache
+docs/about/change_log.md
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# Testing
+.pytest_cache/
+.coverage
+coverage.xml
+*.py,cover
 .tox/
 htmlcov/
+
+# Distribution
+*.whl
+*.tar.gz
+
+# Project-specific
+.env
+*.log
+pg-upsert.local.yaml
+pg-upsert.template.yaml
+
+# Claude
+.claude/settings.local.json

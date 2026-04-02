@@ -8,8 +8,6 @@ import tkinter as tk
 import tkinter.font as tkfont
 import tkinter.ttk as ttk
 
-from .__version__ import __description__, __version__
-
 logger = logging.getLogger(__name__)
 
 
@@ -220,12 +218,12 @@ class CompareUI:
         m = re.match(r"(\d+)x(\d+)\+(-?\d+)\+(-?\d+)", self.win.geometry())
         if m is not None:
             wwd = int(m.group(1))
-            wht = int(m.group(2))
+            what = int(m.group(2))
             swd = self.win.winfo_screenwidth()
             sht = self.win.winfo_screenheight()
             xpos = (swd / 2) - (wwd / 2)
-            ypos = (sht / 2) - (wht / 2)
-            self.win.geometry("%dx%d+%d+%d" % (wwd, wht, xpos, ypos))
+            ypos = (sht / 2) - (what / 2)
+            self.win.geometry(f"{wwd}x{what}+{int(xpos)}+{int(ypos)}")
         # Limit resizing
         self.win.minsize(width=300, height=0)
 
@@ -321,12 +319,12 @@ class TableUI:
         m = re.match(r"(\d+)x(\d+)\+(-?\d+)\+(-?\d+)", self.win.geometry())
         if m is not None:
             wwd = int(m.group(1))
-            wht = int(m.group(2))
+            what = int(m.group(2))
             swd = self.win.winfo_screenwidth()
             sht = self.win.winfo_screenheight()
             xpos = (swd / 2) - (wwd / 2)
-            ypos = (sht / 2) - (wht / 2)
-            self.win.geometry("%dx%d+%d+%d" % (wwd, wht, xpos, ypos))
+            ypos = (sht / 2) - (what / 2)
+            self.win.geometry(f"{wwd}x{what}+{int(xpos)}+{int(ypos)}")
         # Limit resizing
         self.win.minsize(width=300, height=0)
 
@@ -413,7 +411,7 @@ def treeview_table(
     # Status bar
     statusbar = ttk.Label(
         statusframe,
-        text="    %d rows" % len(rowset),
+        text=f"    {len(rowset)} rows",
         relief=tk.RIDGE,
         anchor=tk.W,
     )
@@ -475,4 +473,4 @@ def fill_tv_table(tvtable: ttk.Treeview, rowset: list | tuple, status_label=None
         enc_row = [c if c is not None else "" for c in row]
         tvtable.insert(parent="", index="end", iid=str(i), values=enc_row)
     if status_label is not None:
-        status_label.config(text="    %d rows" % len(rowset))
+        status_label.config(text=f"    {len(rowset)} rows")

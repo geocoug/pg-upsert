@@ -10,10 +10,10 @@ from typing import Annotated
 
 import typer
 import yaml
-from rich import print
+from rich import print as rprint
 
 from .__version__ import __description__, __docs_url__, __title__, __version__
-from .upsert import PgUpsert
+from .upsert import PgUpsert, UserCancelledError
 from .utils import CustomLogFormatter
 
 logger = logging.getLogger(__title__)
@@ -187,10 +187,10 @@ def cli(
 ) -> None:
     args = SimpleNamespace(**locals())
     if args.version:
-        print(f"[bold]{__title__}[/bold]: {__version__}")
+        rprint(f"[bold]{__title__}[/bold]: {__version__}")
         sys.exit(0)
     if args.docs:
-        print(":link: Opening documentation in a web browser...")
+        rprint(":link: Opening documentation in a web browser...")
         typer.launch(__docs_url__)
         sys.exit(0)
     if args.generate_config:
@@ -199,7 +199,7 @@ def cli(
             if not args.logfile:
                 args.logfile = Path(f"{__title__}.log").as_posix()
             yaml.dump(args.__dict__, file, sort_keys=False, indent=2, encoding="utf-8")
-        print(
+        rprint(
             ":file_folder: Configuration file generated: [bold green]pg-upsert.template.yaml[/bold green]",
         )
         sys.exit(0)
@@ -209,10 +209,10 @@ def cli(
                 with open(args.config_file) as file:
                     config = yaml.safe_load(file)
             except Exception as e:
-                print(f"Error reading configuration file: {e}")
+                rprint(f"Error reading configuration file: {e}")
                 sys.exit(1)
         else:
-            print(f"Configuration file not found: {args.config_file}")
+            rprint(f"Configuration file not found: {args.config_file}")
             sys.exit(1)
         # For each key in the configuration yaml, update the corresponding command line argument
         for key in config:
@@ -222,7 +222,7 @@ def cli(
                 else:
                     setattr(args, key, config[key])
             else:
-                print(
+                rprint(
                     f"Invalid configuration key will be ignored in {args.config_file}: {key}",
                 )
     if args.debug:
@@ -285,13 +285,13 @@ def cli(
             padding = " " * (max(map(len, vars(args))) - len(arg))
             logger.debug(f"{arg}:{padding} {getattr(args, arg)}")
     if args.exclude_columns and isinstance(args.exclude_columns, str):
-        args.exclude_columns = args.exclude_columns.split(",")
+        args.exclude_columns = [col.strip() for col in args.exclude_columns.split(",")]
     if args.null_columns and isinstance(args.null_columns, str):
-        args.null_columns = args.null_columns.split(",")
+        args.null_columns = [col.strip() for col in args.null_columns.split(",")]
     try:
         PgUpsert(
             uri=f"postgresql://{args.user}@{args.host}:{args.port}/{args.database}",
-            encoding="utf-8",
+            encoding=args.encoding,
             tables=args.tables,
             staging_schema=args.staging_schema,
             base_schema=args.base_schema,
@@ -301,6 +301,8 @@ def cli(
             exclude_cols=args.exclude_columns,
             exclude_null_check_cols=args.null_columns,
         ).run()
+    except UserCancelledError:
+        sys.exit(0)
     except Exception as e:
         logger.error(e)
         sys.exit(1)

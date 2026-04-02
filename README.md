@@ -223,51 +223,13 @@ docker run -it --rm \
 
 ## Contributing
 
-1. Fork the repository
-2. Create a new branch (`git checkout -b <feature-branch>`)
-3. Create a Python virtual environment (`python -m venv .venv` | `uv venv`)
-4. Activate the virtual environment (`source .venv/bin/activate`)
-5. Install dependencies (`pip install ".[dev]"` | `uv pip install ".[dev]"`)
-6. Install pre-commit hooks (`python -m pre-commit install --install-hooks`)
-7. Make your changes
-8. Run tests with `tox`
-9. Push your changes to the branch (`git push origin <feature-branch>`)
-10. Create a pull request
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, available recipes, testing, and release process.
 
-### Running Tests Locally
+Requires [uv](https://docs.astral.sh/uv/) and [just](https://just.systems/). Quick start:
 
-Running tests locally requires a PostgreSQL database. The easiest way to set up a PostgreSQL database is to use Docker. The following command will create a PostgreSQL database called `dev` with the user `docker` and password `docker`:
-
-```sh
-docker run --name postgres -e POSTGRES_USER=docker -e POSTGRES_PASSWORD=docker -e POSTGRES_DB=dev -p 5432:5432 -d postgres:latest
+```bash
+git clone https://github.com/geocoug/pg-upsert
+cd pg-upsert
+just sync
+just test
 ```
-
-Once initialized, import the test data:
-
-```sh
-docker exec -i postgres psql -U docker -d dev < tests/data/schema_failing.sql
-```
-
-Verify that the tables were created successfully:
-
-```sh
-docker exec -it postgres psql -U docker -d dev -c "
-    SELECT table_schema, table_name
-    FROM information_schema.tables
-    WHERE table_type = 'BASE TABLE'
-    AND table_schema NOT IN ('pg_catalog', 'information_schema')
-    ORDER BY table_schema, table_name;
-"
-```
-
-Create a `.env` file in the root directory with the following content, modifying the values as needed.
-
-```sh
-POSTGRES_HOST=localhost
-POSTGRES_PORT=5432
-POSTGRES_DB=dev
-POSTGRES_USER=docker
-POSTGRES_PASSWORD=docker
-```
-
-Now you can run the tests using `tox`.

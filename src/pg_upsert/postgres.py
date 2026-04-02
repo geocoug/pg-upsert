@@ -10,7 +10,7 @@ import psycopg2
 from psycopg2.extras import DictCursor
 from psycopg2.sql import Composable
 
-from .__version__ import __description__, __title__, __version__
+from .__version__ import __title__
 
 logger = logging.getLogger(__name__)
 

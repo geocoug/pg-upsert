@@ -1,9 +1,10 @@
----
+fail_fast: false
+
 exclude: |
   (?x)^(
-    build/ |
-    dist/
-  )$
+    .venv/|
+    .tox/
+  )
 
 repos:
   - repo: meta
@@ -12,17 +13,17 @@ repos:
       - id: check-hooks-apply
   # Protect secrets using Gitleaks
   - repo: https://github.com/zricethezav/gitleaks
-    rev: v8.23.3
+    rev: v8.30.0
     hooks:
       - id: gitleaks
-  # Validate pyproject.toml
-  - repo: https://github.com/abravalheri/validate-pyproject
-    rev: v0.23
+  # uv lockfile management
+  - repo: https://github.com/astral-sh/uv-pre-commit
+    rev: 0.11.1
     hooks:
-      - id: validate-pyproject
-  # Supported base hooks
+      - id: uv-lock
+  # Base hooks
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v5.0.0
+    rev: v6.0.0
     hooks:
       - id: check-added-large-files
         args: [--maxkb=10000]
@@ -34,12 +35,24 @@ repos:
       - id: trailing-whitespace
   # Add trailing commas to calls and literals.
   - repo: https://github.com/asottile/add-trailing-comma
-    rev: v3.1.0
+    rev: v4.0.0
     hooks:
       - id: add-trailing-comma
+  # Opinionated markdown formatting
+  - repo: https://github.com/executablebooks/mdformat
+    rev: 1.0.0
+    hooks:
+      - id: mdformat
+        language: python
+        additional_dependencies:
+          - mdformat-mkdocs==5.1.1
+        exclude: |
+          (?x)^(
+            \.claude/.*
+          )$
   # Markdown lint
   - repo: https://github.com/igorshubovych/markdownlint-cli
-    rev: v0.44.0
+    rev: v0.48.0
     hooks:
       - id: markdownlint
         types: [file]
@@ -47,14 +60,19 @@ repos:
         args: [--disable, MD013]
   # Spell check
   - repo: https://github.com/crate-ci/typos
-    rev: typos-dict-v0.12.4
+    rev: v1.44.0
     hooks:
       - id: typos
-  # Lint & format
+  # Lint & format with ruff
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.9.6
+    rev: v0.15.7
     hooks:
-      - id: ruff
+      - id: ruff-check
         args: [--config=pyproject.toml, --exit-non-zero-on-fix]
       - id: ruff-format
         args: [--config=pyproject.toml]
+  # Validate pyproject.toml
+  - repo: https://github.com/abravalheri/validate-pyproject
+    rev: v0.25
+    hooks:
+      - id: validate-pyproject

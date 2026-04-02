@@ -3,14 +3,12 @@
 from __future__ import annotations
 
 import logging
-import sys
 from datetime import datetime
 
 import psycopg2
 from psycopg2.sql import SQL, Composable, Identifier, Literal
 from tabulate import tabulate
 
-from .__version__ import __description__, __version__
 from .postgres import PostgresDB
 from .ui import (
     CompareUI,
@@ -19,6 +17,10 @@ from .ui import (
 from .utils import elapsed_time
 
 logger = logging.getLogger(__name__)
+
+
+class UserCancelledError(Exception):
+    """Raised when the user cancels an interactive operation."""
 
 
 class PgUpsert:
@@ -850,8 +852,7 @@ class PgUpsert:
         )
         if rowcount == 0:
             logger.info("Table has no primary key")
-            return None
-        # rows = next(iter(rows))
+            return self
         rows = list(rows)
         logger.debug(f"  Checking constraint {rows[0]['constraint_name']}")
         # Get a comma-delimited list of primary key columns to build SQL selection
@@ -906,7 +907,7 @@ class PgUpsert:
                 ).activate()
                 if btn != 0:
                     logger.warning("Script cancelled by user")
-                    sys.exit(0)
+                    raise UserCancelledError("Script cancelled by user during primary key check")
         if len(pk_errors) > 0:
             self.db.execute(
                 SQL(
@@ -1192,7 +1193,7 @@ class PgUpsert:
                     ).activate()
                     if btn != 0:
                         logger.warning("Script cancelled by user")
-                        sys.exit(0)
+                        raise UserCancelledError("Script cancelled by user during foreign key check")
 
                 self.db.execute(
                     SQL(
@@ -1711,7 +1712,7 @@ class PgUpsert:
                 """,
             ).format(
                 exclude_cols=SQL(",").join(
-                    Literal(col) for col in spec_rows["exclude_cols"].split(",") if spec_rows["exclude_cols"]
+                    Literal(col.strip()) for col in spec_rows["exclude_cols"].split(",") if spec_rows["exclude_cols"]
                 ),
             )
         query += SQL(" order by s.ordinal_position;")
@@ -1887,7 +1888,7 @@ class PgUpsert:
                     btn = 0
                 if btn == 2:
                     logger.warning("Script cancelled by user")
-                    sys.exit(0)
+                    raise UserCancelledError("Script cancelled by user during update confirmation")
                 if btn == 0:
                     do_updates = True
                     # Create an assignment expression to update non-key columns of the
@@ -1974,7 +1975,7 @@ class PgUpsert:
                     btn = 0
                 if btn == 2:
                     logger.warning("Script cancelled by user")
-                    sys.exit(0)
+                    raise UserCancelledError("Script cancelled by user during insert confirmation")
                 if btn == 0:
                     do_inserts = True
                     # Create an insert statement.  No semicolon terminating generated SQL.
@@ -2057,11 +2058,16 @@ class PgUpsert:
             logger.info("Tables selected for upsert:")
             for table in self.tables:
                 logger.info(f"  {table}")
+        self.qa_passed = False
         self._init_ups_control()
-        self.qa_all()
-        if self.qa_passed:
-            self.upsert_all()
-            self.commit()
+        try:
+            self.qa_all()
+            if self.qa_passed:
+                self.upsert_all()
+                self.commit()
+        except UserCancelledError:
+            logger.info("Rolling back changes due to user cancellation")
+            self.db.rollback()
         logger.debug(f"Upsert completed in {elapsed_time(start_time)}")
         return self
 
@@ -2122,5 +2128,4 @@ class PgUpsert:
         else:
             logger.info("Rolling back changes")
             self.db.rollback()
-        # self.db.close()
         return self

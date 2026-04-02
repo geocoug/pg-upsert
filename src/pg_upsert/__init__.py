@@ -10,6 +10,6 @@ from .__version__ import (
 )
 from .cli import app
 from .postgres import PostgresDB
-from .upsert import PgUpsert
+from .upsert import PgUpsert, UserCancelledError
 
-__all__ = ["PgUpsert", "PostgresDB"]
+__all__ = ["PgUpsert", "PostgresDB", "UserCancelledError"]

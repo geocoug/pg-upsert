@@ -1,0 +1,55 @@
+[project]
+site_name = "pg_upsert"
+site_author = "Caleb Grant"
+site_description = "A Python library for upserting data into PostgreSQL"
+site_url = "https://pg-upsert.readthedocs.io/"
+repo_url = "https://github.com/geocoug/pg-upsert"
+repo_name = "geocoug/pg-upsert"
+docs_dir = "docs"
+copyright = "Copyright &copy; 2024-present Caleb Grant"
+nav = [
+    { "Home" = "index.md" },
+    { "Examples" = "examples.md" },
+    { "API Reference" = "pg_upsert.md" },
+    { "About" = [
+        { "Change Log" = "about/change_log.md" },
+    ] },
+]
+
+[project.plugins.mkdocstrings.handlers.python]
+paths = ["src"]
+
+[project.plugins.mkdocstrings.handlers.python.options]
+members_order = "source"
+separate_signature = true
+merge_init_into_class = true
+show_signature_annotations = true
+signature_crossrefs = true
+show_root_heading = true
+show_source = true
+
+[project.theme]
+features = [
+    "navigation.footer",
+    "navigation.tabs",
+    "navigation.sections",
+    "navigation.path",
+]
+
+# Palette toggle for light mode
+[[project.theme.palette]]
+media = "(prefers-color-scheme: light)"
+scheme = "default"
+primary = "blue grey"
+accent = "blue grey"
+toggle.icon = "lucide/sun"
+toggle.name = "Switch to dark mode"
+
+# Palette toggle for dark mode
+[[project.theme.palette]]
+media = "(prefers-color-scheme: dark)"
+scheme = "slate"
+primary = "blue grey"
+accent = "blue grey"
+toggle.icon = "lucide/moon"
+toggle.name = "Switch to light mode"
