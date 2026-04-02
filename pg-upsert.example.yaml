@@ -1,10 +1,9 @@
 debug: false
-quiet: false
 commit: false
-interactive: true
+interactive: false
 upsert_method: "upsert"  # Options: "upsert", "insert", "update"
 logfile: "pg_upsert.log"
-host: "host.docker.internal"  # If running pg-upsert in Docker, use this to connect to the host machine. Otherwise, use the IP address or hostname of the database server.
+host: "localhost"
 port: 5432
 user: "docker"
 database: "dev"
@@ -22,3 +21,7 @@ exclude_columns:
   - "rev_user"
 null_columns:
   - "book_alias"
+output: "text"  # Options: "text", "json"
+check_schema: false
+compact: false
+ui_mode: "auto"  # Options: "auto", "textual", "tkinter"

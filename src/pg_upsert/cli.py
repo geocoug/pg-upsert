@@ -264,6 +264,8 @@ def cli(
             "base_schema": None,
             "encoding": "utf-8",
             "tables": None,
+            "output": "text",
+            "check_schema": False,
             "compact": False,
             "ui_mode": "auto",
         }
