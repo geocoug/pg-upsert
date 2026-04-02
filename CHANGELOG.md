@@ -8,6 +8,14 @@ ______________________________________________________________________
 
 ## [Unreleased]
 
+### Added
+
+- 91 new tests: `test_models.py`, `test_display.py`, `test_ui_factory.py`, `test_console_backend.py`, facade method tests. Total: 256 tests, 93% coverage.
+
+### Changed
+
+- Rewrote `docs/examples.md` with current output format (rich ✓/✗ indicators, summary layout, UpsertResult JSON examples).
+
 ______________________________________________________________________
 
 ## [1.12.0] - 2026-04-02

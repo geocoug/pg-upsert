@@ -944,3 +944,118 @@ class TestQATypeMismatch:
         for table in ups.tables:
             errors = ups._qa.check_type_mismatch(table)
             assert errors == [], f"Unexpected type mismatch in {table}: {errors}"
+
+
+# ===================================================================
+# Facade methods: qa_all_null, qa_all_unique, qa_column_existence,
+#                 qa_type_mismatch, qa_all_pk, qa_all_fk, qa_all_ck
+# ===================================================================
+
+
+class TestFacadeMethods:
+    """Smoke tests for PgUpsert facade methods that delegate to _qa."""
+
+    def test_qa_all_null_returns_self(self, ups):
+        result = ups.qa_all_null()
+        assert result is ups
+
+    def test_qa_all_null_passing_data_no_errors(self, ups):
+        ups.qa_all_null()
+        from psycopg2.sql import SQL, Identifier
+
+        cur = ups.db.execute(
+            SQL("SELECT COUNT(*) FROM {ct} WHERE null_errors IS NOT NULL").format(
+                ct=Identifier(ups.control_table),
+            ),
+        )
+        assert cur.fetchone()[0] == 0
+
+    def test_qa_all_unique_returns_self(self, ups):
+        result = ups.qa_all_unique()
+        assert result is ups
+
+    def test_qa_all_unique_passing_data_no_errors(self, ups):
+        ups.qa_all_unique()
+        from psycopg2.sql import SQL, Identifier
+
+        cur = ups.db.execute(
+            SQL("SELECT COUNT(*) FROM {ct} WHERE unique_errors IS NOT NULL").format(
+                ct=Identifier(ups.control_table),
+            ),
+        )
+        assert cur.fetchone()[0] == 0
+
+    def test_qa_column_existence_returns_self(self, ups):
+        result = ups.qa_column_existence()
+        assert result is ups
+
+    def test_qa_column_existence_passing_data_no_errors(self, ups):
+        ups.qa_column_existence()
+        from psycopg2.sql import SQL, Identifier
+
+        cur = ups.db.execute(
+            SQL("SELECT COUNT(*) FROM {ct} WHERE column_errors IS NOT NULL").format(
+                ct=Identifier(ups.control_table),
+            ),
+        )
+        assert cur.fetchone()[0] == 0
+
+    def test_qa_type_mismatch_returns_self(self, ups):
+        result = ups.qa_type_mismatch()
+        assert result is ups
+
+    def test_qa_type_mismatch_passing_data_no_errors(self, ups):
+        ups.qa_type_mismatch()
+        from psycopg2.sql import SQL, Identifier
+
+        cur = ups.db.execute(
+            SQL("SELECT COUNT(*) FROM {ct} WHERE type_errors IS NOT NULL").format(
+                ct=Identifier(ups.control_table),
+            ),
+        )
+        assert cur.fetchone()[0] == 0
+
+    def test_qa_all_pk_returns_self(self, ups):
+        result = ups.qa_all_pk()
+        assert result is ups
+
+    def test_qa_all_pk_passing_data_no_errors(self, ups):
+        ups.qa_all_pk()
+        from psycopg2.sql import SQL, Identifier
+
+        cur = ups.db.execute(
+            SQL("SELECT COUNT(*) FROM {ct} WHERE pk_errors IS NOT NULL").format(
+                ct=Identifier(ups.control_table),
+            ),
+        )
+        assert cur.fetchone()[0] == 0
+
+    def test_qa_all_fk_returns_self(self, ups):
+        result = ups.qa_all_fk()
+        assert result is ups
+
+    def test_qa_all_fk_passing_data_no_errors(self, ups):
+        ups.qa_all_fk()
+        from psycopg2.sql import SQL, Identifier
+
+        cur = ups.db.execute(
+            SQL("SELECT COUNT(*) FROM {ct} WHERE fk_errors IS NOT NULL").format(
+                ct=Identifier(ups.control_table),
+            ),
+        )
+        assert cur.fetchone()[0] == 0
+
+    def test_qa_all_ck_returns_self(self, ups):
+        result = ups.qa_all_ck()
+        assert result is ups
+
+    def test_qa_all_ck_passing_data_no_errors(self, ups):
+        ups.qa_all_ck()
+        from psycopg2.sql import SQL, Identifier
+
+        cur = ups.db.execute(
+            SQL("SELECT COUNT(*) FROM {ct} WHERE ck_errors IS NOT NULL").format(
+                ct=Identifier(ups.control_table),
+            ),
+        )
+        assert cur.fetchone()[0] == 0
