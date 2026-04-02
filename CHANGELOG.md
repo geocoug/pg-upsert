@@ -8,6 +8,10 @@ ______________________________________________________________________
 
 ## [Unreleased]
 
+______________________________________________________________________
+
+## [1.10.0] - 2026-04-02
+
 ### Added
 
 - New `display.py` module — rich-based output formatting with `rich.table.Table`, `rich.panel.Panel`, and colored pass/fail indicators.
