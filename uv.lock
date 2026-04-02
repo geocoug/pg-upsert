@@ -958,7 +958,7 @@ wheels = [
 
 [[package]]
 name = "pg-upsert"
-version = "1.9.0"
+version = "1.9.1"
 source = { editable = "." }
 dependencies = [
     { name = "psycopg2-binary" },
