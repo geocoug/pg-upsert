@@ -89,6 +89,7 @@ pg-upsert -h localhost -p 5432 -d mydb -u user \
 | `-l`, `--logfile`         | Write log to file (appends, does not overwrite)           |
 | `-o`, `--output`          | Output format: `text` (default) or `json`                 |
 | `--check-schema`          | Validate column existence and types only, then exit       |
+| `--compact`               | Use compact grid format for QA summary                    |
 | `--ui`                    | Interactive UI: `auto` (default), `textual`, or `tkinter` |
 | `-f`, `--config-file`     | Path to YAML configuration file                           |
 | `-g`, `--generate-config` | Generate a template config file                           |

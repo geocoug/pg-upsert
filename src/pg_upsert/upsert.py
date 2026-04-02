@@ -85,6 +85,7 @@ class PgUpsert:
         exclude_null_check_cols: list | tuple | None = (),
         control_table: str = "ups_control",
         ui_mode: str = "auto",
+        compact: bool = False,
     ):
         if upsert_method not in self._upsert_methods():
             raise ValueError(
@@ -118,6 +119,7 @@ class PgUpsert:
         self.exclude_cols = exclude_cols
         self.exclude_null_check_cols = exclude_null_check_cols
         self.control_table = control_table
+        self.compact = compact
         self.qa_passed = False
 
         # Validate schemas once (not twice — bug fix).
@@ -353,7 +355,7 @@ class PgUpsert:
         """  # noqa: E501
         self._validate_control()
         self._control.clear_results()
-        self._qa.run_all(list(self.tables), interactive=self.interactive)
+        self._qa.run_all(list(self.tables), interactive=self.interactive, compact=self.compact)
         if not self._control.has_errors():
             self.qa_passed = True
         return self
@@ -544,7 +546,7 @@ class PgUpsert:
 
         try:
             self._control.clear_results()
-            qa_errors = self._qa.run_all(list(self.tables), interactive=self.interactive)
+            qa_errors = self._qa.run_all(list(self.tables), interactive=self.interactive, compact=self.compact)
             if not self._control.has_errors():
                 self.qa_passed = True
             if self.qa_passed:

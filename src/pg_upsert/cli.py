@@ -202,6 +202,13 @@ def cli(
             help="Run column existence and type mismatch checks only, then exit.",  # noqa
         ),
     ] = False,
+    compact: Annotated[
+        bool,
+        typer.Option(
+            "--compact",
+            help="Use compact grid format for QA summary (✓/✗ per check type per table).",
+        ),
+    ] = False,
     ui_mode: Annotated[
         str,
         typer.Option(
@@ -257,6 +264,7 @@ def cli(
             "base_schema": None,
             "encoding": "utf-8",
             "tables": None,
+            "compact": False,
             "ui_mode": "auto",
         }
         for key in config:
@@ -350,6 +358,7 @@ def cli(
             exclude_cols=args.exclude_columns,
             exclude_null_check_cols=args.null_columns,
             ui_mode=args.ui_mode,
+            compact=args.compact,
         )
         if args.check_schema:
             from .ui import display

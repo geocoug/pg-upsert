@@ -891,6 +891,7 @@ class QARunner:
         self,
         tables: list[str] | tuple[str, ...],
         interactive: bool = False,
+        compact: bool = False,
     ) -> list[QAError]:
         """Run all QA checks across *tables* and return every error found.
 
@@ -946,7 +947,7 @@ class QARunner:
                 all_errors.extend(table_errors)
             logger.debug(f"{check_label} checks completed in {elapsed_time(start_time)}")
 
-        display.print_qa_summary(list(tables), all_errors)
+        display.print_qa_summary(list(tables), all_errors, compact=compact)
 
         if self.control.has_errors() and interactive:
             ctrl_sql = SQL("select * from {control_table};").format(
