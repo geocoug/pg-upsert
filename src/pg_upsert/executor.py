@@ -9,7 +9,7 @@ from psycopg2.sql import SQL, Identifier, Literal
 from .control import ControlTable
 from .models import TableResult, UserCancelledError
 from .postgres import PostgresDB
-from .ui import CompareUI, TableUI
+from .ui_base import UIBackend
 
 logger = logging.getLogger(__name__)
 
@@ -36,12 +36,19 @@ class UpsertExecutor:
         staging_schema: str,
         base_schema: str,
         upsert_method: str = "upsert",
+        ui: UIBackend | None = None,
     ) -> None:
         self.db = db
         self.control = control
         self.staging_schema = staging_schema
         self.base_schema = base_schema
         self.upsert_method = upsert_method
+        if ui is None:
+            from .ui_console import ConsoleBackend
+
+            self._ui: UIBackend = ConsoleBackend()
+        else:
+            self._ui = ui
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -345,7 +352,7 @@ class UpsertExecutor:
                 base_cols = [col.name for col in base_curs.description]
                 base_data = base_curs.fetchall()
                 if interactive:
-                    btn, _return_value = CompareUI(
+                    btn, _return_value = self._ui.show_comparison(
                         "Compare Tables",
                         f"Do you want to make these changes? For table {table}, new data are shown in the top table; existing data are shown in the bottom table.",  # noqa: E501
                         [
@@ -359,7 +366,7 @@ class UpsertExecutor:
                         base_data,
                         pk_col_list.split(", "),
                         sidebyside=False,
-                    ).activate()
+                    )
                 else:
                     btn = 0
                 if btn == 2:
@@ -427,7 +434,7 @@ class UpsertExecutor:
             new_data = new_curs.fetchall()
             if new_rowcount > 0:
                 if interactive:
-                    btn, _return_value = TableUI(
+                    btn, _return_value = self._ui.show_table(
                         "New Data",
                         f"Do you want to add these new data to the {self.base_schema}.{table} table?",
                         [
@@ -437,7 +444,7 @@ class UpsertExecutor:
                         ],
                         new_cols,
                         new_data,
-                    ).activate()
+                    )
                 else:
                     btn = 0
                 if btn == 2:

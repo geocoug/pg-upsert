@@ -32,6 +32,7 @@ dependencies = [
 keywords = ["postgresql", "postgres", "dbms", "etl", "upsert", "database"]
 
 [project.optional-dependencies]
+tui = ["textual>=0.47.0"]
 dev = [
     "build",
     "bump-my-version",
@@ -42,6 +43,7 @@ dev = [
     "pytest-cov",
     "python-dotenv",
     "ruff",
+    "textual>=0.47.0",
     "tox-uv",
     "twine",
     "zensical",
@@ -138,6 +140,8 @@ exclude_also = [
 omit = [
     # GUI modules require a display/event loop to test
     "*/pg_upsert/ui.py",
+    "*/pg_upsert/ui_tkinter.py",
+    "*/pg_upsert/ui_textual.py",
 ]
 
 [tool.typos.default.extend-words]

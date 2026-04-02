@@ -594,8 +594,8 @@ class TestCommit:
         """Interactive cancel during commit should rollback."""
         ups.interactive = True
         ups.upsert_one("genres")
-        with patch("pg_upsert.upsert.TableUI") as mock_ui:
-            mock_ui.return_value.activate.return_value = (1, None)  # Cancel
+        with patch.object(ups._ui, "show_table") as mock_show:
+            mock_show.return_value = (1, None)  # Cancel
             ups.commit()
         # Should have rolled back
         cur = ups.db.execute("SELECT count(*) FROM public.genres;")
@@ -606,8 +606,8 @@ class TestCommit:
         ups.interactive = True
         ups.do_commit = True
         ups.upsert_one("genres")
-        with patch("pg_upsert.upsert.TableUI") as mock_ui:
-            mock_ui.return_value.activate.return_value = (0, None)  # Continue
+        with patch.object(ups._ui, "show_table") as mock_show:
+            mock_show.return_value = (0, None)  # Continue
             ups.commit()
         cur = ups.db.execute("SELECT count(*) FROM public.genres;")
         assert cur.fetchone()[0] == 19
@@ -656,8 +656,8 @@ class TestRun:
     def test_run_interactive_cancel_at_table_selection(self, ups):
         """Interactive cancel at the table selection step should return without upserting."""
         ups.interactive = True
-        with patch("pg_upsert.upsert.TableUI") as mock_ui:
-            mock_ui.return_value.activate.return_value = (1, None)  # Cancel
+        with patch.object(ups._ui, "show_table") as mock_show:
+            mock_show.return_value = (1, None)  # Cancel
             result = ups.run()
             assert isinstance(result, UpsertResult)
         cur = ups.db.execute("SELECT count(*) FROM public.genres;")
@@ -694,8 +694,8 @@ class TestUserCancellation:
         ups.db.execute(
             "INSERT INTO staging.authors (author_id, first_name, last_name) VALUES ('JDoe', 'John', 'Doe');",
         )
-        with patch("pg_upsert.qa.TableUI") as mock_ui:
-            mock_ui.return_value.activate.return_value = (1, None)
+        with patch.object(ups._ui, "show_table") as mock_show:
+            mock_show.return_value = (1, None)
             with pytest.raises(UserCancelledError):
                 ups.qa_one_pk("authors")
 
@@ -703,8 +703,8 @@ class TestUserCancellation:
         """Mocking interactive cancel during FK check raises UserCancelledError."""
         ups.interactive = True
         ups.db.execute("UPDATE staging.books SET genre = 'BadGenre' WHERE genre = 'Fiction';")
-        with patch("pg_upsert.qa.TableUI") as mock_ui:
-            mock_ui.return_value.activate.return_value = (1, None)
+        with patch.object(ups._ui, "show_table") as mock_show:
+            mock_show.return_value = (1, None)
             with pytest.raises(UserCancelledError):
                 ups.qa_one_fk("books")
 
@@ -729,8 +729,8 @@ class TestInteractiveUpsertOne:
         ups.upsert_one("genres")
         ups.db.commit()
         self._set_interactive(ups)
-        with patch("pg_upsert.executor.CompareUI") as mock_ui:
-            mock_ui.return_value.activate.return_value = (0, None)  # Continue
+        with patch.object(ups._ui, "show_comparison") as mock_show:
+            mock_show.return_value = (0, None)  # Continue
             ups.upsert_one("genres")
         cur = ups.db.execute(
             SQL("SELECT rows_updated FROM {ct} WHERE table_name = {t}").format(
@@ -745,8 +745,8 @@ class TestInteractiveUpsertOne:
         ups.upsert_one("genres")
         ups.db.commit()
         self._set_interactive(ups)
-        with patch("pg_upsert.executor.CompareUI") as mock_ui:
-            mock_ui.return_value.activate.return_value = (1, None)  # Skip
+        with patch.object(ups._ui, "show_comparison") as mock_show:
+            mock_show.return_value = (1, None)  # Skip
             ups.upsert_one("genres")
         cur = ups.db.execute(
             SQL("SELECT rows_updated FROM {ct} WHERE table_name = {t}").format(
@@ -761,16 +761,16 @@ class TestInteractiveUpsertOne:
         ups.upsert_one("genres")
         ups.db.commit()
         self._set_interactive(ups)
-        with patch("pg_upsert.executor.CompareUI") as mock_ui:
-            mock_ui.return_value.activate.return_value = (2, None)  # Cancel
+        with patch.object(ups._ui, "show_comparison") as mock_show:
+            mock_show.return_value = (2, None)  # Cancel
             with pytest.raises(UserCancelledError):
                 ups.upsert_one("genres")
 
     def test_interactive_insert_continue(self, ups):
         """Interactive continue during insert dialog should proceed."""
         self._set_interactive(ups)
-        with patch("pg_upsert.executor.TableUI") as mock_ui:
-            mock_ui.return_value.activate.return_value = (0, None)  # Continue
+        with patch.object(ups._ui, "show_table") as mock_show:
+            mock_show.return_value = (0, None)  # Continue
             ups.upsert_one("genres")
         cur = ups.db.execute(
             SQL("SELECT rows_inserted FROM {ct} WHERE table_name = {t}").format(
@@ -783,8 +783,8 @@ class TestInteractiveUpsertOne:
     def test_interactive_insert_skip(self, ups):
         """Interactive skip during insert dialog should skip inserts."""
         self._set_interactive(ups)
-        with patch("pg_upsert.executor.TableUI") as mock_ui:
-            mock_ui.return_value.activate.return_value = (1, None)  # Skip
+        with patch.object(ups._ui, "show_table") as mock_show:
+            mock_show.return_value = (1, None)  # Skip
             ups.upsert_one("genres")
         cur = ups.db.execute(
             SQL("SELECT rows_inserted FROM {ct} WHERE table_name = {t}").format(
@@ -797,8 +797,8 @@ class TestInteractiveUpsertOne:
     def test_interactive_insert_cancel(self, ups):
         """Interactive cancel during insert dialog should raise UserCancelledError."""
         self._set_interactive(ups)
-        with patch("pg_upsert.executor.TableUI") as mock_ui:
-            mock_ui.return_value.activate.return_value = (2, None)  # Cancel
+        with patch.object(ups._ui, "show_table") as mock_show:
+            mock_show.return_value = (2, None)  # Cancel
             with pytest.raises(UserCancelledError):
                 ups.upsert_one("genres")
 

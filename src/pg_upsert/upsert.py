@@ -14,7 +14,7 @@ from .executor import UpsertExecutor
 from .models import QAError, TableResult, UpsertResult, UserCancelledError
 from .postgres import PostgresDB
 from .qa import QARunner
-from .ui import TableUI
+from .ui_factory import get_ui_backend
 from .utils import elapsed_time
 
 logger = logging.getLogger(__name__)
@@ -84,6 +84,7 @@ class PgUpsert:
         exclude_cols: list | tuple | None = (),
         exclude_null_check_cols: list | tuple | None = (),
         control_table: str = "ups_control",
+        ui_mode: str = "auto",
     ):
         if upsert_method not in self._upsert_methods():
             raise ValueError(
@@ -125,13 +126,16 @@ class PgUpsert:
             self._validate_table(table)
 
         # Initialise sub-components.
-        self._control = ControlTable(self.db, table_name=control_table)
+        _effective_ui_mode = ui_mode if interactive else "console"
+        self._ui = get_ui_backend(_effective_ui_mode)
+        self._control = ControlTable(self.db, table_name=control_table, ui=self._ui)
         self._qa = QARunner(
             db=self.db,
             control=self._control,
             staging_schema=staging_schema,
             base_schema=base_schema,
             exclude_null_check_cols=exclude_null_check_cols or (),
+            ui=self._ui,
         )
         self._executor = UpsertExecutor(
             db=self.db,
@@ -139,6 +143,7 @@ class PgUpsert:
             staging_schema=staging_schema,
             base_schema=base_schema,
             upsert_method=upsert_method,
+            ui=self._ui,
         )
 
         self._control.initialize(
@@ -496,7 +501,7 @@ class PgUpsert:
             logger.debug("Tables selected for upsert:")
             for table in self.tables:
                 logger.debug(f"  {table}")
-            btn, _return_value = TableUI(
+            btn, _return_value = self._ui.show_table(
                 "Upsert Tables",
                 "Tables selected for upsert",
                 [
@@ -505,7 +510,7 @@ class PgUpsert:
                 ],
                 ["Table"],
                 [[table] for table in self.tables],
-            ).activate()
+            )
             if btn != 0:
                 logger.info("Upsert cancelled")
                 return UpsertResult(tables=[], committed=False)
@@ -571,7 +576,7 @@ class PgUpsert:
         )
         final_ctrl_rows = list(final_ctrl_rows)
         if self.interactive:
-            btn, _return_value = TableUI(
+            btn, _return_value = self._ui.show_table(
                 "Upsert Summary",
                 "Below is a summary of changes. Do you want to commit these changes? ",
                 [
@@ -580,7 +585,7 @@ class PgUpsert:
                 ],
                 final_ctrl_headers,
                 [[row[header] for header in final_ctrl_headers] for row in final_ctrl_rows],
-            ).activate()
+            )
         else:
             btn = 0
             logger.info("Summary of changes:")

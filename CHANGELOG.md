@@ -8,6 +8,24 @@ ______________________________________________________________________
 
 ## [Unreleased]
 
+### Added
+
+- `ui_base.py` — `UIBackend` abstract base class defining `show_table()` and `show_comparison()` for all interactive dialogs.
+- `ui_console.py` — `ConsoleBackend`: non-interactive backend that renders tables via `rich` and auto-continues (returns `0`) without prompting.
+- `ui_tkinter.py` — `TkinterBackend`: wraps the existing `TableUI` and `CompareUI` from `ui.py` with lazy tkinter import, fixing headless import failures.
+- `ui_textual.py` — `TextualBackend`: full-terminal TUI dialogs using `textual` `DataTable` and `Button` widgets.
+- `ui_factory.py` — `get_ui_backend(ui_mode)` factory supporting `"auto"`, `"console"`, `"tkinter"`, and `"textual"` modes. Auto-detection uses `DISPLAY`/`WAYLAND_DISPLAY` environment variables.
+- `--ui` CLI option: select UI backend (`auto`, `console`, `tkinter`, `textual`).
+- `ui_mode` parameter on `PgUpsert.__init__` to control backend selection programmatically.
+- `textual>=0.47.0` added as an optional `tui` extra and a `dev` dependency.
+
+### Changed
+
+- `ControlTable`, `QARunner`, and `UpsertExecutor` now accept a `ui: UIBackend | None` parameter; all `TableUI`/`CompareUI` calls replaced with `self._ui.show_table()` / `self._ui.show_comparison()`.
+- `PgUpsert` creates the UI backend once and shares it with all sub-components.
+- Non-interactive runs are always routed through `ConsoleBackend` regardless of `ui_mode`.
+- `ui_tkinter.py` and `ui_textual.py` added to coverage omit list (require event loop to test).
+
 ______________________________________________________________________
 
 ## [1.10.0] - 2026-04-02

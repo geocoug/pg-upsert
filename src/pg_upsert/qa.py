@@ -10,7 +10,7 @@ from . import display
 from .control import ControlTable
 from .models import QACheckType, QAError, UserCancelledError
 from .postgres import PostgresDB
-from .ui import TableUI
+from .ui_base import UIBackend
 
 logger = logging.getLogger(__name__)
 
@@ -37,12 +37,19 @@ class QARunner:
         staging_schema: str,
         base_schema: str,
         exclude_null_check_cols: list[str] | tuple[str, ...] | None = None,
+        ui: UIBackend | None = None,
     ) -> None:
         self.db = db
         self.control = control
         self.staging_schema = staging_schema
         self.base_schema = base_schema
         self.exclude_null_check_cols: list[str] | tuple[str, ...] = exclude_null_check_cols or ()
+        if ui is None:
+            from .ui_console import ConsoleBackend
+
+            self._ui: UIBackend = ConsoleBackend()
+        else:
+            self._ui = ui
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -246,7 +253,7 @@ class QARunner:
                 detail_headers=pk_headers,
             )
             if interactive:
-                btn, _return_value = TableUI(
+                btn, _return_value = self._ui.show_table(
                     "Duplicate key error",
                     err_msg,
                     [
@@ -255,7 +262,7 @@ class QARunner:
                     ],
                     pk_headers,
                     [[row[header] for header in pk_headers] for row in pk_errs],
-                ).activate()
+                )
                 if btn != 0:
                     logger.warning("Script cancelled by user")
                     raise UserCancelledError("Script cancelled by user during primary key check")
@@ -482,7 +489,7 @@ class QARunner:
                 )
                 if fk_check_rows:
                     if interactive:
-                        btn, _return_value = TableUI(
+                        btn, _return_value = self._ui.show_table(
                             "Foreign key error",
                             f"Foreign key error referencing {const_row['uq_schema']}.{const_row['uq_table']}",
                             [
@@ -491,7 +498,7 @@ class QARunner:
                             ],
                             fk_check_headers,
                             [[row[header] for header in fk_check_headers] for row in [fk_check_rows[0]]],
-                        ).activate()
+                        )
                         if btn != 0:
                             logger.warning("Script cancelled by user")
                             raise UserCancelledError("Script cancelled by user during foreign key check")
@@ -767,7 +774,7 @@ class QARunner:
                 )
 
                 if interactive:
-                    btn, _return_value = TableUI(
+                    btn, _return_value = self._ui.show_table(
                         "Unique constraint error",
                         err_detail,
                         [
@@ -776,7 +783,7 @@ class QARunner:
                         ],
                         uq_headers,
                         [[row[header] for header in uq_headers] for row in uq_errs],
-                    ).activate()
+                    )
                     if btn != 0:
                         logger.warning("Script cancelled by user")
                         raise UserCancelledError("Script cancelled by user during unique constraint check")
@@ -993,7 +1000,7 @@ class QARunner:
             )
             rows, headers, _rowcount = self.db.rowdict(ctrl_sql)
             rows = list(rows)
-            TableUI(
+            self._ui.show_table(
                 "QA Errors",
                 "QA checks failed. Below is a summary of the errors:",
                 [
@@ -1002,6 +1009,6 @@ class QARunner:
                 ],
                 headers,
                 [[row[header] for header in headers] for row in rows],
-            ).activate()
+            )
 
         return all_errors

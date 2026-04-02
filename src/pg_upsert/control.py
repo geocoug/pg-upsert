@@ -8,7 +8,7 @@ from psycopg2.sql import SQL, Identifier, Literal
 
 from . import display
 from .postgres import PostgresDB
-from .ui import TableUI
+from .ui_base import UIBackend
 
 logger = logging.getLogger(__name__)
 
@@ -23,11 +23,19 @@ class ControlTable:
     Args:
         db: An open PostgresDB connection.
         table_name: Name of the temporary control table (default ``ups_control``).
+        ui: UI backend used for interactive dialogs. When ``None`` the
+            :class:`~pg_upsert.ui_console.ConsoleBackend` is used.
     """
 
-    def __init__(self, db: PostgresDB, table_name: str = "ups_control") -> None:
+    def __init__(self, db: PostgresDB, table_name: str = "ups_control", ui: UIBackend | None = None) -> None:
         self.db = db
         self.table_name = table_name
+        if ui is None:
+            from .ui_console import ConsoleBackend
+
+            self._ui: UIBackend = ConsoleBackend()
+        else:
+            self._ui = ui
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -358,7 +366,7 @@ class ControlTable:
         if interactive:
             ctrl_rows, ctrl_headers, _ctrl_rowcount = self.db.rowdict(sql)
             ctrl_rows = list(ctrl_rows)
-            TableUI(
+            self._ui.show_table(
                 "Control Table",
                 "Control table contents:",
                 [
@@ -367,7 +375,7 @@ class ControlTable:
                 ],
                 ctrl_headers,
                 [[row[header] for header in ctrl_headers] for row in ctrl_rows],
-            ).activate()
+            )
         else:
             rows, headers, _rowcount = self.db.rowdict(sql)
             logger.info(f"Control table contents:\n{display.format_sql_result(list(rows), headers)}")

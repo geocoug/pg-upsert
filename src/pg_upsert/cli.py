@@ -199,6 +199,13 @@ def cli(
             help="Run column existence and type mismatch checks only, then exit.",  # noqa
         ),
     ] = False,
+    ui_mode: Annotated[
+        str,
+        typer.Option(
+            "--ui",
+            help="UI backend: 'auto' (default), 'console', 'tkinter', or 'textual'.",
+        ),
+    ] = "auto",
 ) -> None:
     args = SimpleNamespace(**locals())
     if args.version:
@@ -248,6 +255,7 @@ def cli(
             "base_schema": None,
             "encoding": "utf-8",
             "tables": None,
+            "ui_mode": "auto",
         }
         for key in config:
             if key in args.__dict__:
@@ -336,6 +344,7 @@ def cli(
             interactive=args.interactive,
             exclude_cols=args.exclude_columns,
             exclude_null_check_cols=args.null_columns,
+            ui_mode=args.ui_mode,
         )
         if args.check_schema:
             errors = []
