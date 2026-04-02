@@ -88,3 +88,6 @@ All user-facing output goes through `ui/display.py`:
 - **SQL injection prevention** — column lists and join expressions built with `Identifier()` composition, not `SQL()` wrapping of database-derived strings
 - **Lazy imports** — tkinter and textual are never imported at module level
 - **Exit code 1 on QA failure** — CLI exits non-zero so CI pipelines detect failures
+- **`--output json` suppresses all console output** — `display.console.quiet = True` ensures only clean JSON on stdout
+- **Password resolution** — checks URI password → `PGPASSWORD` env var → interactive prompt (in that order)
+- **Logfile append-only** — runs are separated by `====` header/footer with timestamps, version, and PostgreSQL version

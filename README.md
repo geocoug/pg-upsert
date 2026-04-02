@@ -77,7 +77,7 @@ pg-upsert -h localhost -p 5432 -d mydb -u user \
 | `-h`, `--host`            | Database host                                             |
 | `-p`, `--port`            | Database port (default: 5432)                             |
 | `-d`, `--database`        | Database name                                             |
-| `-u`, `--user`            | Database user (password is prompted securely)             |
+| `-u`, `--user`            | Database user (see [Authentication](#authentication))     |
 | `-s`, `--staging-schema`  | Staging schema name (default: staging)                    |
 | `-b`, `--base-schema`     | Base schema name (default: public)                        |
 | `-t`, `--table`           | Table name to process (repeatable)                        |
@@ -161,6 +161,24 @@ pg-upsert runs 7 types of QA checks on staging data before upserting:
 | **Check Constraint** | All CHECK constraint expressions evaluate to true                                             |
 
 See the [QA Checks Reference](https://pg-upsert.readthedocs.io/) for detailed documentation.
+
+## Authentication
+
+pg-upsert resolves the database password in this order:
+
+1. **Password in URI** (Python API only) — `postgresql://user:pass@host/db`
+1. **`PGPASSWORD` environment variable** — standard PostgreSQL convention, works with both CLI and API
+1. **Interactive prompt** — if neither of the above is set
+
+For CI/CD pipelines, use `PGPASSWORD` to avoid interactive prompts:
+
+```sh
+PGPASSWORD=secret pg-upsert -h host -d db -u user \
+  -s staging -b public -t books \
+  --output json --commit
+```
+
+pg-upsert also supports PostgreSQL's [`.pgpass`](https://www.postgresql.org/docs/current/libpq-pgpass.html) file via psycopg2.
 
 ## Exit Codes
 
