@@ -590,9 +590,6 @@ class QARunner:
             )
             if ck_check_rowcount > 0:
                 ck_check_row = next(iter(ck_check_rows))  # guarded by rowcount check above
-                logger.warning(
-                    f"    Check constraint {ck_row['constraint_name']} has {ck_check_rowcount} failing rows",
-                )
                 self.db.execute(
                     SQL(
                         """
@@ -632,6 +629,7 @@ class QARunner:
             if err_row["ck_errors"]:
                 error_str = err_row["ck_errors"]
                 self.control.set_qa_errors(table, "ck_errors", error_str)
+                display.print_check_table_fail(self.staging_schema, table, error_str)
                 errors.append(
                     QAError(table=table, check_type=QACheckType.CHECK_CONSTRAINT, details=error_str),
                 )
