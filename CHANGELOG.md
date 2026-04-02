@@ -8,6 +8,10 @@ ______________________________________________________________________
 
 ## [Unreleased]
 
+______________________________________________________________________
+
+## [1.8.0] - 2026-04-02
+
 ### Added
 
 - **UNIQUE constraint QA checks** — new `check_unique()` method detects duplicate values in UNIQUE-constrained columns (not just primary keys). Uses `pg_constraint contype='u'`.
