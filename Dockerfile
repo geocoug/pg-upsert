@@ -6,7 +6,7 @@ ENV UV_SYSTEM_PYTHON=1
 WORKDIR /tmp/build
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/uv
-COPY ./pyproject.toml .
+COPY ./pyproject.toml ./LICENSE ./README.md ./
 COPY ./src/pg_upsert ./pg_upsert
 
 RUN /bin/uv pip install --no-cache /tmp/build
