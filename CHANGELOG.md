@@ -8,6 +8,10 @@ ______________________________________________________________________
 
 ## [Unreleased]
 
+______________________________________________________________________
+
+## [1.9.0] - 2026-04-02
+
 ### Added
 
 - `--output=json` CLI flag — outputs `UpsertResult` as machine-parseable JSON to stdout. Log messages are suppressed when JSON output is enabled.
