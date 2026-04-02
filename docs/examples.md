@@ -181,19 +181,19 @@ When QA checks fail, pg-upsert shows which checks failed with details:
   ✓ staging.book_authors
 
 ╭─ QA Results ───────────────────────────────────────╮
-│                                                     │
-│  ✓ genres                                           │
-│  ✓ publishers                                       │
-│  ✗ books                                            │
-│      null: book_title (1)                           │
-│      fk: books_genre_fkey (1)                       │
-│  ✗ authors                                          │
-│      pk: 1 duplicate keys (2 rows) in staging...    │
-│      ck: chk_authors_first_name (1)                 │
-│  ✓ book_authors                                     │
-│                                                     │
+│                                                    │
+│  ✓ genres                                          │
+│  ✓ publishers                                      │
+│  ✗ books                                           │
+│      null: book_title (1)                          │
+│      fk: books_genre_fkey (1)                      │
+│  ✗ authors                                         │
+│      pk: 1 duplicate keys (2 rows) in staging..    │
+│      ck: chk_authors_first_name (1)                │
+│  ✓ book_authors                                    │
+│                                                    │
 │  2 of 5 tables failed QA checks                    │
-╰─────────────────────────────────────────────────────╯
+╰────────────────────────────────────────────────────╯
 ```
 
 No upsert is performed when QA checks fail.
