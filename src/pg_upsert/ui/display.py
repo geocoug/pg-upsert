@@ -110,26 +110,42 @@ def format_sql_result(
 # ---------------------------------------------------------------------------
 
 
-def print_check_start(check_label: str) -> None:
+def print_check_start(
+    check_label: str,
+    phase: int | None = None,
+    total_phases: int | None = None,
+) -> None:
     """Print a section header for a QA check category.
 
     Args:
         check_label: Human-readable check name (e.g. "Primary Key").
+        phase: Current phase number (1-based), or ``None`` to omit.
+        total_phases: Total number of phases, or ``None`` to omit.
     """
+    counter = f" ({phase}/{total_phases})" if phase and total_phases else ""
     console.print()
-    console.rule(f"[bold]{check_label} checks[/bold]", style="cyan")
-    _file_logger.info(f"=== {check_label} checks ===")
+    console.rule(f"[bold]{check_label} checks[/bold]{counter}", style="cyan")
+    _file_logger.info(f"=== {check_label} checks{counter} ===")
 
 
-def print_check_table_pass(schema: str, table: str) -> None:
+def print_check_table_pass(
+    schema: str,
+    table: str,
+    table_num: int | None = None,
+    total_tables: int | None = None,
+) -> None:
     """Print a passing status line for a single table check.
 
     Args:
         schema: The staging schema name.
         table: The table name.
+        table_num: Current table number (1-based), or ``None`` to omit.
+        total_tables: Total number of tables, or ``None`` to omit.
     """
-    console.print(f"  [bold green]✓[/bold green] {schema}.{table}")
-    _file_logger.info(f"  ✓ {schema}.{table}")
+    counter = f"  [dim][{table_num}/{total_tables}][/dim]" if table_num and total_tables else ""
+    counter_log = f"  [{table_num}/{total_tables}]" if table_num and total_tables else ""
+    console.print(f"  [bold green]✓[/bold green] {schema}.{table}{counter}")
+    _file_logger.info(f"  ✓ {schema}.{table}{counter_log}")
 
 
 def print_check_table_fail(
@@ -138,6 +154,8 @@ def print_check_table_fail(
     message: str,
     detail_rows: list[dict] | None = None,
     detail_headers: list[str] | None = None,
+    table_num: int | None = None,
+    total_tables: int | None = None,
 ) -> None:
     """Print a failing status line for a single table check.
 
@@ -147,9 +165,13 @@ def print_check_table_fail(
         message: Short error description.
         detail_rows: Optional list of row dicts for a detail table.
         detail_headers: Column headers for the detail table.
+        table_num: Current table number (1-based), or ``None`` to omit.
+        total_tables: Total number of tables, or ``None`` to omit.
     """
-    console.print(f"  [bold red]✗[/bold red] {schema}.{table} — {message}")
-    _file_logger.warning(f"  ✗ {schema}.{table} — {message}")
+    counter = f"  [dim][{table_num}/{total_tables}][/dim]" if table_num and total_tables else ""
+    counter_log = f"  [{table_num}/{total_tables}]" if table_num and total_tables else ""
+    console.print(f"  [bold red]✗[/bold red] {schema}.{table} — {message}{counter}")
+    _file_logger.warning(f"  ✗ {schema}.{table} — {message}{counter_log}")
     if detail_rows and detail_headers:
         detail_table = format_table(detail_rows, detail_headers)
         from rich.padding import Padding

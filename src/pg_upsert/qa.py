@@ -932,18 +932,25 @@ class QARunner:
             "Check Constraint": self.check_cks,
         }
 
-        for check_label, supports_interactive in check_types:
-            display.print_check_start(check_label)
+        total_phases = len(check_types)
+        total_tables = len(tables)
+        for phase_num, (check_label, supports_interactive) in enumerate(check_types, 1):
+            display.print_check_start(check_label, phase=phase_num, total_phases=total_phases)
             start_time = _datetime.now()
             check_func = check_funcs[check_label]
-            for table in tables:
+            for table_num, table in enumerate(tables, 1):
                 table_errors = (
                     check_func(table, interactive=interactive)  # type: ignore[call-arg]
                     if supports_interactive
                     else check_func(table)  # type: ignore[call-arg]
                 )
                 if not table_errors:
-                    display.print_check_table_pass(self.staging_schema, table)
+                    display.print_check_table_pass(
+                        self.staging_schema,
+                        table,
+                        table_num=table_num,
+                        total_tables=total_tables,
+                    )
                 all_errors.extend(table_errors)
             logger.debug(f"{check_label} checks completed in {elapsed_time(start_time)}")
 
