@@ -8,6 +8,10 @@ ______________________________________________________________________
 
 ## [Unreleased]
 
+______________________________________________________________________
+
+## [1.7.0] - 2026-04-02
+
 ### Added
 
 - `UpsertResult` dataclass — `run()` now returns structured results with `qa_passed`, `total_updated`, `total_inserted`, `to_dict()`, and `to_json()` methods.
