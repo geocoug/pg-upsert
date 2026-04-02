@@ -509,14 +509,22 @@ class PgUpsert:
         """
         start_time = datetime.now()
         start_str = start_time.strftime("%Y-%m-%d %H:%M:%S")
+        num_tables = len(self.tables)
+
+        # Logfile header — clear separator for appended runs.
+        _file_logger.info("")
+        _file_logger.info("=" * 60)
+        _file_logger.info(f"pg-upsert run started at {start_str}")
+        _file_logger.info(f"  {self.staging_schema} → {self.base_schema} ({num_tables} tables)")
+        _file_logger.info("=" * 60)
+
         display.console.print()
         display.console.print(f"  [dim]Started at {start_str}[/dim]")
-        _file_logger.info(f"Started at {start_str}")
         display.console.print(
             f"  Tables selected for upsert "
-            f"[dim]([/dim][bold]{self.staging_schema}[/bold] [dim]→[/dim] [bold]{self.base_schema}[/bold][dim])[/dim]",
+            f"[dim]([/dim][bold]{self.staging_schema}[/bold] [dim]→[/dim] "
+            f"[bold]{self.base_schema}[/bold][dim], {num_tables} tables)[/dim]",
         )
-        _file_logger.info(f"Tables selected for upsert ({self.staging_schema} → {self.base_schema}):")
         if self.interactive:
             btn, _return_value = self._ui.show_table(
                 "Upsert Tables",
@@ -564,7 +572,11 @@ class PgUpsert:
         end_str = end_time.strftime("%Y-%m-%d %H:%M:%S")
         duration = elapsed_time(start_time)
         display.console.print(f"\n  [dim]Finished at {end_str} ({duration})[/dim]")
-        _file_logger.info(f"Finished at {end_str} ({duration})")
+
+        # Logfile footer.
+        _file_logger.info("-" * 60)
+        _file_logger.info(f"pg-upsert run finished at {end_str} ({duration})")
+        _file_logger.info("-" * 60)
 
         # Merge QA errors into table results.
         error_map: dict[str, list[QAError]] = {}
