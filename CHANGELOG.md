@@ -8,6 +8,10 @@ ______________________________________________________________________
 
 ## [Unreleased]
 
+______________________________________________________________________
+
+## [1.6.0] - 2026-04-02
+
 ### Added
 
 - `UserCancelledError` exception — exported from `pg_upsert` for callers that use the library as an import.
