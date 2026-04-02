@@ -8,6 +8,10 @@ ______________________________________________________________________
 
 ## [Unreleased]
 
+______________________________________________________________________
+
+## [1.11.0] - 2026-04-02
+
 ### Added
 
 - `ui_base.py` — `UIBackend` abstract base class defining `show_table()` and `show_comparison()` for all interactive dialogs.

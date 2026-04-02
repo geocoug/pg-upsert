@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "pg_upsert"
-version = "1.10.0"
+version = "1.11.0"
 authors = [{ name = "Caleb Grant", email = "grantcaleb22@gmail.com" }]
 description = "A Python library for upserting data into postgres."
 readme = { file = "README.md", content-type = "text/markdown" }
@@ -95,7 +95,7 @@ skip-magic-trailing-comma = false
 line-ending = "auto"
 
 [tool.bumpversion]
-current_version = "1.10.0"
+current_version = "1.11.0"
 commit = true
 commit_args = "--no-verify"
 tag = true
