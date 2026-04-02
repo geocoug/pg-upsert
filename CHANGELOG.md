@@ -12,6 +12,11 @@ ______________________________________________________________________
 
 ## [1.13.1] - 2026-04-02
 
+### Fixed
+
+- Fixed check constraint output using bare `logger.warning` instead of rich `✗` formatting — now consistent with all other check types.
+- Removed `docs/index.md` from git tracking (auto-generated from README.md by justfile/RTD build).
+
 ______________________________________________________________________
 
 ## [1.13.0] - 2026-04-02
@@ -23,6 +28,12 @@ ______________________________________________________________________
 ### Changed
 
 - Rewrote `docs/examples.md` with current output format (rich ✓/✗ indicators, summary layout, UpsertResult JSON examples).
+- Optimized `check_nulls()` from N+1 queries (one per column) to a single `SUM(CASE WHEN ... IS NULL)` query.
+- Replaced all `SQL()` wrapping of DB-derived strings in `executor.py` with proper `Identifier()` composition for column lists, join expressions, SET clauses, and PK lists.
+
+### Fixed
+
+- Fixed `exclude_null_check_cols` generating invalid `NOT IN ('')` SQL when the exclusion list is empty — now conditionally includes the clause only when columns are specified.
 
 ______________________________________________________________________
 
