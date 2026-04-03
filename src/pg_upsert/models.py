@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
 
@@ -138,3 +139,39 @@ class UpsertResult:
     def to_json(self, indent: int = 2) -> str:
         """Serialize to a JSON string."""
         return json.dumps(self.to_dict(), indent=indent)
+
+
+class CallbackEvent(Enum):
+    """Events fired during the pg-upsert pipeline."""
+
+    QA_TABLE_COMPLETE = "qa_table_complete"
+    UPSERT_TABLE_COMPLETE = "upsert_table_complete"
+
+
+@dataclass
+class PipelineEvent:
+    """Data passed to the pipeline callback at each event.
+
+    Attributes:
+        event: The type of event.
+        table: The table name this event relates to.
+        qa_passed: Whether QA passed for this table (``None`` if not yet determined).
+        rows_updated: Rows updated (0 if not applicable yet).
+        rows_inserted: Rows inserted (0 if not applicable yet).
+        qa_errors: QA errors found for this table.
+    """
+
+    event: CallbackEvent
+    table: str
+    qa_passed: bool | None = None
+    rows_updated: int = 0
+    rows_inserted: int = 0
+    qa_errors: list[QAError] = field(default_factory=list)
+
+
+PipelineCallback = Callable[[PipelineEvent], bool | None]
+"""Callback type for pipeline events.
+
+Return ``False`` to abort the pipeline (triggers rollback).
+Return ``True`` or ``None`` to continue.
+"""

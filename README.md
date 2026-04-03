@@ -55,13 +55,17 @@ from pg_upsert import PgUpsert
 
 conn = psycopg2.connect(host="localhost", port=5432, dbname="mydb", user="user", password="pass")
 
-result = PgUpsert(
+ups = PgUpsert(
     conn=conn,
     tables=("genres", "publishers", "books"),
     staging_schema="staging",
     base_schema="public",
     do_commit=True,
-).run()
+)
+result = ups.run()
+
+# Drop all ups_* temp objects (connection stays open)
+ups.cleanup()
 ```
 
 QA-only mode (no upsert):
@@ -98,6 +102,27 @@ if ups.qa_errors:
         print(f"{err.table}: {err.check_type.value} — {err.details}")
 else:
     print("Schemas are compatible")
+```
+
+Pipeline callbacks (per-table progress):
+
+```python
+from pg_upsert import PgUpsert, CallbackEvent
+
+def on_event(event):
+    if event.event == CallbackEvent.QA_TABLE_COMPLETE:
+        print(f"QA {'passed' if event.qa_passed else 'failed'} for {event.table}")
+    elif event.event == CallbackEvent.UPSERT_TABLE_COMPLETE:
+        print(f"{event.table}: {event.rows_inserted} inserted, {event.rows_updated} updated")
+
+result = PgUpsert(
+    uri="postgresql://user@localhost:5432/mydb",
+    tables=("genres", "books"),
+    staging_schema="staging",
+    base_schema="public",
+    do_commit=True,
+    callback=on_event,
+).run()
 ```
 
 ### CLI

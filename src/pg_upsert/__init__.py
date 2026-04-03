@@ -1,7 +1,15 @@
 from importlib.metadata import PackageNotFoundError, version
 
 from .cli import app
-from .models import QACheckType, QAError, TableResult, UpsertResult
+from .models import (
+    CallbackEvent,
+    PipelineCallback,
+    PipelineEvent,
+    QACheckType,
+    QAError,
+    TableResult,
+    UpsertResult,
+)
 from .postgres import PostgresDB
 from .upsert import PgUpsert, UserCancelledError
 
@@ -18,4 +26,7 @@ __all__ = [
     "TableResult",
     "QAError",
     "QACheckType",
+    "CallbackEvent",
+    "PipelineEvent",
+    "PipelineCallback",
 ]

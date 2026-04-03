@@ -7,7 +7,14 @@ import logging
 from psycopg2.sql import SQL, Identifier, Literal
 
 from .control import ControlTable
-from .models import QACheckType, QAError, UserCancelledError
+from .models import (
+    CallbackEvent,
+    PipelineCallback,
+    PipelineEvent,
+    QACheckType,
+    QAError,
+    UserCancelledError,
+)
 from .postgres import PostgresDB
 from .ui import UIBackend, display
 
@@ -60,9 +67,6 @@ class QARunner:
 
     def check_nulls(self, table: str) -> list[QAError]:
         """Check for NULL values in non-nullable columns of *table*.
-
-        Creates temporary objects ``ups_nonnull_cols``, ``ups_qa_nonnull_col``,
-        and ``ups_null_error_list``.
 
         Args:
             table: The staging table name to check.
@@ -907,6 +911,7 @@ class QARunner:
         self,
         tables: list[str] | tuple[str, ...],
         interactive: bool = False,
+        callback: PipelineCallback | None = None,
         compact: bool = False,
     ) -> list[QAError]:
         """Run all QA checks across *tables* and return every error found.
@@ -961,6 +966,22 @@ class QARunner:
                 )
                 all_errors.extend(table_errors)
             logger.debug(f"{check_label} checks completed in {elapsed_time(start_time)}")
+
+        # Fire per-table QA callbacks after all checks complete.
+        if callback:
+            error_map: dict[str, list[QAError]] = {}
+            for err in all_errors:
+                error_map.setdefault(err.table, []).append(err)
+            for table in tables:
+                table_errors = error_map.get(table, [])
+                event = PipelineEvent(
+                    event=CallbackEvent.QA_TABLE_COMPLETE,
+                    table=table,
+                    qa_passed=len(table_errors) == 0,
+                    qa_errors=table_errors,
+                )
+                if callback(event) is False:
+                    raise UserCancelledError(f"Pipeline aborted by callback after QA for {table}")
 
         display.print_qa_summary(list(tables), all_errors, compact=compact)
 

@@ -10,6 +10,19 @@ ______________________________________________________________________
 
 ______________________________________________________________________
 
+## [1.18.0] - 2026-04-03
+
+### Added
+
+- `PgUpsert.cleanup()` method — explicitly drops all `ups_*` temporary tables and views created during the pipeline. Useful for long-lived connections where you want to reclaim temp object space without closing the connection.
+- `callback` parameter on `PgUpsert` — optional callable that fires `QA_TABLE_COMPLETE` and `UPSERT_TABLE_COMPLETE` events during the pipeline. Return `False` from the callback to abort with rollback. New types: `CallbackEvent`, `PipelineEvent`, `PipelineCallback`.
+
+### Fixed
+
+- Removed stale docstring in `QARunner.check_nulls()` referencing nonexistent temporary objects.
+
+______________________________________________________________________
+
 ## [1.17.0] - 2026-04-03
 
 ### Changed

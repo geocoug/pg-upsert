@@ -161,3 +161,5 @@ pg-upsert creates temporary tables and views (all prefixed with `ups_`) during Q
 - **`--output json` suppresses all console output** — `display.console.quiet = True` ensures only clean JSON on stdout
 - **Password resolution** — checks URI password → `PGPASSWORD` env var → interactive prompt (in that order)
 - **Logfile append-only** — runs are separated by `====` header/footer with timestamps, version, and PostgreSQL version
+- **Explicit cleanup** — `cleanup()` drops all `ups_*` temp objects. Useful for long-lived connections; temp objects are otherwise dropped on session close
+- **Pipeline callbacks** — optional `callback` parameter fires `QA_TABLE_COMPLETE` and `UPSERT_TABLE_COMPLETE` events during the pipeline, enabling per-table progress reporting without reimplementing orchestration logic

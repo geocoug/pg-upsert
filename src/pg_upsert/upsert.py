@@ -10,7 +10,13 @@ from psycopg2.sql import SQL, Identifier, Literal
 
 from .control import ControlTable
 from .executor import UpsertExecutor
-from .models import QAError, TableResult, UpsertResult, UserCancelledError
+from .models import (
+    PipelineCallback,
+    QAError,
+    TableResult,
+    UpsertResult,
+    UserCancelledError,
+)
 from .postgres import PostgresDB
 from .qa import QARunner
 from .ui import display, get_ui_backend
@@ -70,6 +76,39 @@ class PgUpsert:
 
     """  # noqa: E501
 
+    # Fixed-name temporary views created during the QA/upsert pipeline.
+    _TEMP_VIEWS: tuple[str, ...] = (
+        "ups_pk_check",
+        "ups_fk_check",
+        "ups_ck_check_check",
+        "ups_ck_error_list",
+        "ups_uq_check",
+        "ups_missing_cols",
+        "ups_type_mismatches",
+        "ups_basematches",
+        "ups_stgmatches",
+        "ups_nk",
+        "ups_newrows",
+    )
+
+    # Fixed-name temporary tables created during the QA/upsert pipeline.
+    _TEMP_TABLES: tuple[str, ...] = (
+        "ups_validate_control",
+        "ups_ctrl_invl_table",
+        "ups_primary_key_columns",
+        "ups_foreign_key_columns",
+        "ups_sel_fks",
+        "ups_fk_constraints",
+        "ups_one_fk",
+        "ups_check_constraints",
+        "ups_sel_cks",
+        "ups_unique_constraints",
+        "ups_dependencies",
+        "ups_ordered_tables",
+        "ups_cols",
+        "ups_pks",
+    )
+
     def __init__(
         self,
         uri: None | str = None,
@@ -86,6 +125,7 @@ class PgUpsert:
         control_table: str = "ups_control",
         ui_mode: str = "auto",
         compact: bool = False,
+        callback: PipelineCallback | None = None,
     ):
         if upsert_method not in self._upsert_methods():
             raise ValueError(
@@ -122,6 +162,7 @@ class PgUpsert:
         self.compact = compact
         self.qa_passed = False
         self.qa_errors: list[QAError] = []
+        self._callback = callback
 
         # Validate schemas once (not twice — bug fix).
         self._validate_schemas()
@@ -164,6 +205,27 @@ class PgUpsert:
             tuple: A tuple with a length of 3 containing the valid upsert methods.
         """
         return ("upsert", "update", "insert")
+
+    def cleanup(self: PgUpsert) -> PgUpsert:
+        """Drop all temporary tables and views created by the upsert pipeline.
+
+        Issues ``DROP ... IF EXISTS ... CASCADE`` for every known ``ups_*``
+        temporary object, including the configurable control table.  Safe to
+        call multiple times or when no temporary objects exist.
+
+        This is useful for long-lived connections where you want to reclaim
+        temporary object space without closing the connection.
+
+        Returns:
+            self, for method chaining.
+        """
+        for view in self._TEMP_VIEWS:
+            self.db.execute(SQL("DROP VIEW IF EXISTS {} CASCADE").format(Identifier(view)))
+        for table in self._TEMP_TABLES:
+            self.db.execute(SQL("DROP TABLE IF EXISTS {} CASCADE").format(Identifier(table)))
+        # The control table name is configurable.
+        self.db.execute(SQL("DROP TABLE IF EXISTS {} CASCADE").format(Identifier(self.control_table)))
+        return self
 
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}(db={self.db!r}, tables={self.tables}, staging_schema={self.staging_schema}, base_schema={self.base_schema}, do_commit={self.do_commit}, interactive={self.interactive}, upsert_method={self.upsert_method}, exclude_cols={self.exclude_cols}, exclude_null_check_cols={self.exclude_null_check_cols})"  # noqa: E501
@@ -351,6 +413,7 @@ class PgUpsert:
             list(self.tables),
             interactive=self.interactive,
             compact=self.compact,
+            callback=self._callback,
         )
         if not self._control.has_errors():
             self.qa_passed = True
@@ -564,6 +627,7 @@ class PgUpsert:
                 list(self.tables),
                 interactive=self.interactive,
                 compact=self.compact,
+                callback=self._callback,
             )
             if not self._control.has_errors():
                 self.qa_passed = True
@@ -571,6 +635,7 @@ class PgUpsert:
                 table_results = self._executor.upsert_all(
                     list(self.tables),
                     interactive=self.interactive,
+                    callback=self._callback,
                 )
                 committed = self._do_commit()
         except UserCancelledError:

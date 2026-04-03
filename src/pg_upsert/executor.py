@@ -7,7 +7,13 @@ import logging
 from psycopg2.sql import SQL, Identifier, Literal
 
 from .control import ControlTable
-from .models import TableResult, UserCancelledError
+from .models import (
+    CallbackEvent,
+    PipelineCallback,
+    PipelineEvent,
+    TableResult,
+    UserCancelledError,
+)
 from .postgres import PostgresDB
 from .ui import UIBackend, display
 
@@ -470,6 +476,7 @@ class UpsertExecutor:
         self,
         tables: list[str] | tuple[str, ...],
         interactive: bool = False,
+        callback: PipelineCallback | None = None,
     ) -> list[TableResult]:
         """Perform upsert operations on all *tables* in dependency order.
 
@@ -493,4 +500,13 @@ class UpsertExecutor:
         for table in ordered_tables:
             result = self.upsert_one(table, interactive=interactive)
             results.append(result)
+            if callback:
+                event = PipelineEvent(
+                    event=CallbackEvent.UPSERT_TABLE_COMPLETE,
+                    table=table,
+                    rows_updated=result.rows_updated,
+                    rows_inserted=result.rows_inserted,
+                )
+                if callback(event) is False:
+                    raise UserCancelledError(f"Pipeline aborted by callback after upsert for {table}")
         return results
