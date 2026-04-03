@@ -10,6 +10,14 @@ ______________________________________________________________________
 
 ______________________________________________________________________
 
+## [1.17.0] - 2026-04-03
+
+### Changed
+
+- All QA check methods now print pass/fail output individually via `display.print_check_table_pass()` / `display.print_check_table_fail()`. Previously, pass output was only produced when checks were run through `run_all()` — standalone calls (e.g., `qa_column_existence()`, `qa_type_mismatch()`) were silent on success.
+
+______________________________________________________________________
+
 ## [1.16.1] - 2026-04-03
 
 ### Fixed

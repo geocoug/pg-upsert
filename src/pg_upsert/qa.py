@@ -88,6 +88,7 @@ class QARunner:
         col_rows, _ch, _cc = self.db.rowdict(col_query)
         nonnull_cols = [r["column_name"] for r in col_rows]
         if not nonnull_cols:
+            display.print_check_table_pass(self.staging_schema, table)
             return errors
 
         # Single query: count NULLs for all non-nullable columns at once.
@@ -121,6 +122,8 @@ class QARunner:
             errors.append(
                 QAError(table=table, check_type=QACheckType.NULL, details=error_str),
             )
+        else:
+            display.print_check_table_pass(self.staging_schema, table)
         return errors
 
     def check_pks(self, table: str, interactive: bool = False) -> list[QAError]:
@@ -167,6 +170,7 @@ class QARunner:
         )
         if pk_rowcount == 0:
             logger.info("Table has no primary key")
+            display.print_check_table_pass(self.staging_schema, table)
             return errors
 
         pk_rows = list(pk_rows)
@@ -224,6 +228,8 @@ class QARunner:
             errors.append(
                 QAError(table=table, check_type=QACheckType.PRIMARY_KEY, details=err_msg),
             )
+        else:
+            display.print_check_table_pass(self.staging_schema, table)
         return errors
 
     def check_fks(self, table: str, interactive: bool = False) -> list[QAError]:
@@ -484,6 +490,8 @@ class QARunner:
 
         if fk_error_strings:
             self.control.set_qa_errors(table, "fk_errors", ",".join(fk_error_strings))
+        else:
+            display.print_check_table_pass(self.staging_schema, table)
         return errors
 
     def check_cks(self, table: str) -> list[QAError]:
@@ -633,6 +641,8 @@ class QARunner:
                 errors.append(
                     QAError(table=table, check_type=QACheckType.CHECK_CONSTRAINT, details=error_str),
                 )
+        if not errors:
+            display.print_check_table_pass(self.staging_schema, table)
         return errors
 
     def check_unique(self, table: str, interactive: bool = False) -> list[QAError]:
@@ -679,6 +689,7 @@ class QARunner:
         )
         if uq_rowcount == 0:
             logger.debug("  No unique constraints found")
+            display.print_check_table_pass(self.staging_schema, table)
             return errors
 
         error_strings: list[str] = []
@@ -747,6 +758,8 @@ class QARunner:
 
         if error_strings:
             self.control.set_qa_errors(table, "unique_errors", ", ".join(error_strings))
+        else:
+            display.print_check_table_pass(self.staging_schema, table)
         return errors
 
     def check_column_existence(self, table: str) -> list[QAError]:
@@ -798,11 +811,13 @@ class QARunner:
             "select * from ups_missing_cols;",
         )
         if missing_count == 0:
+            display.print_check_table_pass(self.staging_schema, table)
             return errors
 
         # Filter out excluded columns.
         missing_cols = [row["column_name"] for row in missing_rows if row["column_name"] not in exclude_cols]
         if not missing_cols:
+            display.print_check_table_pass(self.staging_schema, table)
             return errors
 
         err_detail = ", ".join(missing_cols)
@@ -868,6 +883,7 @@ class QARunner:
             "select * from ups_type_mismatches;",
         )
         if mismatch_count == 0:
+            display.print_check_table_pass(self.staging_schema, table)
             return errors
 
         mismatch_details: list[str] = []
@@ -933,24 +949,16 @@ class QARunner:
         }
 
         total_phases = len(check_types)
-        total_tables = len(tables)
         for phase_num, (check_label, supports_interactive) in enumerate(check_types, 1):
             display.print_check_start(check_label, phase=phase_num, total_phases=total_phases)
             start_time = _datetime.now()
             check_func = check_funcs[check_label]
-            for table_num, table in enumerate(tables, 1):
+            for table in tables:
                 table_errors = (
                     check_func(table, interactive=interactive)  # type: ignore[call-arg]
                     if supports_interactive
                     else check_func(table)  # type: ignore[call-arg]
                 )
-                if not table_errors:
-                    display.print_check_table_pass(
-                        self.staging_schema,
-                        table,
-                        table_num=table_num,
-                        total_tables=total_tables,
-                    )
                 all_errors.extend(table_errors)
             logger.debug(f"{check_label} checks completed in {elapsed_time(start_time)}")
 

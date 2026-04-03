@@ -86,6 +86,20 @@ PgUpsert(
 
 CLI: `pg-upsert ... -n book_alias`
 
+## Output
+
+Each QA check method prints per-table pass/fail output:
+
+```text
+  ✓ staging.genres
+  ✓ staging.publishers
+  ✗ staging.books — book_title (1)
+```
+
+Pass indicators (`✓`) are shown for every table that has no errors for the current check. Fail indicators (`✗`) include the error details. This output goes to both the Rich console (stderr) and the logfile.
+
+When run through `run()` or `qa_all()`, phase headers and a summary panel are also printed. When individual methods are called standalone (e.g., `qa_column_existence()`), only the per-table pass/fail lines are printed.
+
 ## Schema-Only Validation
 
 Run only column existence and type compatibility checks without any data checks:
@@ -94,4 +108,24 @@ Run only column existence and type compatibility checks without any data checks:
 pg-upsert --check-schema -h localhost -d mydb -u user -s staging -b public -t books
 ```
 
+```text
+  ✓ staging.books
+  ✓ staging.books
+```
+
 Exit code 0 means compatible, exit code 1 means issues found. Combine with `--output json` for machine-parseable results.
+
+Via the Python API:
+
+```python
+ups = PgUpsert(
+    uri="postgresql://user@localhost:5432/mydb",
+    tables=("books",),
+    staging_schema="staging",
+    base_schema="public",
+).qa_column_existence().qa_type_mismatch()
+
+if ups.qa_errors:
+    for err in ups.qa_errors:
+        print(f"{err.table}: {err.check_type.value} — {err.details}")
+```
