@@ -96,13 +96,14 @@ class TestPostgresDBRepr:
 
 
 class TestPostgresDBMethods:
-    def _make_db(self):
+    def _make_db(self, owns_connection=True):
         db = PostgresDB.__new__(PostgresDB)
         db.conn = MagicMock()
         db.conn.closed = False
         db.encoding = "utf-8"
         db.in_transaction = False
         db.kwargs = {}
+        db._owns_connection = owns_connection
         return db
 
     def test_commit_when_in_transaction(self):
@@ -142,10 +143,20 @@ class TestPostgresDBMethods:
         db.close()
         db.conn.close.assert_not_called()
 
+    def test_close_skips_external_connection(self):
+        db = self._make_db(owns_connection=False)
+        db.close()
+        db.conn.close.assert_not_called()
+
     def test_del_closes_open_connection(self):
         db = self._make_db()
         db.__del__()
         db.conn.close.assert_called_once()
+
+    def test_del_skips_external_connection(self):
+        db = self._make_db(owns_connection=False)
+        db.__del__()
+        db.conn.close.assert_not_called()
 
     def test_del_no_conn(self):
         db = PostgresDB.__new__(PostgresDB)

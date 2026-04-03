@@ -69,7 +69,7 @@ class PostgresDB:
 
     def __del__(self):
         """Ensure the database connection is closed when the object is deleted, if open."""
-        if hasattr(self, "conn") and self.conn and not self.conn.closed:
+        if getattr(self, "_owns_connection", False) and hasattr(self, "conn") and self.conn and not self.conn.closed:
             self.close()
 
     def _extract_password(self, uri: str) -> tuple[str, str | None, str]:
@@ -154,7 +154,13 @@ class PostgresDB:
         return self.conn.cursor(cursor_factory=DictCursor)
 
     def close(self) -> None:
-        """Close the database connection if open."""
+        """Close the database connection if open and owned by this instance.
+
+        Connections provided externally via ``conn=`` are never closed —
+        the caller retains ownership and is responsible for closing them.
+        """
+        if not self._owns_connection:
+            return
         if self.conn and not self.conn.closed:
             self.rollback()
             self.conn.close()

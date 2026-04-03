@@ -10,6 +10,14 @@ ______________________________________________________________________
 
 ______________________________________________________________________
 
+## [1.16.1] - 2026-04-03
+
+### Fixed
+
+- `PostgresDB.__del__()` and `close()` no longer close externally-provided connections (`conn=`). Only connections created by `PostgresDB` itself are closed. Previously, garbage collection of a `PgUpsert` instance would close the caller's connection.
+
+______________________________________________________________________
+
 ## [1.16.0] - 2026-04-03
 
 ### Added
