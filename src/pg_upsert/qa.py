@@ -461,7 +461,7 @@ class QARunner:
                                 ("Cancel", 1, "<Escape>"),
                             ],
                             fk_check_headers,
-                            [[row[header] for header in fk_check_headers] for row in [fk_check_rows[0]]],
+                            [[row[header] for header in fk_check_headers] for row in fk_check_rows],
                         )
                         if btn != 0:
                             display.print_check_table_fail(self.staging_schema, table, "Script cancelled by user")

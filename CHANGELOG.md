@@ -10,6 +10,14 @@ ______________________________________________________________________
 
 ______________________________________________________________________
 
+## [1.18.2] - 2026-04-03
+
+### Fixed
+
+- Foreign key check interactive UI (tkinter/textual) now shows all violation rows instead of only the first row. Console and logfile output were unaffected.
+
+______________________________________________________________________
+
 ## [1.18.1] - 2026-04-03
 
 ### Changed
