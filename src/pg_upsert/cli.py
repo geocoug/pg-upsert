@@ -18,10 +18,7 @@ from .utils import CustomLogFormatter
 
 _TITLE = "pg_upsert"
 _DOCS_URL = "https://pg-upsert.readthedocs.io/"
-_DESCRIPTION = (
-    "Run not-NULL, Primary Key, Foreign Key, Unique, and Check Constraint checks "
-    "on staging tables then update and insert (upsert) data from staging tables to base tables."
-)
+_DESCRIPTION = "Run QA checks on PostgreSQL staging tables then upsert data into base tables."
 try:
     _VERSION = version(_TITLE)
 except PackageNotFoundError:
