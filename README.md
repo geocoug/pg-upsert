@@ -9,6 +9,8 @@
 
 **pg-upsert** is a Python package for validating and upserting data from staging tables into base tables in PostgreSQL. It runs automated QA checks, reports errors with rich formatted output, and performs dependency-aware upserts.
 
+![pg-upsert terminal output with interactive compare table](pg-upsert-screenshot.png)
+
 ## Why Use `pg-upsert`?
 
 - **7 Automated QA Checks** – Validates [NOT NULL](https://www.postgresql.org/docs/current/ddl-constraints.html#DDL-CONSTRAINTS-NOT-NULL), [PRIMARY KEY](https://www.postgresql.org/docs/current/ddl-constraints.html#DDL-CONSTRAINTS-PRIMARY-KEYS), [UNIQUE](https://www.postgresql.org/docs/current/ddl-constraints.html#DDL-CONSTRAINTS-UNIQUE-CONSTRAINTS), [FOREIGN KEY](https://www.postgresql.org/docs/current/ddl-constraints.html#DDL-CONSTRAINTS-FK), [CHECK CONSTRAINT](https://www.postgresql.org/docs/current/ddl-constraints.html#DDL-CONSTRAINTS-CHECK-CONSTRAINTS), column existence, and column type compatibility before any modifications occur.
