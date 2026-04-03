@@ -121,6 +121,7 @@ class PgUpsert:
         self.control_table = control_table
         self.compact = compact
         self.qa_passed = False
+        self.qa_errors: list[QAError] = []
 
         # Validate schemas once (not twice — bug fix).
         self._validate_schemas()
@@ -355,7 +356,11 @@ class PgUpsert:
         """  # noqa: E501
         self._validate_control()
         self._control.clear_results()
-        self._qa.run_all(list(self.tables), interactive=self.interactive, compact=self.compact)
+        self.qa_errors = self._qa.run_all(
+            list(self.tables),
+            interactive=self.interactive,
+            compact=self.compact,
+        )
         if not self._control.has_errors():
             self.qa_passed = True
         return self
@@ -363,7 +368,7 @@ class PgUpsert:
     def qa_all_null(self: PgUpsert) -> PgUpsert:
         """Performs null checks for non-null columns in selected staging tables."""
         for table in self.tables:
-            self._qa.check_nulls(table)
+            self.qa_errors.extend(self._qa.check_nulls(table))
         return self
 
     def qa_one_null(self: PgUpsert, table: str) -> PgUpsert:
@@ -373,13 +378,13 @@ class PgUpsert:
             table (str): The name of the staging table to check for null values.
         """
         self._validate_table(table)
-        self._qa.check_nulls(table)
+        self.qa_errors.extend(self._qa.check_nulls(table))
         return self
 
     def qa_all_pk(self: PgUpsert) -> PgUpsert:
         """Performs primary key checks for duplicated primary key values in selected staging tables."""
         for table in self.tables:
-            self._qa.check_pks(table, interactive=self.interactive)
+            self.qa_errors.extend(self._qa.check_pks(table, interactive=self.interactive))
         return self
 
     def qa_one_pk(self: PgUpsert, table: str) -> PgUpsert:
@@ -389,13 +394,13 @@ class PgUpsert:
             table (str): The name of the staging table to check for duplicate primary key values.
         """
         self._validate_table(table)
-        self._qa.check_pks(table, interactive=self.interactive)
+        self.qa_errors.extend(self._qa.check_pks(table, interactive=self.interactive))
         return self
 
     def qa_all_fk(self: PgUpsert) -> PgUpsert:
         """Performs foreign key checks for invalid foreign key values in selected staging tables."""
         for table in self.tables:
-            self._qa.check_fks(table, interactive=self.interactive)
+            self.qa_errors.extend(self._qa.check_fks(table, interactive=self.interactive))
         return self
 
     def qa_one_fk(self: PgUpsert, table: str) -> PgUpsert:
@@ -405,13 +410,13 @@ class PgUpsert:
             table (str): The name of the staging table to check for invalid foreign key values.
         """
         self._validate_table(table)
-        self._qa.check_fks(table, interactive=self.interactive)
+        self.qa_errors.extend(self._qa.check_fks(table, interactive=self.interactive))
         return self
 
     def qa_all_ck(self: PgUpsert) -> PgUpsert:
         """Performs check constraint checks for invalid check constraint values in selected staging tables."""
         for table in self.tables:
-            self._qa.check_cks(table)
+            self.qa_errors.extend(self._qa.check_cks(table))
         return self
 
     def qa_one_ck(self: PgUpsert, table: str) -> PgUpsert:
@@ -420,13 +425,13 @@ class PgUpsert:
         Args:
             table (str): The name of the staging table to check for invalid check constraint values.
         """
-        self._qa.check_cks(table)
+        self.qa_errors.extend(self._qa.check_cks(table))
         return self
 
     def qa_all_unique(self: PgUpsert) -> PgUpsert:
         """Performs unique constraint checks on all selected staging tables."""
         for table in self.tables:
-            self._qa.check_unique(table, interactive=self.interactive)
+            self.qa_errors.extend(self._qa.check_unique(table, interactive=self.interactive))
         return self
 
     def qa_one_unique(self: PgUpsert, table: str) -> PgUpsert:
@@ -436,7 +441,7 @@ class PgUpsert:
             table (str): The name of the staging table to check.
         """
         self._validate_table(table)
-        self._qa.check_unique(table, interactive=self.interactive)
+        self.qa_errors.extend(self._qa.check_unique(table, interactive=self.interactive))
         return self
 
     def qa_column_existence(self: PgUpsert) -> PgUpsert:
@@ -445,7 +450,7 @@ class PgUpsert:
         Respects the ``exclude_cols`` setting — excluded columns are not flagged.
         """
         for table in self.tables:
-            self._qa.check_column_existence(table)
+            self.qa_errors.extend(self._qa.check_column_existence(table))
         return self
 
     def qa_type_mismatch(self: PgUpsert) -> PgUpsert:
@@ -454,7 +459,7 @@ class PgUpsert:
         Only flags mismatches where PostgreSQL has no implicit or assignment cast.
         """
         for table in self.tables:
-            self._qa.check_type_mismatch(table)
+            self.qa_errors.extend(self._qa.check_type_mismatch(table))
         return self
 
     def upsert_all(self: PgUpsert) -> PgUpsert:
@@ -557,15 +562,19 @@ class PgUpsert:
 
         # Reset qa_passed and reinitialise the control table for a fresh run.
         self.qa_passed = False
+        self.qa_errors = []
         self._init_ups_control()
 
         committed = False
-        qa_errors: list[QAError] = []
         table_results: list[TableResult] = []
 
         try:
             self._control.clear_results()
-            qa_errors = self._qa.run_all(list(self.tables), interactive=self.interactive, compact=self.compact)
+            self.qa_errors = self._qa.run_all(
+                list(self.tables),
+                interactive=self.interactive,
+                compact=self.compact,
+            )
             if not self._control.has_errors():
                 self.qa_passed = True
             if self.qa_passed:
@@ -591,7 +600,7 @@ class PgUpsert:
 
         # Merge QA errors into table results.
         error_map: dict[str, list[QAError]] = {}
-        for err in qa_errors:
+        for err in self.qa_errors:
             error_map.setdefault(err.table, []).append(err)
 
         # Build a TableResult for every table (including QA-only runs).

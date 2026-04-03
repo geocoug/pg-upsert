@@ -62,6 +62,42 @@ result = PgUpsert(
 ).run()
 ```
 
+QA-only mode (no upsert):
+
+```python
+from pg_upsert import PgUpsert
+
+ups = PgUpsert(
+    uri="postgresql://user@localhost:5432/mydb",
+    tables=("genres", "books"),
+    staging_schema="staging",
+    base_schema="public",
+).qa_all()
+
+if not ups.qa_passed:
+    for err in ups.qa_errors:
+        print(f"{err.table}: {err.check_type.value} — {err.details}")
+```
+
+Schema compatibility check (column existence and type mismatches only):
+
+```python
+from pg_upsert import PgUpsert
+
+ups = PgUpsert(
+    uri="postgresql://user@localhost:5432/mydb",
+    tables=("genres", "books"),
+    staging_schema="staging",
+    base_schema="public",
+).qa_column_existence().qa_type_mismatch()
+
+if ups.qa_errors:
+    for err in ups.qa_errors:
+        print(f"{err.table}: {err.check_type.value} — {err.details}")
+else:
+    print("Schemas are compatible")
+```
+
 ### CLI
 
 ```sh

@@ -8,8 +8,13 @@ ______________________________________________________________________
 
 ## [Unreleased]
 
+______________________________________________________________________
+
+## [1.16.0] - 2026-04-03
+
 ### Added
 
+- `PgUpsert.qa_errors` attribute — accumulates `QAError` instances from any QA method (`qa_all()`, `qa_column_existence()`, `qa_type_mismatch()`, individual `qa_one_*()` methods, etc.). Enables programmatic inspection of QA results without requiring a full `run()` call.
 - `UpsertResult` now includes `staging_schema`, `base_schema`, `upsert_method`, `started_at`, `finished_at`, and `duration_seconds` in `to_dict()`/`to_json()` output.
 - `PGPASSWORD` environment variable support for non-interactive authentication (standard PostgreSQL convention).
 - `--output json` now suppresses all console output — only clean JSON on stdout.
