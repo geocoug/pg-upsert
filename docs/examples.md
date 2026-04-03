@@ -10,6 +10,8 @@ Initialize a PostgreSQL database called `dev` with the following schema and data
 
 See the full SQL schema: [`tests/data/schema_passing.sql`](https://github.com/geocoug/pg-upsert/blob/main/tests/data/schema_passing.sql)
 
+![Example data ERD](https://github.com/geocoug/pg-upsert/blob/main/example-data-erd.png?raw=true)
+
 ### 2 - Run PgUpsert
 
 ```python
@@ -248,6 +250,65 @@ Example JSON output (`--output json`):
     }
   ]
 }
+```
+
+### 6 - Pipeline callbacks
+
+Use the `callback` parameter to get per-table progress during a run. The callback receives a `PipelineEvent` at two points:
+
+- `QA_TABLE_COMPLETE` — after all QA checks finish for a table
+- `UPSERT_TABLE_COMPLETE` — after each table's upsert completes
+
+```python
+from pg_upsert import PgUpsert, CallbackEvent
+
+def on_event(event):
+    if event.event == CallbackEvent.QA_TABLE_COMPLETE:
+        status = "passed" if event.qa_passed else "FAILED"
+        print(f"  QA {status}: {event.table}")
+        if not event.qa_passed:
+            for err in event.qa_errors:
+                print(f"    {err.check_type.value}: {err.details}")
+    elif event.event == CallbackEvent.UPSERT_TABLE_COMPLETE:
+        print(f"  Upserted {event.table}: "
+              f"{event.rows_inserted} inserted, {event.rows_updated} updated")
+
+result = PgUpsert(
+    uri="postgresql://user@localhost:5432/dev",
+    tables=("genres", "publishers", "books"),
+    staging_schema="staging",
+    base_schema="public",
+    do_commit=True,
+    callback=on_event,
+).run()
+```
+
+Returning `False` from the callback aborts the pipeline and triggers a rollback:
+
+```python
+def abort_on_failure(event):
+    if event.event == CallbackEvent.QA_TABLE_COMPLETE and not event.qa_passed:
+        print(f"Aborting — QA failed for {event.table}")
+        return False  # triggers rollback
+
+result = PgUpsert(..., callback=abort_on_failure).run()
+```
+
+### 7 - Cleanup
+
+pg-upsert creates temporary tables and views (all prefixed with `ups_`) during its pipeline. These are session-scoped and normally dropped when the connection closes. For long-lived connections, use `cleanup()` to drop them explicitly:
+
+```python
+import psycopg2
+from pg_upsert import PgUpsert
+
+conn = psycopg2.connect(...)
+
+ups = PgUpsert(conn=conn, tables=("books",), staging_schema="staging", base_schema="public")
+result = ups.run()
+ups.cleanup()  # drops all ups_* temp objects; connection stays open
+
+# conn is still usable for other work
 ```
 
 ## CLI examples
