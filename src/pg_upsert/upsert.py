@@ -330,15 +330,6 @@ class PgUpsert:
         3. [`PgUpsert.qa_all_fk`](pg_upsert.md#pg_upsert.PgUpsert.qa_all_fk)
         4. [`PgUpsert.qa_all_ck`](pg_upsert.md#pg_upsert.PgUpsert.qa_all_ck)
 
-        **Objects created:**
-
-        The following temporary objects are created during the QA process (in addition to all objects created by the individual QA methods called):
-
-        | table / view | description |
-        |--------------|-------------|
-        | ups_proctables | Temporary table containing the list of tables to process. |
-        | ups_toprocess  | Temporary view returning a single unprocessed table. |
-
         **Example:**
 
         ```python
@@ -471,7 +462,6 @@ class PgUpsert:
         |--------------|-------------|
         | `ups_dependencies` | Temporary table containing the dependencies of the base schema. |
         | `ups_ordered_tables` | Temporary table containing the selected tables ordered by dependency. |
-        | `ups_proctables` | Temporary table containing the selected tables with ordering information. |
         """  # noqa: E501
         self._validate_control()
         if not self.qa_passed:

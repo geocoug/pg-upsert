@@ -82,6 +82,75 @@ All user-facing output goes through `ui/display.py`:
 - **Logfile**: Plain-text equivalent via `_file_logger` (propagate=False)
 - No duplicate output — display functions write to both channels
 
+## Temporary Objects Reference
+
+pg-upsert creates temporary tables and views (all prefixed with `ups_`) during QA checks and upsert operations. These objects are session-scoped — they are only visible to the connection that created them and are automatically dropped when the connection closes. Each object is dropped and recreated before use, so re-running on the same connection is safe.
+
+**Why both tables and views?** Tables are used when data is queried multiple times or mutated (e.g., tracking processing state). Views are used for one-shot derived queries that don't need materialized storage.
+
+### Control (`control.py`)
+
+| Object                 | Type  | Description                                                                                                                                                                      |
+| ---------------------- | ----- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ups_control`          | table | Main tracking table — one row per table with exclude settings, error flags, and row counts. Name is configurable via `control_table` parameter. Mutated throughout the pipeline. |
+| `ups_validate_control` | table | Validation state for control table entries — records whether each table exists in both base and staging schemas.                                                                 |
+| `ups_ctrl_invl_table`  | table | Aggregated list of invalid table references (missing from either schema). Empty if validation passes.                                                                            |
+
+### QA Checks (`qa.py`)
+
+#### Column Existence / Type Compatibility
+
+| Object                | Type | Created by                 | Description                                                                              |
+| --------------------- | ---- | -------------------------- | ---------------------------------------------------------------------------------------- |
+| `ups_missing_cols`    | view | `check_column_existence()` | Base table columns that do not exist in the staging table.                               |
+| `ups_type_mismatches` | view | `check_type_mismatch()`    | Columns present in both tables with incompatible types (no implicit or assignment cast). |
+
+#### Primary Key Checks
+
+| Object                    | Type  | Created by    | Description                                                         |
+| ------------------------- | ----- | ------------- | ------------------------------------------------------------------- |
+| `ups_primary_key_columns` | table | `check_pks()` | Primary key columns of the base table, used for duplicate checking. |
+| `ups_pk_check`            | view  | `check_pks()` | Groups staging rows by PK columns — count > 1 indicates duplicates. |
+
+#### Unique Constraint Checks
+
+| Object                   | Type  | Created by       | Description                                                                        |
+| ------------------------ | ----- | ---------------- | ---------------------------------------------------------------------------------- |
+| `ups_unique_constraints` | table | `check_unique()` | All UNIQUE constraints on the table with their column lists.                       |
+| `ups_uq_check`           | view  | `check_unique()` | Groups staging rows by unique constraint columns — count > 1 indicates duplicates. |
+
+#### Foreign Key Checks
+
+| Object                    | Type  | Created by    | Description                                                                         |
+| ------------------------- | ----- | ------------- | ----------------------------------------------------------------------------------- |
+| `ups_foreign_key_columns` | table | `check_fks()` | Complete map of all FK constraints in the database. Created once per session.       |
+| `ups_sel_fks`             | table | `check_fks()` | FK constraints relevant to the table being checked.                                 |
+| `ups_fk_constraints`      | table | `check_fks()` | Distinct constraints with error count and processing flag. Mutated during checks.   |
+| `ups_one_fk`              | table | `check_fks()` | Single constraint's columns, extracted for the FK currently being checked.          |
+| `ups_fk_check`            | view  | `check_fks()` | Staging rows with invalid foreign keys (referenced rows missing from base/staging). |
+
+#### Check Constraint Checks
+
+| Object                  | Type  | Created by    | Description                                                                                                 |
+| ----------------------- | ----- | ------------- | ----------------------------------------------------------------------------------------------------------- |
+| `ups_check_constraints` | table | `check_cks()` | All CHECK constraints in the base schema. Created once per session.                                         |
+| `ups_sel_cks`           | table | `check_cks()` | CHECK constraints for the table being checked, with error count and processing flag. Mutated during checks. |
+| `ups_ck_check_check`    | view  | `check_cks()` | Count of rows violating the current CHECK constraint.                                                       |
+| `ups_ck_error_list`     | view  | `check_cks()` | Aggregated error summary from `ups_sel_cks` for all violated constraints.                                   |
+
+### Upsert Operations (`executor.py`)
+
+| Object               | Type  | Created by     | Description                                                                       |
+| -------------------- | ----- | -------------- | --------------------------------------------------------------------------------- |
+| `ups_dependencies`   | table | `upsert_all()` | FK parent-child relationships used to compute processing order.                   |
+| `ups_ordered_tables` | table | `upsert_all()` | Tables ordered by FK dependency depth (parents before children).                  |
+| `ups_cols`           | table | `upsert_one()` | Columns present in both staging and base, excluding `exclude_cols`.               |
+| `ups_pks`            | table | `upsert_one()` | Primary key columns of the base table.                                            |
+| `ups_basematches`    | view  | `upsert_one()` | Base table rows matching staging by PK — used for interactive comparison.         |
+| `ups_stgmatches`     | view  | `upsert_one()` | Staging table rows matching base by PK — used for interactive comparison.         |
+| `ups_nk`             | view  | `upsert_one()` | Non-key columns (in `ups_cols` but not `ups_pks`) — identifies columns to UPDATE. |
+| `ups_newrows`        | view  | `upsert_one()` | Staging rows whose PKs don't exist in base — candidates for INSERT.               |
+
 ## Key Design Decisions
 
 - **`run()` returns `UpsertResult`** — structured result with `.qa_passed`, `.committed`, `.to_json()`
