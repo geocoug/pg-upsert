@@ -8,6 +8,10 @@ ______________________________________________________________________
 
 ## [Unreleased]
 
+______________________________________________________________________
+
+## [1.19.0] - 2026-04-04
+
 ### Fixed
 
 - **FK check SQL injection**: Foreign key join conditions and column lists are now built with `Identifier()` in Python instead of using `SQL()` on `string_agg` output from the database. Prevents SQL corruption from tables with metacharacters in column names.
