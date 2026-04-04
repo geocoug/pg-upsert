@@ -12,7 +12,7 @@ import pytest
 from rich.console import Console
 from rich.table import Table
 
-from pg_upsert.models import QACheckType, QAError, TableResult, UpsertResult
+from pg_upsert.models import QACheckType, QAError
 from pg_upsert.ui import display
 
 
@@ -260,46 +260,6 @@ class TestPrintQASummaryCompact:
     def test_single_table_passing(self):
         out = _capture(display.print_qa_summary, ["genres"], [], compact=True)
         assert "genres" in out
-
-
-# ---------------------------------------------------------------------------
-# print_upsert_summary
-# ---------------------------------------------------------------------------
-
-
-class TestPrintUpsertSummary:
-    def test_does_not_raise(self):
-        t1 = TableResult(table_name="genres", rows_updated=2, rows_inserted=5)
-        t2 = TableResult(table_name="books", rows_inserted=3)
-        result = UpsertResult(tables=[t1, t2], committed=True)
-        _capture(display.print_upsert_summary, result)
-
-    def test_shows_table_names(self):
-        t1 = TableResult(table_name="genres", rows_inserted=19)
-        result = UpsertResult(tables=[t1], committed=False)
-        out = _capture(display.print_upsert_summary, result)
-        assert "genres" in out
-
-    def test_shows_committed(self):
-        result = UpsertResult(tables=[], committed=True)
-        out = _capture(display.print_upsert_summary, result)
-        assert "committed" in out.lower() or "commit" in out.lower()
-
-    def test_shows_rolled_back(self):
-        result = UpsertResult(tables=[], committed=False)
-        out = _capture(display.print_upsert_summary, result)
-        assert "rolled back" in out.lower() or "rollback" in out.lower()
-
-    def test_zero_rows_show_dash(self):
-        # rows_updated=0 and rows_inserted=0 → "-" in output
-        t1 = TableResult(table_name="genres")
-        result = UpsertResult(tables=[t1], committed=False)
-        out = _capture(display.print_upsert_summary, result)
-        assert "-" in out
-
-    def test_empty_tables(self):
-        result = UpsertResult(tables=[], committed=False)
-        _capture(display.print_upsert_summary, result)
 
 
 # ---------------------------------------------------------------------------

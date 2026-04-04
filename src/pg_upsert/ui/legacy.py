@@ -342,8 +342,6 @@ class TableUI:
             self.buttons[self.focus_button].focus()
         self.win.wait_window(self.win)
         self.win.update_idletasks()
-        # Explicitly delete the Tkinter variable to suppress Tkinter error message.
-        self.hl_both_var = None
         rv = self.return_value
         return (self.button_clicked_value, rv)
 

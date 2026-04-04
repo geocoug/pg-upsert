@@ -145,6 +145,7 @@ class PostgresDB:
                     "Cannot reopen connection: no stored credentials. "
                     "Connections passed via conn= cannot be automatically reopened.",
                 )
+            self.in_transaction = False
             self.conn.set_client_encoding(self.encoding)
             self.conn.set_session(autocommit=False)
 

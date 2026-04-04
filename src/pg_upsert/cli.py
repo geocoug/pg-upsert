@@ -9,6 +9,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Annotated
 
+import psycopg2
 import typer
 import yaml
 from rich import print as rprint
@@ -350,8 +351,14 @@ def cli(
     if args.ui_mode not in ("auto", "tkinter", "textual"):
         _cli_error(f"Invalid --ui value {args.ui_mode!r}. Must be one of: auto, tkinter, textual")
     try:
+        from urllib.parse import quote
+
         ups = PgUpsert(
-            uri=f"postgresql://{args.user}@{args.host}:{args.port}/{args.database}",
+            uri=(
+                f"postgresql://{quote(args.user, safe='')}"
+                f"@{quote(args.host, safe='')}:{args.port}"
+                f"/{quote(args.database, safe='')}"
+            ),
             encoding=args.encoding,
             tables=args.tables,
             staging_schema=args.staging_schema,
@@ -411,9 +418,16 @@ def cli(
             sys.exit(1)
     except UserCancelledError:
         sys.exit(0)
-    except Exception as e:
+    except (ValueError, psycopg2.Error, OSError, yaml.YAMLError) as e:
         from .ui import display
 
         display.console.print(f"  [bold red]Error:[/bold red] {e}")
+        logging.getLogger("pg_upsert.display").error(str(e))
+        sys.exit(1)
+    except Exception as e:
+        from .ui import display
+
+        display.console.print(f"  [bold red]Unexpected error:[/bold red] {e}")
+        logger.debug("Traceback:", exc_info=True)
         logging.getLogger("pg_upsert.display").error(str(e))
         sys.exit(1)

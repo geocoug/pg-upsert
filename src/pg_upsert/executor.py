@@ -197,7 +197,8 @@ class UpsertExecutor:
 
         spec = self.control.get_table_spec(table)
         if spec is None:
-            logger.warning(f"Table {table} not found in control table")
+            display.console.print(f"  [bold yellow]Warning: Table {table} not found in control table[/bold yellow]")
+            _file_logger.warning(f"Table {table} not found in control table")
             return TableResult(table_name=table)
 
         # Use the interactive flag stored in the control table (set at init time)
@@ -265,13 +266,17 @@ class UpsertExecutor:
         col_rows, _ch, col_count = self.db.rowdict("select column_name from ups_cols order by ordinal_position;")
         col_names = [r["column_name"] for r in col_rows]
         if not col_names:
-            logger.warning("No shared columns between staging and base tables")
+            display.console.print(
+                "  [bold yellow]Warning: No shared columns between staging and base tables[/bold yellow]",
+            )
+            _file_logger.warning("No shared columns between staging and base tables")
             return TableResult(table_name=table)
 
         pk_rows, _ph, pk_count = self.db.rowdict("select column_name from ups_pks order by ordinal_position;")
         pk_names = [r["column_name"] for r in pk_rows]
         if not pk_names:
-            logger.warning("Base table has no primary key")
+            display.console.print("  [bold yellow]Warning: Base table has no primary key[/bold yellow]")
+            _file_logger.warning("Base table has no primary key")
             return TableResult(table_name=table)
 
         # Build Composable SQL fragments from column names.
@@ -456,14 +461,14 @@ class UpsertExecutor:
         # Execute and capture accurate rowcounts from the cursor.
         if do_updates and update_stmt and self.upsert_method in ("upsert", "update"):
             logger.debug(f"    UPDATE statement for {self.base_schema}.{table}")
-            logger.debug(f"{update_stmt.as_string(self.db.cursor())}")
+            logger.debug(f"{update_stmt.as_string(self.db.conn)}")
             update_curs = self.db.execute(update_stmt)
             rows_updated = update_curs.rowcount  # fixed: was stg_rowcount
             display.console.print(f"    [green]↑[/green] {rows_updated} rows updated")
             _file_logger.info(f"    {rows_updated} rows updated")
         if do_inserts and insert_stmt and self.upsert_method in ("upsert", "insert"):
             logger.debug(f"    INSERT statement for {self.base_schema}.{table}")
-            logger.debug(f"{insert_stmt.as_string(self.db.cursor())}")
+            logger.debug(f"{insert_stmt.as_string(self.db.conn)}")
             insert_curs = self.db.execute(insert_stmt)
             rows_inserted = insert_curs.rowcount
             display.console.print(f"    [green]+[/green] {rows_inserted} rows inserted")

@@ -10,6 +10,7 @@ from .postgres import PostgresDB
 from .ui import UIBackend, display
 
 logger = logging.getLogger(__name__)
+_file_logger = logging.getLogger("pg_upsert.display")
 
 
 class ControlTable:
@@ -377,4 +378,7 @@ class ControlTable:
             )
         else:
             rows, headers, _rowcount = self.db.rowdict(sql)
-            logger.info(f"Control table contents:\n{display.format_sql_result(list(rows), headers)}")
+            rows = list(rows)
+            ctrl_table = display.format_table(rows, headers, title="Control Table")
+            display.console.print(ctrl_table)
+            _file_logger.info(f"Control table contents:\n{display.format_sql_result(rows, headers)}")

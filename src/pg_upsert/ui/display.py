@@ -14,13 +14,13 @@ import io
 import logging
 from typing import TYPE_CHECKING
 
-from rich.console import Console
+from rich.console import Console, Group
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
 if TYPE_CHECKING:
-    from ..models import QAError, UpsertResult
+    from ..models import QAError
 
 # Logger for file-only output. Display functions write rich output to the
 # console (stderr) for the user, and plain-text to this logger for the
@@ -131,21 +131,15 @@ def print_check_start(
 def print_check_table_pass(
     schema: str,
     table: str,
-    table_num: int | None = None,
-    total_tables: int | None = None,
 ) -> None:
     """Print a passing status line for a single table check.
 
     Args:
         schema: The staging schema name.
         table: The table name.
-        table_num: Current table number (1-based), or ``None`` to omit.
-        total_tables: Total number of tables, or ``None`` to omit.
     """
-    counter = f"  [dim][{table_num}/{total_tables}][/dim]" if table_num and total_tables else ""
-    counter_log = f"  [{table_num}/{total_tables}]" if table_num and total_tables else ""
-    console.print(f"  [bold green]✓[/bold green] {schema}.{table}{counter}")
-    _file_logger.info(f"  ✓ {schema}.{table}{counter_log}")
+    console.print(f"  [bold green]✓[/bold green] {schema}.{table}")
+    _file_logger.info(f"  ✓ {schema}.{table}")
 
 
 def print_check_table_fail(
@@ -154,8 +148,6 @@ def print_check_table_fail(
     message: str,
     detail_rows: list[dict] | None = None,
     detail_headers: list[str] | None = None,
-    table_num: int | None = None,
-    total_tables: int | None = None,
 ) -> None:
     """Print a failing status line for a single table check.
 
@@ -165,13 +157,9 @@ def print_check_table_fail(
         message: Short error description.
         detail_rows: Optional list of row dicts for a detail table.
         detail_headers: Column headers for the detail table.
-        table_num: Current table number (1-based), or ``None`` to omit.
-        total_tables: Total number of tables, or ``None`` to omit.
     """
-    counter = f"  [dim][{table_num}/{total_tables}][/dim]" if table_num and total_tables else ""
-    counter_log = f"  [{table_num}/{total_tables}]" if table_num and total_tables else ""
-    console.print(f"  [bold red]✗[/bold red] {schema}.{table} — {message}{counter}")
-    _file_logger.warning(f"  ✗ {schema}.{table} — {message}{counter_log}")
+    console.print(f"  [bold red]✗[/bold red] {schema}.{table} — {message}")
+    _file_logger.warning(f"  ✗ {schema}.{table} — {message}")
     if detail_rows and detail_headers:
         detail_table = format_table(detail_rows, detail_headers)
         from rich.padding import Padding
@@ -252,7 +240,7 @@ def _print_qa_summary_panel(
     rich_lines.append(footer)
 
     panel = Panel(
-        "\n".join(str(line) for line in rich_lines),
+        Group(*rich_lines),
         title="[bold]QA Results[/bold]",
         border_style="red" if failed > 0 else "green",
         expand=False,
@@ -328,49 +316,3 @@ def _print_qa_summary_compact(
         _file_logger.info(f"Result: All {passed} tables passed QA checks")
     else:
         _file_logger.info(f"Result: {failed} of {len(tables)} tables failed QA checks")
-
-
-# ---------------------------------------------------------------------------
-# Upsert / commit summary
-# ---------------------------------------------------------------------------
-
-
-def print_upsert_summary(result: UpsertResult) -> None:
-    """Print the final upsert summary showing per-table row counts.
-
-    Args:
-        result: The UpsertResult from a completed run.
-    """
-    t = Table(title="Upsert Summary", show_lines=True, expand=False)
-    t.add_column("Table", style="bold")
-    t.add_column("Updated", justify="right")
-    t.add_column("Inserted", justify="right")
-
-    for tr in result.tables:
-        updated = str(tr.rows_updated) if tr.rows_updated else "-"
-        inserted = str(tr.rows_inserted) if tr.rows_inserted else "-"
-        t.add_row(tr.table_name, updated, inserted)
-
-    # Totals row
-    t.add_section()
-    t.add_row(
-        "[bold]Total[/bold]",
-        f"[bold]{result.total_updated}[/bold]",
-        f"[bold]{result.total_inserted}[/bold]",
-    )
-
-    console.print()
-    console.print(t)
-
-    if result.committed:
-        console.print("  [bold green]Changes committed[/bold green]")
-        _file_logger.info("Changes committed")
-    else:
-        console.print("  [dim]Changes rolled back[/dim]")
-        _file_logger.info("Changes rolled back")
-
-    # Logfile
-    _file_logger.info("=== Upsert Summary ===")
-    for tr in result.tables:
-        _file_logger.info(f"  {tr.table_name}: {tr.rows_updated} updated, {tr.rows_inserted} inserted")
-    _file_logger.info(f"  Total: {result.total_updated} updated, {result.total_inserted} inserted")

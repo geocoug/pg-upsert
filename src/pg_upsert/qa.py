@@ -173,7 +173,6 @@ class QARunner:
             "select * from ups_primary_key_columns;",
         )
         if pk_rowcount == 0:
-            logger.info("Table has no primary key")
             display.print_check_table_pass(self.staging_schema, table)
             return errors
 
@@ -198,9 +197,6 @@ class QARunner:
         )
         pk_errs, pk_headers, pk_rowcount = self.db.rowdict("select * from ups_pk_check;")
         if pk_rowcount > 0:
-            logger.warning(
-                f"    Duplicate key error in columns {pk_cols.as_string(self.db.cursor())}",
-            )
             pk_errs = list(pk_errs)
             tot_errs, _tot_headers, _tot_rowcount = self.db.rowdict(
                 SQL("select count(*) as errcount, sum(nrows) as total_rows from ups_pk_check;"),
@@ -342,6 +338,9 @@ class QARunner:
                 from ups_fk_constraints;""",
             ),
         )
+        if _fkc_rowcount == 0:
+            display.print_check_table_pass(self.staging_schema, table)
+            return errors
         for constraint_row in constraint_rows:
             logger.debug(f"  Checking constraint {constraint_row['constraint_name']}")
             self.db.execute(
@@ -371,20 +370,27 @@ class QARunner:
             const_rows = list(const_rows)
             const_row = const_rows[0]
 
-            fk_join_rows, _fkj_headers, _fkj_rowcount = self.db.rowdict(
-                SQL(
-                    """
-                select
-                string_agg('s.' || column_name || ' = u.' || uq_column, ' and ') as u_join,
-                string_agg('s.' || column_name || ' = su.' || uq_column, ' and ') as su_join,
-                string_agg('s.' || column_name || ' is not null', ' and ') as s_not_null,
-                string_agg('s.' || column_name, ', ') as s_checked
-                from
-                (select * from ups_one_fk) as fkcols;
-                    """,
-                ),
+            # Build join/select fragments in Python using Identifier() for
+            # each column name — avoids SQL-injection risk from DB-derived
+            # string_agg concatenation.
+            s_checked = SQL(", ").join(SQL("s.{col}").format(col=Identifier(r["column_name"])) for r in const_rows)
+            u_join = SQL(" AND ").join(
+                SQL("s.{col} = u.{uq_col}").format(
+                    col=Identifier(r["column_name"]),
+                    uq_col=Identifier(r["uq_column"]),
+                )
+                for r in const_rows
             )
-            fk_join_row = next(iter(fk_join_rows))  # string_agg always returns exactly one aggregate row
+            su_join = SQL(" AND ").join(
+                SQL("s.{col} = su.{uq_col}").format(
+                    col=Identifier(r["column_name"]),
+                    uq_col=Identifier(r["uq_column"]),
+                )
+                for r in const_rows
+            )
+            s_not_null = SQL(" AND ").join(
+                SQL("s.{col} IS NOT NULL").format(col=Identifier(r["column_name"])) for r in const_rows
+            )
 
             su_exists = (
                 self.db.execute(
@@ -408,12 +414,12 @@ class QARunner:
                 left join {uq_schema}.{uq_table} as u on {u_join}
                 """,
             ).format(
-                s_checked=SQL(fk_join_row["s_checked"]),
+                s_checked=s_checked,
                 staging_schema=Identifier(self.staging_schema),
                 table=Identifier(table),
                 uq_schema=Identifier(const_row["uq_schema"]),
                 uq_table=Identifier(const_row["uq_table"]),
-                u_join=SQL(fk_join_row["u_join"]),
+                u_join=u_join,
             )
             if su_exists:
                 query += SQL(
@@ -421,7 +427,7 @@ class QARunner:
                 ).format(
                     staging_schema=Identifier(self.staging_schema),
                     uq_table=Identifier(const_row["uq_table"]),
-                    su_join=SQL(fk_join_row["su_join"]),
+                    su_join=su_join,
                 )
             query += SQL(" where u.{uq_column} is null").format(
                 uq_column=Identifier(const_row["uq_column"]),
@@ -434,8 +440,8 @@ class QARunner:
                 """ and {s_not_null}
                     group by {s_checked};""",
             ).format(
-                s_not_null=SQL(fk_join_row["s_not_null"]),
-                s_checked=SQL(fk_join_row["s_checked"]),
+                s_not_null=s_not_null,
+                s_checked=s_checked,
             )
             self.db.execute(query)
 
@@ -466,6 +472,7 @@ class QARunner:
                         if btn != 0:
                             display.print_check_table_fail(self.staging_schema, table, "Script cancelled by user")
                             raise UserCancelledError("Script cancelled by user during foreign key check")
+                    total_fk_violations = sum(row["nrows"] for row in fk_check_rows)
                     self.db.execute(
                         SQL(
                             """
@@ -476,13 +483,13 @@ class QARunner:
                             and table_name = {table_name};
                         """,
                         ).format(
-                            fkerror_count=Literal(fk_check_rows[0]["nrows"]),
+                            fkerror_count=Literal(total_fk_violations),
                             constraint_name=Literal(constraint_row["constraint_name"]),
                             table_schema=Literal(constraint_row["table_schema"]),
                             table_name=Literal(constraint_row["table_name"]),
                         ),
                     )
-                    err_detail = f"{constraint_row['constraint_name']} ({fk_check_rows[0]['nrows']})"
+                    err_detail = f"{constraint_row['constraint_name']} ({total_fk_violations})"
                     fk_error_strings.append(err_detail)
                     errors.append(
                         QAError(
@@ -493,7 +500,7 @@ class QARunner:
                     )
 
         if fk_error_strings:
-            self.control.set_qa_errors(table, "fk_errors", ",".join(fk_error_strings))
+            self.control.set_qa_errors(table, "fk_errors", ", ".join(fk_error_strings))
         else:
             display.print_check_table_pass(self.staging_schema, table)
         return errors
@@ -529,7 +536,7 @@ class QARunner:
                 drop table if exists ups_check_constraints cascade;
                 select
                     nspname as table_schema,
-                    cast(conrelid::regclass as text) as table_name,
+                    pg_class.relname as table_name,
                     conname as constraint_name,
                     pg_get_constraintdef(pg_constraint.oid) AS consrc
                 into temporary table ups_check_constraints
@@ -564,6 +571,9 @@ class QARunner:
                 from ups_sel_cks;""",
             ),
         )
+        if _ck_rowcount == 0:
+            display.print_check_table_pass(self.staging_schema, table)
+            return errors
         for ck_row in ck_rows:
             logger.debug(f"  Checking constraint {ck_row['constraint_name']}")
             const_rows, _const_headers, _const_rowcount = self.db.rowdict(
@@ -584,6 +594,10 @@ class QARunner:
                 ),
             )
             const_row = next(iter(const_rows))  # guarded: iterating over ck_rows from ups_sel_cks guarantees a match
+            # check_sql comes from pg_get_constraintdef() — a trusted
+            # PostgreSQL system function that returns valid SQL expressions.
+            # It cannot be replaced with Identifier()/Literal() because it
+            # is an arbitrary boolean expression, not a single identifier.
             self.db.execute(
                 SQL(
                     """
@@ -727,11 +741,9 @@ class QARunner:
             uq_errs, uq_headers, uq_err_count = self.db.rowdict("select * from ups_uq_check;")
             if uq_err_count > 0:
                 uq_errs = list(uq_errs)
-                tot_rows, _th, _tc = self.db.rowdict(
-                    "select count(*) as errcount, sum(nrows) as total_rows from ups_uq_check;",
-                )
-                tot_row = next(iter(tot_rows))  # guarded by uq_err_count > 0 check above
-                err_detail = f"{constraint_name} ({tot_row['errcount']} duplicates, {tot_row['total_rows']} rows)"
+                errcount = len(uq_errs)
+                total_rows = sum(row["nrows"] for row in uq_errs)
+                err_detail = f"{constraint_name} ({errcount} duplicates, {total_rows} rows)"
                 display.print_check_table_fail(
                     self.staging_schema,
                     table,

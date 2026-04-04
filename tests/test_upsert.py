@@ -203,12 +203,9 @@ class TestControlTable:
 
     def test_show_control_non_interactive(self, ups):
         ups.interactive = False
-        with patch("pg_upsert.control.logger.info") as mock_log:
+        with patch("pg_upsert.control.display.console.print") as mock_print:
             ups.show_control()
-            mock_log.assert_called_once()
-            msg = mock_log.call_args[0][0]
-            # rich table format uses different rendering than tabulate
-            assert "table_name" in msg or "Control table" in msg
+            mock_print.assert_called_once()
 
     def test_validate_control(self, ups):
         ups._validate_control()
@@ -575,6 +572,7 @@ class TestCommit:
 
     def test_commit_when_true(self, ups):
         ups.do_commit = True
+        ups.qa_all()
         ups.upsert_one("genres")
         ups.commit()
         cur = ups.db.execute("SELECT count(*) FROM public.genres;")
@@ -593,6 +591,7 @@ class TestCommit:
     def test_commit_interactive_cancel(self, ups):
         """Interactive cancel during commit should rollback."""
         ups.interactive = True
+        ups.qa_all()
         ups.upsert_one("genres")
         with patch.object(ups._ui, "show_table") as mock_show:
             mock_show.return_value = (1, None)  # Cancel
@@ -605,6 +604,7 @@ class TestCommit:
         """Interactive continue during commit with do_commit=True should commit."""
         ups.interactive = True
         ups.do_commit = True
+        ups.qa_all()
         ups.upsert_one("genres")
         with patch.object(ups._ui, "show_table") as mock_show:
             mock_show.return_value = (0, None)  # Continue
@@ -615,6 +615,7 @@ class TestCommit:
     def test_commit_no_changes(self, ups):
         """commit() with no rows inserted/updated should rollback cleanly."""
         ups.do_commit = True
+        ups.qa_all()
         ups.commit()
         cur = ups.db.execute("SELECT count(*) FROM public.genres;")
         assert cur.fetchone()[0] == 0
@@ -1164,3 +1165,219 @@ class TestDependencyOrder:
         assert publishers_idx < books_idx, "publishers must be upserted before books"
         assert books_idx < book_authors_idx, "books must be upserted before book_authors"
         assert authors_idx < book_authors_idx, "authors must be upserted before book_authors"
+
+
+# ===================================================================
+# cleanup()
+# ===================================================================
+
+
+class TestCleanup:
+    def test_cleanup_drops_temp_objects(self, ups):
+        """cleanup() should drop all ups_* temporary tables and views."""
+        # Run QA to create temp objects.
+        ups.qa_all()
+
+        # Verify at least the control table exists before cleanup.
+        curs = ups.db.execute(
+            SQL(
+                "select 1 from information_schema.tables where table_name = {ct}",
+            ).format(ct=Literal(ups.control_table)),
+        )
+        assert curs.rowcount > 0
+
+        ups.cleanup()
+
+        # Control table should be gone.
+        curs = ups.db.execute(
+            SQL(
+                "select 1 from information_schema.tables where table_name = {ct}",
+            ).format(ct=Literal(ups.control_table)),
+        )
+        assert curs.rowcount == 0
+
+    def test_cleanup_resets_state(self, ups):
+        """cleanup() should reset qa_passed and qa_errors."""
+        ups.qa_all()
+        assert ups.qa_passed is True
+        ups.cleanup()
+        assert ups.qa_passed is False
+        assert ups.qa_errors == []
+
+    def test_cleanup_returns_self(self, ups):
+        """cleanup() should return self for method chaining."""
+        result = ups.cleanup()
+        assert result is ups
+
+    def test_cleanup_idempotent(self, ups):
+        """cleanup() should be safe to call multiple times."""
+        ups.cleanup()
+        ups.cleanup()  # Should not raise.
+
+    def test_run_after_cleanup(self, ups):
+        """A full run() should work after cleanup() reinitialises state."""
+        ups.qa_all()
+        ups.cleanup()
+        # Reinitialise control table for a fresh run.
+        ups._init_ups_control()
+        ups.qa_all()
+        assert ups.qa_passed is True
+
+
+# ===================================================================
+# Pipeline callbacks
+# ===================================================================
+
+
+class TestCallbacks:
+    def test_callback_receives_qa_events(self, db):
+        """Callback should fire QA_TABLE_COMPLETE for each table."""
+        from pg_upsert.models import CallbackEvent
+
+        events = []
+
+        def recorder(event):
+            events.append(event)
+
+        ups = PgUpsert(
+            conn=db.conn,
+            tables=("genres", "books", "authors", "book_authors", "publishers"),
+            staging_schema="staging",
+            base_schema="public",
+            do_commit=False,
+            interactive=False,
+            upsert_method="upsert",
+            exclude_cols=("rev_user", "rev_time"),
+            callback=recorder,
+        )
+        ups.run()
+
+        qa_events = [e for e in events if e.event == CallbackEvent.QA_TABLE_COMPLETE]
+        assert len(qa_events) == 5  # one per table
+        for e in qa_events:
+            assert e.qa_passed is not None
+
+    def test_callback_receives_upsert_events(self, db):
+        """Callback should fire UPSERT_TABLE_COMPLETE for each table on passing data."""
+        from pg_upsert.models import CallbackEvent
+
+        events = []
+
+        def recorder(event):
+            events.append(event)
+
+        ups = PgUpsert(
+            conn=db.conn,
+            tables=("genres", "books", "authors", "book_authors", "publishers"),
+            staging_schema="staging",
+            base_schema="public",
+            do_commit=False,
+            interactive=False,
+            upsert_method="upsert",
+            exclude_cols=("rev_user", "rev_time"),
+            callback=recorder,
+        )
+        ups.run()
+
+        upsert_events = [e for e in events if e.event == CallbackEvent.UPSERT_TABLE_COMPLETE]
+        assert len(upsert_events) > 0
+        for e in upsert_events:
+            assert isinstance(e.rows_updated, int)
+            assert isinstance(e.rows_inserted, int)
+
+    def test_callback_abort_stops_pipeline(self, db):
+        """Returning False from callback should abort the pipeline."""
+        from pg_upsert.models import CallbackEvent
+
+        def abort_callback(event):
+            if event.event == CallbackEvent.QA_TABLE_COMPLETE:
+                return False  # Abort after first table
+
+        ups = PgUpsert(
+            conn=db.conn,
+            tables=("genres", "books", "authors", "book_authors", "publishers"),
+            staging_schema="staging",
+            base_schema="public",
+            do_commit=False,
+            interactive=False,
+            upsert_method="upsert",
+            exclude_cols=("rev_user", "rev_time"),
+            callback=abort_callback,
+        )
+        result = ups.run()
+        # Pipeline was aborted, so no upsert should have occurred.
+        assert result.committed is False
+        cur = ups.db.execute("SELECT count(*) FROM public.genres;")
+        assert cur.fetchone()[0] == 0
+
+
+# ===================================================================
+# commit() guard on qa_passed
+# ===================================================================
+
+
+class TestCommitQAGuard:
+    def test_commit_refuses_when_qa_not_passed(self, ups):
+        """commit() should refuse to commit when qa_passed is False."""
+        ups.do_commit = True
+        ups.upsert_one("genres")
+        # qa_passed is still False (never ran QA).
+        assert ups.qa_passed is False
+        ups.commit()
+        # Should have rolled back, not committed.
+        cur = ups.db.execute("SELECT count(*) FROM public.genres;")
+        assert cur.fetchone()[0] == 0
+
+    def test_commit_proceeds_when_qa_passed(self, ups):
+        """commit() should proceed when qa_passed is True."""
+        ups.do_commit = True
+        ups.qa_all()
+        assert ups.qa_passed is True
+        ups.upsert_all()
+        ups.commit()
+        cur = ups.db.execute("SELECT count(*) FROM public.genres;")
+        assert cur.fetchone()[0] == 19
+
+
+# ===================================================================
+# qa_one_ck validates table
+# ===================================================================
+
+
+class TestQaOneCkValidation:
+    def test_qa_one_ck_invalid_table(self, ups):
+        """qa_one_ck should raise ValueError for a nonexistent table."""
+        with pytest.raises(ValueError):
+            ups.qa_one_ck("nonexistent_table")
+
+
+# ===================================================================
+# --check-schema with live database
+# ===================================================================
+
+
+class TestCheckSchemaLive:
+    def test_check_schema_passing(self, ups):
+        """check_column_existence + check_type_mismatch should pass on matching schemas."""
+        errors = []
+        for table in ups.tables:
+            errors.extend(ups._qa.check_column_existence(table))
+            errors.extend(ups._qa.check_type_mismatch(table))
+        assert len(errors) == 0
+
+    def test_check_schema_missing_column(self, db):
+        """Schema check should detect a column missing from staging."""
+        # Drop a column from one staging table to create a mismatch.
+        db.execute("ALTER TABLE staging.genres DROP COLUMN IF EXISTS genre;")
+        ups = PgUpsert(
+            conn=db.conn,
+            tables=("genres",),
+            staging_schema="staging",
+            base_schema="public",
+            do_commit=False,
+            interactive=False,
+            upsert_method="upsert",
+        )
+        errors = ups._qa.check_column_existence("genres")
+        assert len(errors) > 0
+        assert any("genre" in e.details for e in errors)

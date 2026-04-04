@@ -8,6 +8,38 @@ ______________________________________________________________________
 
 ## [Unreleased]
 
+### Fixed
+
+- **FK check SQL injection**: Foreign key join conditions and column lists are now built with `Identifier()` in Python instead of using `SQL()` on `string_agg` output from the database. Prevents SQL corruption from tables with metacharacters in column names.
+- **Check constraint validation silently skipped for non-public schemas**: Replaced `conrelid::regclass::text` (which returns schema-qualified names) with `pg_class.relname` (always returns bare table name), fixing silent CK check bypass when `search_path` doesn't include the base schema.
+- **FK error count underreported**: FK violation count now sums all violation groups' `nrows` instead of reporting only the first group's count.
+- **FK error separator inconsistency**: FK error strings now use `", "` (comma + space) separator, consistent with other QA error types.
+- **QA summary panel rendered without color**: `_print_qa_summary_panel` now uses `rich.console.Group` instead of `str()` joining, preserving `Text` object styling (bold, color) inside the `Panel`.
+- **`run()` did not catch `psycopg2.Error`**: Database errors during `run()` now trigger a rollback and display an error message instead of leaving the connection in an aborted state.
+- **`commit()` did not guard on `qa_passed`**: The step-by-step API (`qa_all()` → `upsert_all()` → `commit()`) now refuses to commit and rolls back when `qa_passed` is `False`, preventing accidental persistence of data that failed QA checks.
+- **`qa_one_ck()` missing table validation**: Now calls `_validate_table()` before running check constraint checks, consistent with all other `qa_one_*` methods.
+- **`in_transaction` flag stale after reconnect**: `open_db()` now resets `in_transaction = False` after a successful reconnection, preventing `commit()`/`rollback()` errors on reconnected connections.
+- **`cleanup()` left stale state**: `cleanup()` now resets `qa_passed` and `qa_errors` after dropping temporary objects.
+- **Double console output**: Fixed 5 locations across `qa.py`, `upsert.py`, `executor.py`, and `control.py` where the propagating module logger (`logger.info/warning`) duplicated messages already printed via the rich console. All user-facing messages now use `display.console.print()` + the file-only `_file_logger`.
+- **Step-by-step QA methods never set `qa_passed`**: All individual `qa_*` methods (e.g., `qa_all_null()`, `qa_one_pk()`) now update `qa_passed` after each call via a new `_update_qa_passed()` helper. Previously only `qa_all()` and `run()` set the flag, so the step-by-step API chain could never reach `commit()`.
+- **`upsert_all()` proceeded after failed QA**: `upsert_all()` now refuses to execute when `qa_passed` is `False`, matching the documented contract that "loading is not attempted" when QA fails. Previously it only logged a warning.
+- **FK check silent on tables with no foreign keys**: `check_fks` now prints a `✓` pass line for tables that have no FK constraints, consistent with all other QA checks.
+- **CK check printed `✓` for tables with no check constraints via fallthrough**: `check_cks` now explicitly returns early with a pass line when `ups_sel_cks` is empty, matching the FK check pattern.
+- **Unique constraint check issued redundant DB query**: `check_unique` now computes error totals from already-fetched rows in Python instead of running a second `SELECT count(*), sum(nrows)` query.
+- **CLI URI built by string concatenation**: Special characters in `--user`, `--host`, or `--database` values are now properly percent-encoded with `urllib.parse.quote()`, preventing malformed URIs.
+- **CLI `except Exception` swallowed tracebacks**: The top-level exception handler now catches expected errors (`ValueError`, `psycopg2.Error`, `OSError`, `yaml.YAMLError`) specifically, and logs the traceback at DEBUG level for unexpected errors.
+- **Dead `hl_both_var` assignment in `TableUI.activate()`**: Removed a stale line that set `self.hl_both_var = None` — a variable that only exists on `CompareUI`.
+- **Debug logging opened unnecessary cursors**: `executor.py` debug logging now uses `as_string(self.db.conn)` instead of `as_string(self.db.cursor())` to avoid opening and discarding a cursor for each log call.
+
+### Changed
+
+- **`__init__.py` no longer imports CLI app**: `from .cli import app` was removed from `__init__.py` to avoid pulling `typer`, `pyyaml`, and other CLI dependencies into every `from pg_upsert import PgUpsert` call. The `app` object is now only imported in `__main__.py`.
+
+### Removed
+
+- **`print_upsert_summary()`**: Removed unused display function and its 6 tests. The upsert summary is rendered inline by `_do_commit()`.
+- **Dead `table_num`/`total_tables` parameters**: Removed from `print_check_table_pass()` and `print_check_table_fail()` — never passed by any caller.
+
 ______________________________________________________________________
 
 ## [1.18.2] - 2026-04-03

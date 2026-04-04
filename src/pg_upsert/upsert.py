@@ -225,6 +225,9 @@ class PgUpsert:
             self.db.execute(SQL("DROP TABLE IF EXISTS {} CASCADE").format(Identifier(table)))
         # The control table name is configurable.
         self.db.execute(SQL("DROP TABLE IF EXISTS {} CASCADE").format(Identifier(self.control_table)))
+        # Reset pipeline state so the instance isn't left with stale results.
+        self.qa_passed = False
+        self.qa_errors = []
         return self
 
     def __repr__(self) -> str:
@@ -419,10 +422,20 @@ class PgUpsert:
             self.qa_passed = True
         return self
 
+    def _update_qa_passed(self) -> None:
+        """Recalculate ``qa_passed`` from current error state.
+
+        Sets ``qa_passed`` to ``True`` when no QA errors have been recorded.
+        Called automatically by every step-by-step ``qa_*`` method so that
+        ``commit()`` and ``upsert_all()`` honour the result.
+        """
+        self.qa_passed = len(self.qa_errors) == 0
+
     def qa_all_null(self: PgUpsert) -> PgUpsert:
         """Performs null checks for non-null columns in selected staging tables."""
         for table in self.tables:
             self.qa_errors.extend(self._qa.check_nulls(table))
+        self._update_qa_passed()
         return self
 
     def qa_one_null(self: PgUpsert, table: str) -> PgUpsert:
@@ -433,12 +446,14 @@ class PgUpsert:
         """
         self._validate_table(table)
         self.qa_errors.extend(self._qa.check_nulls(table))
+        self._update_qa_passed()
         return self
 
     def qa_all_pk(self: PgUpsert) -> PgUpsert:
         """Performs primary key checks for duplicated primary key values in selected staging tables."""
         for table in self.tables:
             self.qa_errors.extend(self._qa.check_pks(table, interactive=self.interactive))
+        self._update_qa_passed()
         return self
 
     def qa_one_pk(self: PgUpsert, table: str) -> PgUpsert:
@@ -449,12 +464,14 @@ class PgUpsert:
         """
         self._validate_table(table)
         self.qa_errors.extend(self._qa.check_pks(table, interactive=self.interactive))
+        self._update_qa_passed()
         return self
 
     def qa_all_fk(self: PgUpsert) -> PgUpsert:
         """Performs foreign key checks for invalid foreign key values in selected staging tables."""
         for table in self.tables:
             self.qa_errors.extend(self._qa.check_fks(table, interactive=self.interactive))
+        self._update_qa_passed()
         return self
 
     def qa_one_fk(self: PgUpsert, table: str) -> PgUpsert:
@@ -465,12 +482,14 @@ class PgUpsert:
         """
         self._validate_table(table)
         self.qa_errors.extend(self._qa.check_fks(table, interactive=self.interactive))
+        self._update_qa_passed()
         return self
 
     def qa_all_ck(self: PgUpsert) -> PgUpsert:
         """Performs check constraint checks for invalid check constraint values in selected staging tables."""
         for table in self.tables:
             self.qa_errors.extend(self._qa.check_cks(table))
+        self._update_qa_passed()
         return self
 
     def qa_one_ck(self: PgUpsert, table: str) -> PgUpsert:
@@ -479,13 +498,16 @@ class PgUpsert:
         Args:
             table (str): The name of the staging table to check for invalid check constraint values.
         """
+        self._validate_table(table)
         self.qa_errors.extend(self._qa.check_cks(table))
+        self._update_qa_passed()
         return self
 
     def qa_all_unique(self: PgUpsert) -> PgUpsert:
         """Performs unique constraint checks on all selected staging tables."""
         for table in self.tables:
             self.qa_errors.extend(self._qa.check_unique(table, interactive=self.interactive))
+        self._update_qa_passed()
         return self
 
     def qa_one_unique(self: PgUpsert, table: str) -> PgUpsert:
@@ -496,6 +518,7 @@ class PgUpsert:
         """
         self._validate_table(table)
         self.qa_errors.extend(self._qa.check_unique(table, interactive=self.interactive))
+        self._update_qa_passed()
         return self
 
     def qa_column_existence(self: PgUpsert) -> PgUpsert:
@@ -505,6 +528,7 @@ class PgUpsert:
         """
         for table in self.tables:
             self.qa_errors.extend(self._qa.check_column_existence(table))
+        self._update_qa_passed()
         return self
 
     def qa_type_mismatch(self: PgUpsert) -> PgUpsert:
@@ -514,6 +538,7 @@ class PgUpsert:
         """
         for table in self.tables:
             self.qa_errors.extend(self._qa.check_type_mismatch(table))
+        self._update_qa_passed()
         return self
 
     def upsert_all(self: PgUpsert) -> PgUpsert:
@@ -528,9 +553,11 @@ class PgUpsert:
         """  # noqa: E501
         self._validate_control()
         if not self.qa_passed:
-            logger.warning(
-                "QA checks have not been run or have failed. Continuing anyway.",
+            display.console.print(
+                "  [bold red]QA checks have not passed — refusing to upsert.[/bold red]",
             )
+            _file_logger.error("QA checks have not passed — refusing to upsert.")
+            return self
         display.console.print()
         display.console.rule("[bold]Upsert[/bold]", style="cyan")
         commit_label = "[green]ON[/green]" if self.do_commit else "[dim]OFF[/dim]"
@@ -642,6 +669,10 @@ class PgUpsert:
             display.console.print("  [bold yellow]Rolling back changes due to user cancellation[/bold yellow]")
             _file_logger.info("Rolling back changes due to user cancellation")
             self.db.rollback()
+        except psycopg2.Error as e:
+            display.console.print(f"  [bold red]Database error — rolling back:[/bold red] {e}")
+            _file_logger.error(f"Database error — rolling back: {e}")
+            self.db.rollback()
 
         end_time = datetime.now()
         end_str = end_time.strftime("%Y-%m-%d %H:%M:%S")
@@ -742,9 +773,20 @@ class PgUpsert:
         Changes are committed if the following criteria are met:
 
         - The `do_commit` flag is set to `True`.
-        - All QA checks have passed (i.e., the `qa_passed` flag is set to `True`). Note that no checking is done to ensure that QA checks have been run.
+        - All QA checks have passed (i.e., the `qa_passed` flag is set to `True`).
         - The summary of changes shows that rows have been updated or inserted.
         - If the `interactive` flag is set to `True` and the `do_commit` flag is is set to `False`, the user is prompted to commit the changes and the user selects "Continue".
+
+        If ``qa_passed`` is ``False``, the transaction is rolled back and no
+        commit is attempted.  This guards against accidentally persisting data
+        that failed QA checks when using the step-by-step API.
         """  # noqa: E501
+        if not self.qa_passed:
+            display.console.print(
+                "  [bold yellow]QA checks have not passed — refusing to commit. Rolling back.[/bold yellow]",
+            )
+            _file_logger.warning("QA checks have not passed — refusing to commit. Rolling back.")
+            self.db.rollback()
+            return self
         self._do_commit()
         return self

@@ -1,6 +1,5 @@
 from importlib.metadata import PackageNotFoundError, version
 
-from .cli import app
 from .models import (
     CallbackEvent,
     PipelineCallback,
