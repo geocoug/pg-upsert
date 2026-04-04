@@ -20,7 +20,7 @@ from rich.table import Table
 from rich.text import Text
 
 if TYPE_CHECKING:
-    from ..models import QAError
+    from ..models import CheckContext, QAError
 
 # Logger for file-only output. Display functions write rich output to the
 # console (stderr) for the user, and plain-text to this logger for the
@@ -131,15 +131,19 @@ def print_check_start(
 def print_check_table_pass(
     schema: str,
     table: str,
+    ctx: CheckContext | None = None,
 ) -> None:
     """Print a passing status line for a single table check.
 
     Args:
         schema: The staging schema name.
         table: The table name.
+        ctx: Optional progress context with table counter.
     """
-    console.print(f"  [bold green]✓[/bold green] {schema}.{table}")
-    _file_logger.info(f"  ✓ {schema}.{table}")
+    counter = f"[dim][{ctx.table_num}/{ctx.total_tables}][/dim] " if ctx else ""
+    counter_log = f"[{ctx.table_num}/{ctx.total_tables}] " if ctx else ""
+    console.print(f"  [bold green]✓[/bold green] {counter}{schema}.{table}")
+    _file_logger.info(f"  ✓ {counter_log}{schema}.{table}")
 
 
 def print_check_table_fail(
@@ -148,6 +152,7 @@ def print_check_table_fail(
     message: str,
     detail_rows: list[dict] | None = None,
     detail_headers: list[str] | None = None,
+    ctx: CheckContext | None = None,
 ) -> None:
     """Print a failing status line for a single table check.
 
@@ -157,9 +162,12 @@ def print_check_table_fail(
         message: Short error description.
         detail_rows: Optional list of row dicts for a detail table.
         detail_headers: Column headers for the detail table.
+        ctx: Optional progress context with table counter.
     """
-    console.print(f"  [bold red]✗[/bold red] {schema}.{table} — {message}")
-    _file_logger.warning(f"  ✗ {schema}.{table} — {message}")
+    counter = f"[dim][{ctx.table_num}/{ctx.total_tables}][/dim] " if ctx else ""
+    counter_log = f"[{ctx.table_num}/{ctx.total_tables}] " if ctx else ""
+    console.print(f"  [bold red]✗[/bold red] {counter}{schema}.{table} — {message}")
+    _file_logger.warning(f"  ✗ {counter_log}{schema}.{table} — {message}")
     if detail_rows and detail_headers:
         detail_table = format_table(detail_rows, detail_headers)
         from rich.padding import Padding

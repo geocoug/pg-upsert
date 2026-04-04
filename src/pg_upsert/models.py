@@ -48,6 +48,19 @@ class QAError:
 
 
 @dataclass
+class CheckContext:
+    """Progress context passed through QA check methods to display functions.
+
+    Attributes:
+        table_num: Current table number (1-based).
+        total_tables: Total number of tables being checked.
+    """
+
+    table_num: int
+    total_tables: int
+
+
+@dataclass
 class TableResult:
     """Per-table result from a QA check or upsert operation.
 

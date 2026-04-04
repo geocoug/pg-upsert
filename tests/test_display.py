@@ -12,7 +12,7 @@ import pytest
 from rich.console import Console
 from rich.table import Table
 
-from pg_upsert.models import QACheckType, QAError
+from pg_upsert.models import CheckContext, QACheckType, QAError
 from pg_upsert.ui import display
 
 
@@ -144,6 +144,24 @@ class TestPrintCheckTablePass:
         assert "staging" in out
         assert "books" in out
 
+    def test_no_counter_without_ctx(self):
+        out = _capture(display.print_check_table_pass, "staging", "genres")
+        assert "[" not in out or "staging" in out  # no bracket counter
+
+    def test_counter_with_ctx(self):
+        ctx = CheckContext(table_num=2, total_tables=5)
+        out = _capture(display.print_check_table_pass, "staging", "genres", ctx=ctx)
+        assert "[2/5]" in out
+        assert "staging.genres" in out
+
+    def test_counter_before_table_name(self):
+        ctx = CheckContext(table_num=1, total_tables=3)
+        out = _capture(display.print_check_table_pass, "staging", "genres", ctx=ctx)
+        # Counter should appear before the schema.table
+        counter_pos = out.index("[1/3]")
+        table_pos = out.index("staging.genres")
+        assert counter_pos < table_pos
+
 
 # ---------------------------------------------------------------------------
 # print_check_table_fail
@@ -183,6 +201,25 @@ class TestPrintCheckTableFail:
             [],
             ["col"],
         )
+
+    def test_no_counter_without_ctx(self):
+        out = _capture(display.print_check_table_fail, "staging", "genres", "null error")
+        # Should not contain a bracket counter pattern
+        assert "[1/" not in out
+
+    def test_counter_with_ctx(self):
+        ctx = CheckContext(table_num=3, total_tables=10)
+        out = _capture(display.print_check_table_fail, "staging", "books", "null values", ctx=ctx)
+        assert "[3/10]" in out
+        assert "staging.books" in out
+        assert "null values" in out
+
+    def test_counter_before_table_name(self):
+        ctx = CheckContext(table_num=2, total_tables=5)
+        out = _capture(display.print_check_table_fail, "staging", "books", "error", ctx=ctx)
+        counter_pos = out.index("[2/5]")
+        table_pos = out.index("staging.books")
+        assert counter_pos < table_pos
 
 
 # ---------------------------------------------------------------------------

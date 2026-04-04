@@ -9,6 +9,7 @@ from psycopg2.sql import SQL, Identifier, Literal
 from .control import ControlTable
 from .models import (
     CallbackEvent,
+    CheckContext,
     PipelineCallback,
     PipelineEvent,
     QACheckType,
@@ -65,7 +66,7 @@ class QARunner:
     # Check methods
     # ------------------------------------------------------------------
 
-    def check_nulls(self, table: str) -> list[QAError]:
+    def check_nulls(self, table: str, ctx: CheckContext | None = None) -> list[QAError]:
         """Check for NULL values in non-nullable columns of *table*.
 
         Args:
@@ -92,7 +93,7 @@ class QARunner:
         col_rows, _ch, _cc = self.db.rowdict(col_query)
         nonnull_cols = [r["column_name"] for r in col_rows]
         if not nonnull_cols:
-            display.print_check_table_pass(self.staging_schema, table)
+            display.print_check_table_pass(self.staging_schema, table, ctx=ctx)
             return errors
 
         # Single query: count NULLs for all non-nullable columns at once.
@@ -122,15 +123,15 @@ class QARunner:
         if null_details:
             error_str = ", ".join(null_details)
             self.control.set_qa_errors(table, "null_errors", error_str)
-            display.print_check_table_fail(self.staging_schema, table, error_str)
+            display.print_check_table_fail(self.staging_schema, table, error_str, ctx=ctx)
             errors.append(
                 QAError(table=table, check_type=QACheckType.NULL, details=error_str),
             )
         else:
-            display.print_check_table_pass(self.staging_schema, table)
+            display.print_check_table_pass(self.staging_schema, table, ctx=ctx)
         return errors
 
-    def check_pks(self, table: str, interactive: bool = False) -> list[QAError]:
+    def check_pks(self, table: str, interactive: bool = False, ctx: CheckContext | None = None) -> list[QAError]:
         """Check for duplicate primary key values in *table*.
 
         Creates temporary objects ``ups_primary_key_columns`` and
@@ -173,7 +174,7 @@ class QARunner:
             "select * from ups_primary_key_columns;",
         )
         if pk_rowcount == 0:
-            display.print_check_table_pass(self.staging_schema, table)
+            display.print_check_table_pass(self.staging_schema, table, ctx=ctx)
             return errors
 
         pk_rows = list(pk_rows)
@@ -209,6 +210,7 @@ class QARunner:
                 err_msg,
                 detail_rows=pk_errs,
                 detail_headers=pk_headers,
+                ctx=ctx,
             )
             if interactive:
                 btn, _return_value = self._ui.show_table(
@@ -222,17 +224,17 @@ class QARunner:
                     [[row[header] for header in pk_headers] for row in pk_errs],
                 )
                 if btn != 0:
-                    display.print_check_table_fail(self.staging_schema, table, "Script cancelled by user")
+                    display.print_check_table_fail(self.staging_schema, table, "Script cancelled by user", ctx=ctx)
                     raise UserCancelledError("Script cancelled by user during primary key check")
             self.control.set_qa_errors(table, "pk_errors", err_msg)
             errors.append(
                 QAError(table=table, check_type=QACheckType.PRIMARY_KEY, details=err_msg),
             )
         else:
-            display.print_check_table_pass(self.staging_schema, table)
+            display.print_check_table_pass(self.staging_schema, table, ctx=ctx)
         return errors
 
-    def check_fks(self, table: str, interactive: bool = False) -> list[QAError]:
+    def check_fks(self, table: str, interactive: bool = False, ctx: CheckContext | None = None) -> list[QAError]:
         """Check for invalid foreign key references in *table*.
 
         Creates temporary objects ``ups_foreign_key_columns``,
@@ -339,7 +341,7 @@ class QARunner:
             ),
         )
         if _fkc_rowcount == 0:
-            display.print_check_table_pass(self.staging_schema, table)
+            display.print_check_table_pass(self.staging_schema, table, ctx=ctx)
             return errors
         for constraint_row in constraint_rows:
             logger.debug(f"  Checking constraint {constraint_row['constraint_name']}")
@@ -456,6 +458,7 @@ class QARunner:
                     fk_err_msg,
                     detail_rows=fk_check_rows,
                     detail_headers=fk_check_headers,
+                    ctx=ctx,
                 )
                 if fk_check_rows:
                     if interactive:
@@ -470,7 +473,12 @@ class QARunner:
                             [[row[header] for header in fk_check_headers] for row in fk_check_rows],
                         )
                         if btn != 0:
-                            display.print_check_table_fail(self.staging_schema, table, "Script cancelled by user")
+                            display.print_check_table_fail(
+                                self.staging_schema,
+                                table,
+                                "Script cancelled by user",
+                                ctx=ctx,
+                            )
                             raise UserCancelledError("Script cancelled by user during foreign key check")
                     total_fk_violations = sum(row["nrows"] for row in fk_check_rows)
                     self.db.execute(
@@ -502,10 +510,10 @@ class QARunner:
         if fk_error_strings:
             self.control.set_qa_errors(table, "fk_errors", ", ".join(fk_error_strings))
         else:
-            display.print_check_table_pass(self.staging_schema, table)
+            display.print_check_table_pass(self.staging_schema, table, ctx=ctx)
         return errors
 
-    def check_cks(self, table: str) -> list[QAError]:
+    def check_cks(self, table: str, ctx: CheckContext | None = None) -> list[QAError]:
         """Check for check-constraint violations in *table*.
 
         Creates temporary objects ``ups_check_constraints`` (once per session),
@@ -572,7 +580,7 @@ class QARunner:
             ),
         )
         if _ck_rowcount == 0:
-            display.print_check_table_pass(self.staging_schema, table)
+            display.print_check_table_pass(self.staging_schema, table, ctx=ctx)
             return errors
         for ck_row in ck_rows:
             logger.debug(f"  Checking constraint {ck_row['constraint_name']}")
@@ -655,15 +663,15 @@ class QARunner:
             if err_row["ck_errors"]:
                 error_str = err_row["ck_errors"]
                 self.control.set_qa_errors(table, "ck_errors", error_str)
-                display.print_check_table_fail(self.staging_schema, table, error_str)
+                display.print_check_table_fail(self.staging_schema, table, error_str, ctx=ctx)
                 errors.append(
                     QAError(table=table, check_type=QACheckType.CHECK_CONSTRAINT, details=error_str),
                 )
         if not errors:
-            display.print_check_table_pass(self.staging_schema, table)
+            display.print_check_table_pass(self.staging_schema, table, ctx=ctx)
         return errors
 
-    def check_unique(self, table: str, interactive: bool = False) -> list[QAError]:
+    def check_unique(self, table: str, interactive: bool = False, ctx: CheckContext | None = None) -> list[QAError]:
         """Check for duplicate values in UNIQUE-constrained columns of *table*.
 
         Queries ``pg_constraint`` with ``contype='u'`` to find UNIQUE constraints
@@ -707,7 +715,7 @@ class QARunner:
         )
         if uq_rowcount == 0:
             logger.debug("  No unique constraints found")
-            display.print_check_table_pass(self.staging_schema, table)
+            display.print_check_table_pass(self.staging_schema, table, ctx=ctx)
             return errors
 
         error_strings: list[str] = []
@@ -750,6 +758,7 @@ class QARunner:
                     err_detail,
                     detail_rows=uq_errs,
                     detail_headers=uq_headers,
+                    ctx=ctx,
                 )
 
                 if interactive:
@@ -764,7 +773,7 @@ class QARunner:
                         [[row[header] for header in uq_headers] for row in uq_errs],
                     )
                     if btn != 0:
-                        display.print_check_table_fail(self.staging_schema, table, "Script cancelled by user")
+                        display.print_check_table_fail(self.staging_schema, table, "Script cancelled by user", ctx=ctx)
                         raise UserCancelledError("Script cancelled by user during unique constraint check")
 
                 error_strings.append(err_detail)
@@ -775,10 +784,10 @@ class QARunner:
         if error_strings:
             self.control.set_qa_errors(table, "unique_errors", ", ".join(error_strings))
         else:
-            display.print_check_table_pass(self.staging_schema, table)
+            display.print_check_table_pass(self.staging_schema, table, ctx=ctx)
         return errors
 
-    def check_column_existence(self, table: str) -> list[QAError]:
+    def check_column_existence(self, table: str, ctx: CheckContext | None = None) -> list[QAError]:
         """Check that all base table columns exist in the staging table.
 
         Columns listed in ``exclude_cols`` for this table are not flagged
@@ -827,24 +836,24 @@ class QARunner:
             "select * from ups_missing_cols;",
         )
         if missing_count == 0:
-            display.print_check_table_pass(self.staging_schema, table)
+            display.print_check_table_pass(self.staging_schema, table, ctx=ctx)
             return errors
 
         # Filter out excluded columns.
         missing_cols = [row["column_name"] for row in missing_rows if row["column_name"] not in exclude_cols]
         if not missing_cols:
-            display.print_check_table_pass(self.staging_schema, table)
+            display.print_check_table_pass(self.staging_schema, table, ctx=ctx)
             return errors
 
         err_detail = ", ".join(missing_cols)
-        display.print_check_table_fail(self.staging_schema, table, f"missing columns: {err_detail}")
+        display.print_check_table_fail(self.staging_schema, table, f"missing columns: {err_detail}", ctx=ctx)
         self.control.set_qa_errors(table, "column_errors", err_detail)
         errors.append(
             QAError(table=table, check_type=QACheckType.COLUMN_EXISTENCE, details=err_detail),
         )
         return errors
 
-    def check_type_mismatch(self, table: str) -> list[QAError]:
+    def check_type_mismatch(self, table: str, ctx: CheckContext | None = None) -> list[QAError]:
         """Check for hard type incompatibilities between staging and base columns.
 
         Only flags mismatches where PostgreSQL has no implicit or assignment
@@ -899,7 +908,7 @@ class QARunner:
             "select * from ups_type_mismatches;",
         )
         if mismatch_count == 0:
-            display.print_check_table_pass(self.staging_schema, table)
+            display.print_check_table_pass(self.staging_schema, table, ctx=ctx)
             return errors
 
         mismatch_details: list[str] = []
@@ -908,7 +917,7 @@ class QARunner:
             mismatch_details.append(detail)
 
         err_detail = ", ".join(mismatch_details)
-        display.print_check_table_fail(self.staging_schema, table, err_detail)
+        display.print_check_table_fail(self.staging_schema, table, err_detail, ctx=ctx)
         self.control.set_qa_errors(table, "type_errors", err_detail)
         errors.append(
             QAError(table=table, check_type=QACheckType.TYPE_MISMATCH, details=err_detail),
@@ -970,11 +979,13 @@ class QARunner:
             display.print_check_start(check_label, phase=phase_num, total_phases=total_phases)
             start_time = _datetime.now()
             check_func = check_funcs[check_label]
-            for table in tables:
+            total_tables = len(tables)
+            for table_num, table in enumerate(tables, 1):
+                ctx = CheckContext(table_num=table_num, total_tables=total_tables)
                 table_errors = (
-                    check_func(table, interactive=interactive)  # type: ignore[call-arg]
+                    check_func(table, interactive=interactive, ctx=ctx)  # type: ignore[call-arg]
                     if supports_interactive
-                    else check_func(table)  # type: ignore[call-arg]
+                    else check_func(table, ctx=ctx)  # type: ignore[call-arg]
                 )
                 all_errors.extend(table_errors)
             logger.debug(f"{check_label} checks completed in {elapsed_time(start_time)}")

@@ -11,6 +11,7 @@ from psycopg2.sql import SQL, Identifier, Literal
 from .control import ControlTable
 from .executor import UpsertExecutor
 from .models import (
+    CheckContext,
     PipelineCallback,
     QAError,
     TableResult,
@@ -433,8 +434,10 @@ class PgUpsert:
 
     def qa_all_null(self: PgUpsert) -> PgUpsert:
         """Performs null checks for non-null columns in selected staging tables."""
-        for table in self.tables:
-            self.qa_errors.extend(self._qa.check_nulls(table))
+        total = len(self.tables)
+        for i, table in enumerate(self.tables, 1):
+            ctx = CheckContext(table_num=i, total_tables=total)
+            self.qa_errors.extend(self._qa.check_nulls(table, ctx=ctx))
         self._update_qa_passed()
         return self
 
@@ -451,8 +454,10 @@ class PgUpsert:
 
     def qa_all_pk(self: PgUpsert) -> PgUpsert:
         """Performs primary key checks for duplicated primary key values in selected staging tables."""
-        for table in self.tables:
-            self.qa_errors.extend(self._qa.check_pks(table, interactive=self.interactive))
+        total = len(self.tables)
+        for i, table in enumerate(self.tables, 1):
+            ctx = CheckContext(table_num=i, total_tables=total)
+            self.qa_errors.extend(self._qa.check_pks(table, interactive=self.interactive, ctx=ctx))
         self._update_qa_passed()
         return self
 
@@ -469,8 +474,10 @@ class PgUpsert:
 
     def qa_all_fk(self: PgUpsert) -> PgUpsert:
         """Performs foreign key checks for invalid foreign key values in selected staging tables."""
-        for table in self.tables:
-            self.qa_errors.extend(self._qa.check_fks(table, interactive=self.interactive))
+        total = len(self.tables)
+        for i, table in enumerate(self.tables, 1):
+            ctx = CheckContext(table_num=i, total_tables=total)
+            self.qa_errors.extend(self._qa.check_fks(table, interactive=self.interactive, ctx=ctx))
         self._update_qa_passed()
         return self
 
@@ -487,8 +494,10 @@ class PgUpsert:
 
     def qa_all_ck(self: PgUpsert) -> PgUpsert:
         """Performs check constraint checks for invalid check constraint values in selected staging tables."""
-        for table in self.tables:
-            self.qa_errors.extend(self._qa.check_cks(table))
+        total = len(self.tables)
+        for i, table in enumerate(self.tables, 1):
+            ctx = CheckContext(table_num=i, total_tables=total)
+            self.qa_errors.extend(self._qa.check_cks(table, ctx=ctx))
         self._update_qa_passed()
         return self
 
@@ -505,8 +514,10 @@ class PgUpsert:
 
     def qa_all_unique(self: PgUpsert) -> PgUpsert:
         """Performs unique constraint checks on all selected staging tables."""
-        for table in self.tables:
-            self.qa_errors.extend(self._qa.check_unique(table, interactive=self.interactive))
+        total = len(self.tables)
+        for i, table in enumerate(self.tables, 1):
+            ctx = CheckContext(table_num=i, total_tables=total)
+            self.qa_errors.extend(self._qa.check_unique(table, interactive=self.interactive, ctx=ctx))
         self._update_qa_passed()
         return self
 
@@ -526,8 +537,10 @@ class PgUpsert:
 
         Respects the ``exclude_cols`` setting — excluded columns are not flagged.
         """
-        for table in self.tables:
-            self.qa_errors.extend(self._qa.check_column_existence(table))
+        total = len(self.tables)
+        for i, table in enumerate(self.tables, 1):
+            ctx = CheckContext(table_num=i, total_tables=total)
+            self.qa_errors.extend(self._qa.check_column_existence(table, ctx=ctx))
         self._update_qa_passed()
         return self
 
@@ -536,8 +549,10 @@ class PgUpsert:
 
         Only flags mismatches where PostgreSQL has no implicit or assignment cast.
         """
-        for table in self.tables:
-            self.qa_errors.extend(self._qa.check_type_mismatch(table))
+        total = len(self.tables)
+        for i, table in enumerate(self.tables, 1):
+            ctx = CheckContext(table_num=i, total_tables=total)
+            self.qa_errors.extend(self._qa.check_type_mismatch(table, ctx=ctx))
         self._update_qa_passed()
         return self
 

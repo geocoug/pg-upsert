@@ -2,6 +2,7 @@ from importlib.metadata import PackageNotFoundError, version
 
 from .models import (
     CallbackEvent,
+    CheckContext,
     PipelineCallback,
     PipelineEvent,
     QACheckType,
@@ -26,6 +27,7 @@ __all__ = [
     "QAError",
     "QACheckType",
     "CallbackEvent",
+    "CheckContext",
     "PipelineEvent",
     "PipelineCallback",
 ]

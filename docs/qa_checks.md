@@ -91,14 +91,23 @@ CLI: `pg-upsert ... -n book_alias`
 Each QA check method prints per-table pass/fail output:
 
 ```text
-  ✓ staging.genres
-  ✓ staging.publishers
-  ✗ staging.books — book_title (1)
+  ✓ [1/3] staging.genres
+  ✓ [2/3] staging.publishers
+  ✗ [3/3] staging.books — book_title (1)
 ```
 
-Pass indicators (`✓`) are shown for every table that has no errors for the current check. Fail indicators (`✗`) include the error details. This output goes to both the Rich console (stderr) and the logfile.
+Pass indicators (`✓`) are shown for every table that has no errors for the current check. Fail indicators (`✗`) include the error details. Progress counters (`[N/total]`) appear when multiple tables are checked through `run()`, `qa_all()`, or any `qa_all_*()` facade method. This output goes to both the Rich console (stderr) and the logfile.
 
 When run through `run()` or `qa_all()`, phase headers and a summary panel are also printed. When individual methods are called standalone (e.g., `qa_column_existence()`), only the per-table pass/fail lines are printed.
+
+For programmatic use, the `CheckContext` dataclass can be passed to any `check_*` method to control progress display:
+
+```python
+from pg_upsert import CheckContext
+
+ctx = CheckContext(table_num=1, total_tables=3)
+errors = ups._qa.check_nulls("genres", ctx=ctx)
+```
 
 ## Schema-Only Validation
 

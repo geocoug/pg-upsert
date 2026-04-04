@@ -379,13 +379,17 @@ def cli(
                 display.console.print()
                 display.console.rule("[bold]Schema Check[/bold]", style="cyan")
             _fl.info("=== Schema Check ===")
+            from .models import CheckContext
+
             errors = []
-            for table in args.tables:
-                col_errs = ups._qa.check_column_existence(table)
-                type_errs = ups._qa.check_type_mismatch(table)
+            total = len(args.tables)
+            for i, table in enumerate(args.tables, 1):
+                ctx = CheckContext(table_num=i, total_tables=total)
+                col_errs = ups._qa.check_column_existence(table, ctx=ctx)
+                type_errs = ups._qa.check_type_mismatch(table, ctx=ctx)
                 table_errs = col_errs + type_errs
                 if not table_errs and args.output != "json":
-                    display.print_check_table_pass(args.staging_schema, table)
+                    display.print_check_table_pass(args.staging_schema, table, ctx=ctx)
                 errors.extend(table_errs)
             if args.output == "json":
                 import json

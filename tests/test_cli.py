@@ -396,10 +396,10 @@ class TestCliPgUpsertCall:
         monkeypatch.setattr(pg_upsert.postgres.getpass, "getpass", "password")
 
         class FakeQA:
-            def check_column_existence(self, table):
+            def check_column_existence(self, table, **kwargs):
                 return []
 
-            def check_type_mismatch(self, table):
+            def check_type_mismatch(self, table, **kwargs):
                 return []
 
         class FakePgUpsert:
@@ -420,10 +420,10 @@ class TestCliPgUpsertCall:
         monkeypatch.setattr(pg_upsert.postgres.getpass, "getpass", "password")
 
         class FakeQA:
-            def check_column_existence(self, table):
+            def check_column_existence(self, table, **kwargs):
                 return [QAError(table="t1", check_type=QACheckType.COLUMN_EXISTENCE, details="col_x")]
 
-            def check_type_mismatch(self, table):
+            def check_type_mismatch(self, table, **kwargs):
                 return []
 
         class FakePgUpsert:
@@ -446,10 +446,10 @@ class TestCliPgUpsertCall:
         monkeypatch.setattr(pg_upsert.postgres.getpass, "getpass", "password")
 
         class FakeQA:
-            def check_column_existence(self, table):
+            def check_column_existence(self, table, **kwargs):
                 return [QAError(table="t1", check_type=QACheckType.COLUMN_EXISTENCE, details="col_x")]
 
-            def check_type_mismatch(self, table):
+            def check_type_mismatch(self, table, **kwargs):
                 return []
 
         class FakePgUpsert:

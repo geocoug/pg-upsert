@@ -8,6 +8,10 @@ ______________________________________________________________________
 
 ## [Unreleased]
 
+### Added
+
+- **Table progress counters in QA checks**: Each QA check phase now shows `[N/total]` before the table name (e.g., `✓ [1/5] staging.genres`). Progress counters appear when checks are run through `run_all()`, `qa_all()`, or any step-by-step `qa_all_*()` facade method. Single-table `qa_one_*()` calls omit the counter. Introduced `CheckContext` dataclass for structured progress context.
+
 ______________________________________________________________________
 
 ## [1.19.0] - 2026-04-04
