@@ -8,6 +8,10 @@ ______________________________________________________________________
 
 ## [Unreleased]
 
+______________________________________________________________________
+
+## [1.21.0] - 2026-04-09
+
 ### Added
 
 - **Diff highlighting in compare tables dialog**: The interactive compare dialog shown before committing updates has a **Highlight Diffs** toggle button on both the Tkinter and Textual backends. Unchanged rows are tinted green, changed rows tan, and the specific cells that differ are prefixed with a `●` marker. A summary line (`N matching | N differing | 0 only in staging | 0 only in base`) is always visible at the top of the dialog regardless of toggle state. Columns in `exclude_cols` are skipped from diff detection. Native Python equality (`==`) is used for comparison so type-equivalent values (e.g. `Decimal("9.99")` vs `Decimal("9.9900")`) do not produce false diffs.
