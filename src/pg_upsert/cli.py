@@ -214,6 +214,27 @@ def cli(
             help="UI backend for interactive mode: 'auto' (default), 'tkinter', or 'textual'.",
         ),
     ] = "auto",
+    export_failures: Annotated[
+        Path | None,
+        typer.Option(
+            "--export-failures",
+            help="Directory to write a QA failure fix sheet into. Files are named 'pg_upsert_failures_<table>.<ext>' for CSV, or 'pg_upsert_failures.<ext>' for JSON/XLSX.",  # noqa
+        ),
+    ] = None,
+    export_format: Annotated[
+        str,
+        typer.Option(
+            "--export-format",
+            help="Fix sheet format: 'csv' (one file per table), 'json' (nested single file), or 'xlsx' (single workbook with sheets per table). Default: csv.",  # noqa
+        ),
+    ] = "csv",
+    export_max_rows: Annotated[
+        int,
+        typer.Option(
+            "--export-max-rows",
+            help="Maximum rows to capture per check per table for the fix sheet (default 1000).",
+        ),
+    ] = 1000,
 ) -> None:
     args = SimpleNamespace(**locals())
     if args.version:
@@ -266,15 +287,31 @@ def cli(
             "check_schema": False,
             "compact": False,
             "ui_mode": "auto",
+            "export_failures": None,
+            "export_format": "csv",
+            "export_max_rows": 1000,
         }
+        _path_keys = {"logfile", "export_failures"}
         for key in config:
             if key in args.__dict__:
                 # Only override if the current value is the CLI default.
                 if getattr(args, key) == _cli_defaults.get(key):
-                    if key == "logfile":
-                        setattr(args, key, Path(config[key]))
+                    value = config[key]
+                    if key in _path_keys:
+                        # Path-typed options: accept str/Path, treat falsy as
+                        # unset, reject other types with a clear error.
+                        if value is None or value is False or value == "":
+                            setattr(args, key, None)
+                        elif isinstance(value, (str, Path)):
+                            setattr(args, key, Path(value))
+                        else:
+                            rprint(
+                                f"Invalid value for {key!r} in {args.config_file}: "
+                                f"expected a path string, got {type(value).__name__}",
+                            )
+                            sys.exit(1)
                     else:
-                        setattr(args, key, config[key])
+                        setattr(args, key, value)
             else:
                 rprint(
                     f"Invalid configuration key will be ignored in {args.config_file}: {key}",
@@ -350,6 +387,18 @@ def cli(
     # Validate --ui before connecting (so the user doesn't enter a password for nothing).
     if args.ui_mode not in ("auto", "tkinter", "textual"):
         _cli_error(f"Invalid --ui value {args.ui_mode!r}. Must be one of: auto, tkinter, textual")
+    # Validate --export-failures early: path must be a directory (or not yet exist).
+    if args.export_failures:
+        if args.export_format not in ("csv", "json", "xlsx"):
+            _cli_error(
+                f"Unsupported --export-format {args.export_format!r}. Supported: csv, json, xlsx",
+            )
+        _export_path = Path(args.export_failures)
+        if _export_path.exists() and not _export_path.is_dir():
+            _cli_error(
+                f"--export-failures path {args.export_failures!s} exists but is not a directory. "
+                "Pass a directory path (it will be created if missing).",
+            )
     try:
         from urllib.parse import quote
 
@@ -370,6 +419,8 @@ def cli(
             exclude_null_check_cols=args.null_columns,
             ui_mode=args.ui_mode,
             compact=args.compact,
+            capture_detail_rows=bool(args.export_failures),
+            max_export_rows=args.export_max_rows,
         )
         if args.check_schema:
             from .ui import display
@@ -417,6 +468,19 @@ def cli(
         result = ups.run()
         if args.output == "json":
             print(result.to_json())
+        if args.export_failures:
+            from .ui import display as _display
+
+            if result.qa_passed:
+                _display.console.print("  No QA failures to export.")
+            else:
+                exported = result.export_failures(args.export_failures, fmt=args.export_format)
+                if exported:
+                    _display.console.print(
+                        f"  Failures exported to [bold]{exported}[/bold] ({args.export_format})",
+                    )
+                else:
+                    _display.console.print("  No exportable failure rows.")
         # Exit 1 if QA failed — so CI pipelines detect failures.
         if not result.qa_passed:
             sys.exit(1)

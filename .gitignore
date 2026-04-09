@@ -43,6 +43,9 @@ htmlcov/
 *.log
 pg-upsert.local.yaml
 pg-upsert.template.yaml
+# --export-failures output directories created during manual testing
+failures/
+pg_upsert_failures/
 
 # Claude
-.claude/settings.local.json
+.claude

@@ -127,6 +127,7 @@ def _run_comparison_app(
     base_data: list,
     pk_cols: list[str],
     sidebyside: bool = False,
+    exclude_cols: list[str] | None = None,
 ) -> int:
     """Build and run a textual app for a two-table comparison dialog.
 
@@ -140,13 +141,15 @@ def _run_comparison_app(
         base_data: Row data for the base table.
         pk_cols: Primary key columns (shown in table border title).
         sidebyside: If ``True``, arrange the tables horizontally.
+        exclude_cols: Columns the upsert will not update; skipped from diff.
 
     Returns:
         The integer value associated with the button the user clicked.
     """
+    from rich.text import Text
     from textual.app import App, ComposeResult
     from textual.containers import Horizontal, Vertical
-    from textual.widgets import Button, DataTable, Footer, Header, Label
+    from textual.widgets import Button, DataTable, Footer, Header, Label, Static
 
     _buttons = buttons
     _message = message
@@ -156,6 +159,7 @@ def _run_comparison_app(
     _base_data = base_data
     _pk_cols = pk_cols
     _sidebyside = sidebyside
+    _exclude_cols = list(exclude_cols or [])
 
     _table_css = (
         """
@@ -193,6 +197,12 @@ def _run_comparison_app(
             padding: 1 2;
             width: 100%;
         }
+        #diff-summary {
+            padding: 0 2;
+            height: 1;
+            width: 100%;
+            color: $text;
+        }
         #button-bar {
             dock: bottom;
             height: auto;
@@ -222,15 +232,22 @@ def _run_comparison_app(
             # Column keys, set at mount time.
             self._stg_col_keys: list = []
             self._base_col_keys: list = []
+            # Diff highlighting state.
+            self._diff_on: bool = False
+            self._diff_result = None
+            self._stg_original_cells: dict[tuple, object] = {}
+            self._base_original_cells: dict[tuple, object] = {}
 
         def compose(self) -> ComposeResult:
             yield Header()
             yield Label(_message, id="message")
+            yield Static("", id="diff-summary")
             container_cls = Horizontal if _sidebyside else Vertical
             with container_cls(id="tables"):
                 yield DataTable(id="stg-table", classes="table-panel", cursor_type="row")
                 yield DataTable(id="base-table", classes="table-panel", cursor_type="row")
             with Horizontal(id="button-bar"):
+                yield Button("Highlight Diffs", id="btn-diff", variant="default")
                 for label, value, _key in _buttons:
                     yield Button(
                         label,
@@ -275,6 +292,19 @@ def _run_comparison_app(
                 self._base_pk_idx,
             )
 
+            # Compute diff eagerly and show the summary regardless of toggle.
+            from .diff import compute_row_diffs
+
+            self._diff_result = compute_row_diffs(
+                list(_stg_headers),
+                list(_stg_data),
+                list(_base_headers),
+                list(_base_data),
+                list(_pk_cols),
+                exclude_cols=_exclude_cols,
+            )
+            self.query_one("#diff-summary", Static).update(self._diff_result.summary)
+
             stg_tbl.focus()
 
         def on_data_table_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
@@ -307,12 +337,109 @@ def _run_comparison_app(
 
         def on_button_pressed(self, event: Button.Pressed) -> None:
             btn_id = event.button.id or ""
+            if btn_id == "btn-diff":
+                self._toggle_diffs()
+                return
             if btn_id.startswith("btn-"):
                 try:
                     self._result = int(btn_id[4:])
                 except ValueError:
                     self._result = 0
             self.exit(self._result)
+
+        def _toggle_diffs(self) -> None:
+            """Toggle visual diff highlighting on the two DataTables.
+
+            The summary line is populated eagerly in ``on_mount`` and is
+            NOT affected by this toggle — only the cell styling changes.
+            """
+            if self._diff_result is None:
+                return
+            self._diff_on = not self._diff_on
+
+            stg_tbl = self.query_one("#stg-table", DataTable)
+            base_tbl = self.query_one("#base-table", DataTable)
+
+            self._apply_cell_styles(
+                stg_tbl,
+                _stg_headers,
+                self._stg_col_keys,
+                self._stg_original_cells,
+                self._diff_result.stg_row_states,
+                self._diff_result.stg_changed_cols,
+            )
+            self._apply_cell_styles(
+                base_tbl,
+                _base_headers,
+                self._base_col_keys,
+                self._base_original_cells,
+                self._diff_result.base_row_states,
+                self._diff_result.base_changed_cols,
+            )
+
+            diff_btn = self.query_one("#btn-diff", Button)
+            diff_btn.label = "Hide Diffs" if self._diff_on else "Highlight Diffs"
+
+        def _apply_cell_styles(
+            self,
+            tbl,
+            headers: list[str],
+            col_keys: list,
+            originals: dict,
+            row_states: list[str],
+            changed_cols: list[set[str]],
+        ) -> None:
+            """Apply or remove diff cell styles on *tbl*.
+
+            Row-level background tint plus a ``● `` prefix on the specific
+            cells that differ.  Matches the Tkinter backend's visual
+            language for consistency across both GUIs.
+            """
+            style_match = "on #2d5a2d"
+            style_changed = "on #5a4b00"
+            style_only = "on #5a1a1a"
+            diff_marker = "● "
+
+            row_keys = list(tbl.rows)
+
+            for row_num, row_key in enumerate(row_keys):
+                if row_num >= len(row_states):
+                    continue
+                state = row_states[row_num]
+                diff_set = changed_cols[row_num] if row_num < len(changed_cols) else set()
+
+                for col_num, col_key in enumerate(col_keys):
+                    if col_num >= len(headers):
+                        continue
+                    cache_key = (row_key, col_key)
+
+                    if not self._diff_on:
+                        # Turning OFF — restore originals.
+                        if cache_key in originals:
+                            tbl.update_cell(row_key, col_key, originals[cache_key])
+                        continue
+
+                    # Turning ON — stash original and apply styled Text.
+                    if cache_key not in originals:
+                        originals[cache_key] = tbl.get_cell(row_key, col_key)
+                    orig_val = originals[cache_key]
+                    orig_text = str(orig_val) if orig_val is not None else ""
+
+                    col_name = headers[col_num]
+                    if state == "match":
+                        style = style_match
+                        display_text = orig_text
+                    elif state == "changed":
+                        style = style_changed
+                        display_text = f"{diff_marker}{orig_text}" if col_name in diff_set else orig_text
+                    elif state in ("only_stg", "only_base"):
+                        style = style_only
+                        display_text = orig_text
+                    else:
+                        style = ""
+                        display_text = orig_text
+
+                    tbl.update_cell(row_key, col_key, Text(display_text, style=style))
 
         def on_key(self, event) -> None:  # type: ignore[override]
             """Handle keyboard shortcuts from button specs."""
@@ -371,6 +498,7 @@ class TextualBackend(UIBackend):
         base_data: list,
         pk_cols: list[str],
         sidebyside: bool = False,
+        exclude_cols: list[str] | None = None,
     ) -> tuple[int, None]:
         """Display a two-table comparison TUI dialog and wait for a button press.
 
@@ -384,6 +512,7 @@ class TextualBackend(UIBackend):
             base_data: Row data for the base table.
             pk_cols: Primary key columns (shown in table border title).
             sidebyside: If ``True``, arrange tables horizontally.
+            exclude_cols: Columns the upsert will not update; skipped from diff.
 
         Returns:
             ``(button_value, None)``
@@ -398,5 +527,6 @@ class TextualBackend(UIBackend):
             base_data,
             pk_cols,
             sidebyside=sidebyside,
+            exclude_cols=exclude_cols,
         )
         return (value, None)

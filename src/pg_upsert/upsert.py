@@ -56,6 +56,11 @@ class PgUpsert:
         exclude_cols (list or tuple or None, optional): List of column names to exclude from the upsert process. These columns will not be updated or inserted to, however, they will still be checked during the QA process.
         exclude_null_check_cols (list or tuple or None, optional): List of column names to exclude from the not-null check during the QA process. You may wish to exclude certain columns from null checks, such as auto-generated timestamps or serial columns as they may not be populated until after records are inserted or updated. Defaults to ().
         control_table (str, optional): Name of the temporary control table that will be used to track changes during the upsert process. Defaults to "ups_control".
+        ui_mode (str, optional): Interactive UI backend to use when ``interactive=True``. One of ``"auto"`` (pick tkinter if a display is available, else textual), ``"tkinter"`` (force desktop GUI), or ``"textual"`` (force terminal TUI). When ``interactive=False`` this is ignored and a non-interactive console backend is used internally. Defaults to ``"auto"``.
+        compact (bool, optional): If ``True``, render the QA summary as a compact ``✓``/``✗`` grid (one row per table, one column per check type) instead of a per-check panel. Useful for runs with many tables. Defaults to ``False``.
+        callback (PipelineCallback or None, optional): Optional callable invoked at key pipeline events (``QA_TABLE_COMPLETE``, ``UPSERT_TABLE_COMPLETE``). Receives a :class:`PipelineEvent`. Returning ``False`` aborts the pipeline and triggers a rollback. Defaults to ``None``.
+        capture_detail_rows (bool, optional): If ``True``, each QA check captures the actual violating staging rows onto ``QAError.violations`` / ``QAError.schema_issues`` so they can be exported by :meth:`UpsertResult.export_failures`. Adds extra queries per check and is only enabled automatically when ``--export-failures`` is passed on the CLI. Defaults to ``False``.
+        max_export_rows (int, optional): Maximum number of violating rows captured per check per table when ``capture_detail_rows=True``. Applied as a SQL ``LIMIT`` on each detail query. Defaults to ``1000``.
 
     Example:
 
@@ -127,6 +132,8 @@ class PgUpsert:
         ui_mode: str = "auto",
         compact: bool = False,
         callback: PipelineCallback | None = None,
+        capture_detail_rows: bool = False,
+        max_export_rows: int = 1000,
     ):
         if upsert_method not in self._upsert_methods():
             raise ValueError(
@@ -181,6 +188,8 @@ class PgUpsert:
             base_schema=base_schema,
             exclude_null_check_cols=exclude_null_check_cols or (),
             ui=self._ui,
+            capture_detail_rows=capture_detail_rows,
+            max_export_rows=max_export_rows,
         )
         self._executor = UpsertExecutor(
             db=self.db,
@@ -229,6 +238,9 @@ class PgUpsert:
         # Reset pipeline state so the instance isn't left with stale results.
         self.qa_passed = False
         self.qa_errors = []
+        # Invalidate the per-table PK column cache so a subsequent run
+        # after a schema change doesn't return stale PKs.
+        self._qa._pk_cols_cache.clear()
         return self
 
     def __repr__(self) -> str:

@@ -6,6 +6,8 @@ import json
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
+from pathlib import Path
+from typing import Any
 
 
 class UserCancelledError(Exception):
@@ -25,19 +27,85 @@ class QACheckType(Enum):
 
 
 @dataclass
+class RowViolation:
+    """One problem detected on one staging row.
+
+    Multiple violations may reference the same staging row (same
+    ``pk_values``); :mod:`pg_upsert.export` deduplicates and merges
+    them into a single fix-sheet entry per row.
+
+    Attributes:
+        pk_values: Primary key tuple for this staging row.  Used as the
+            dedup key when building the fix sheet.  Tables without a PK
+            fall back to a tuple of all column values.
+        pk_columns: PK column names in declared order, parallel to
+            ``pk_values``.  Empty for tables with no primary key.  Used
+            by the export layer to sort the fix sheet by PK.
+        row_data: Full staging row contents as a column -> value dict.
+        issue_type: Short identifier — ``"null"``, ``"pk"``, ``"fk"``,
+            ``"unique"``, or ``"ck"``.
+        issue_column: For NULL/FK/UNIQUE, the column (or comma-joined
+            columns) responsible for the violation.
+        constraint_name: For PK/FK/UNIQUE/CK, the constraint that failed.
+        description: Human-readable phrase used in the fix sheet's
+            ``_issues`` column, e.g. ``"NULL in 'genre'"``.
+    """
+
+    pk_values: tuple
+    row_data: dict[str, Any]
+    issue_type: str
+    pk_columns: list[str] = field(default_factory=list)
+    issue_column: str | None = None
+    constraint_name: str | None = None
+    description: str = ""
+
+
+@dataclass
+class SchemaIssue:
+    """One schema-level problem detected by column existence / type checks.
+
+    Schema issues have no row data — they describe a structural mismatch
+    between the staging and base tables.  They are written to a dedicated
+    ``_schema`` output separate from the row-level fix sheets.
+
+    Attributes:
+        check_type: ``"column"`` (missing) or ``"type"`` (mismatch).
+        column_name: Column with the issue.
+        staging_type: Staging type (type mismatch only).
+        base_type: Base type (type mismatch only).
+        description: Human-readable description.
+    """
+
+    check_type: str
+    column_name: str
+    staging_type: str | None = None
+    base_type: str | None = None
+    description: str = ""
+
+
+@dataclass
 class QAError:
     """A single QA check finding.
 
     Attributes:
         table: The table where the error was found.
         check_type: The type of QA check that produced this error.
-        details: Human-readable error description, e.g. ``"genre (3)"``
+        details: Human-readable error summary, e.g. ``"genre (3)"``
             for 3 null values in the ``genre`` column.
+        violations: Per-row violations captured when ``--export-failures``
+            is active.  Used by the export module to build fix sheets.
+            Excluded from :meth:`to_dict` to keep the ``--output json`` API
+            stable.
+        schema_issues: For column-existence and type-mismatch checks,
+            structured metadata that the export module writes to the
+            ``_schema`` output.  Excluded from :meth:`to_dict`.
     """
 
     table: str
     check_type: QACheckType
     details: str
+    violations: list[RowViolation] = field(default_factory=list, repr=False)
+    schema_issues: list[SchemaIssue] = field(default_factory=list, repr=False)
 
     def to_dict(self) -> dict:
         return {
@@ -152,6 +220,23 @@ class UpsertResult:
     def to_json(self, indent: int = 2) -> str:
         """Serialize to a JSON string."""
         return json.dumps(self.to_dict(), indent=indent)
+
+    def export_failures(self, directory: str | Path, fmt: str = "csv") -> Path | None:
+        """Export QA violations as a "fix sheet" grouped by table.
+
+        Writes one row per unique violating staging row to *directory*,
+        with an ``_issues`` column summarising every problem found on
+        that row.  Format is selected by *fmt* (``csv``, ``json``, or
+        ``xlsx``); see :func:`pg_upsert.export.export_failures` for the
+        exact file layout per format.
+
+        Returns the directory written, or ``None`` if there are no
+        exportable violations.
+        """
+        all_errors = [e for t in self.tables for e in t.qa_errors]
+        from .export import export_failures
+
+        return export_failures(all_errors, directory, fmt=fmt)
 
 
 class CallbackEvent(Enum):

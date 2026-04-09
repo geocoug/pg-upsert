@@ -14,6 +14,8 @@ from .models import (
     PipelineEvent,
     QACheckType,
     QAError,
+    RowViolation,
+    SchemaIssue,
     UserCancelledError,
 )
 from .postgres import PostgresDB
@@ -45,12 +47,18 @@ class QARunner:
         base_schema: str,
         exclude_null_check_cols: list[str] | tuple[str, ...] | None = None,
         ui: UIBackend | None = None,
+        capture_detail_rows: bool = False,
+        max_export_rows: int = 1000,
     ) -> None:
         self.db = db
         self.control = control
         self.staging_schema = staging_schema
         self.base_schema = base_schema
         self.exclude_null_check_cols: list[str] | tuple[str, ...] = exclude_null_check_cols or ()
+        self.capture_detail_rows = capture_detail_rows
+        self.max_export_rows = max_export_rows
+        # Cached PK columns per base table for use during row capture.
+        self._pk_cols_cache: dict[str, list[str]] = {}
         if ui is None:
             from .ui.console import ConsoleBackend
 
@@ -61,6 +69,43 @@ class QARunner:
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
+
+    def _get_pk_columns(self, table: str) -> list[str]:
+        """Return the PK column names for *table* in the base schema.
+
+        Result is cached per-table.  Returns an empty list if the table
+        has no primary key.
+        """
+        if table in self._pk_cols_cache:
+            return self._pk_cols_cache[table]
+        rows, _h, _rc = self.db.rowdict(
+            SQL(
+                """select k.column_name
+                from information_schema.table_constraints as tc
+                inner join information_schema.key_column_usage as k
+                    on tc.constraint_type = 'PRIMARY KEY'
+                    and tc.constraint_name = k.constraint_name
+                    and tc.constraint_schema = k.constraint_schema
+                    and tc.table_schema = k.table_schema
+                    and tc.table_name = k.table_name
+                where k.table_name = {table}
+                    and k.table_schema = {base_schema}
+                order by k.ordinal_position;""",
+            ).format(table=Literal(table), base_schema=Literal(self.base_schema)),
+        )
+        cols = [r["column_name"] for r in rows]
+        self._pk_cols_cache[table] = cols
+        return cols
+
+    def _extract_pk_tuple(self, row: dict, pk_cols: list[str]) -> tuple:
+        """Extract a PK tuple from *row* using *pk_cols*.
+
+        Falls back to a tuple of all row values if *pk_cols* is empty —
+        the export layer will use this as the dedup key.
+        """
+        if not pk_cols:
+            return tuple(row.values())
+        return tuple(row.get(c) for c in pk_cols)
 
     # ------------------------------------------------------------------
     # Check methods
@@ -124,8 +169,42 @@ class QARunner:
             error_str = ", ".join(null_details)
             self.control.set_qa_errors(table, "null_errors", error_str)
             display.print_check_table_fail(self.staging_schema, table, error_str, ctx=ctx)
+
+            violations: list[RowViolation] = []
+            if self.capture_detail_rows:
+                # One query per violating column so we can tag each
+                # returned row with which column was NULL.
+                pk_cols = self._get_pk_columns(table)
+                null_cols = [d.split(" (")[0] for d in null_details]
+                for col in null_cols:
+                    q = SQL(
+                        "SELECT * FROM {schema}.{table} WHERE {col} IS NULL LIMIT {lim}",
+                    ).format(
+                        schema=Identifier(self.staging_schema),
+                        table=Identifier(table),
+                        col=Identifier(col),
+                        lim=Literal(self.max_export_rows),
+                    )
+                    rows_iter, _h, _rc = self.db.rowdict(q)
+                    for row in rows_iter:
+                        violations.append(
+                            RowViolation(
+                                pk_values=self._extract_pk_tuple(row, pk_cols),
+                                pk_columns=list(pk_cols),
+                                row_data=dict(row),
+                                issue_type="null",
+                                issue_column=col,
+                                description=f"NULL in '{col}'",
+                            ),
+                        )
+
             errors.append(
-                QAError(table=table, check_type=QACheckType.NULL, details=error_str),
+                QAError(
+                    table=table,
+                    check_type=QACheckType.NULL,
+                    details=error_str,
+                    violations=violations,
+                ),
             )
         else:
             display.print_check_table_pass(self.staging_schema, table, ctx=ctx)
@@ -227,8 +306,44 @@ class QARunner:
                     display.print_check_table_fail(self.staging_schema, table, "Script cancelled by user", ctx=ctx)
                     raise UserCancelledError("Script cancelled by user during primary key check")
             self.control.set_qa_errors(table, "pk_errors", err_msg)
+
+            violations: list[RowViolation] = []
+            if self.capture_detail_rows:
+                # Fetch entire staging rows whose PK matches any duplicate.
+                q = SQL(
+                    "SELECT * FROM {schema}.{table} WHERE ({pk_cols}) IN"
+                    " (SELECT {pk_cols} FROM ups_pk_check) LIMIT {lim}",
+                ).format(
+                    schema=Identifier(self.staging_schema),
+                    table=Identifier(table),
+                    pk_cols=pk_cols,
+                    lim=Literal(self.max_export_rows),
+                )
+                rows_iter, _h, _rc = self.db.rowdict(q)
+                pk_col_names = [row["column_name"] for row in pk_rows]
+                # Prime the cache so downstream checks reuse this list.
+                self._pk_cols_cache.setdefault(table, pk_col_names)
+                pk_constraint_name = pk_rows[0].get("constraint_name")
+                pk_cols_str = ", ".join(pk_col_names)
+                for row in rows_iter:
+                    violations.append(
+                        RowViolation(
+                            pk_values=self._extract_pk_tuple(row, pk_col_names),
+                            pk_columns=list(pk_col_names),
+                            row_data=dict(row),
+                            issue_type="pk",
+                            constraint_name=pk_constraint_name,
+                            description=f"duplicate PK ({pk_cols_str})",
+                        ),
+                    )
+
             errors.append(
-                QAError(table=table, check_type=QACheckType.PRIMARY_KEY, details=err_msg),
+                QAError(
+                    table=table,
+                    check_type=QACheckType.PRIMARY_KEY,
+                    details=err_msg,
+                    violations=violations,
+                ),
             )
         else:
             display.print_check_table_pass(self.staging_schema, table, ctx=ctx)
@@ -499,11 +614,79 @@ class QARunner:
                     )
                     err_detail = f"{constraint_row['constraint_name']} ({total_fk_violations})"
                     fk_error_strings.append(err_detail)
+
+                    violations: list[RowViolation] = []
+                    if self.capture_detail_rows:
+                        # Re-query to fetch the actual staging rows whose
+                        # FK values have no match — we need full row data
+                        # for the fix sheet, not the grouped ups_fk_check.
+                        full_row_q = SQL(
+                            "SELECT s.* FROM {staging_schema}.{table} AS s "
+                            "LEFT JOIN {uq_schema}.{uq_table} AS u ON {u_join} "
+                            "WHERE u.{uq_column} IS NULL AND {s_not_null}",
+                        ).format(
+                            staging_schema=Identifier(self.staging_schema),
+                            table=Identifier(table),
+                            uq_schema=Identifier(const_row["uq_schema"]),
+                            uq_table=Identifier(const_row["uq_table"]),
+                            u_join=u_join,
+                            uq_column=Identifier(const_row["uq_column"]),
+                            s_not_null=s_not_null,
+                        )
+                        if su_exists:
+                            full_row_q = SQL(
+                                "SELECT s.* FROM {staging_schema}.{table} AS s "
+                                "LEFT JOIN {uq_schema}.{uq_table} AS u ON {u_join} "
+                                "LEFT JOIN {staging_schema}.{uq_table} AS su ON {su_join} "
+                                "WHERE u.{uq_column} IS NULL AND su.{uq_column} IS NULL "
+                                "AND {s_not_null}",
+                            ).format(
+                                staging_schema=Identifier(self.staging_schema),
+                                table=Identifier(table),
+                                uq_schema=Identifier(const_row["uq_schema"]),
+                                uq_table=Identifier(const_row["uq_table"]),
+                                u_join=u_join,
+                                su_join=su_join,
+                                uq_column=Identifier(const_row["uq_column"]),
+                                s_not_null=s_not_null,
+                            )
+                        full_row_q += SQL(" LIMIT {lim}").format(
+                            lim=Literal(self.max_export_rows),
+                        )
+                        bad_rows_iter, _h, _rc = self.db.rowdict(full_row_q)
+                        pk_cols = self._get_pk_columns(table)
+                        fk_col_names = [r["column_name"] for r in const_rows]
+                        uq_col_names = [r["uq_column"] for r in const_rows]
+                        # Parenthesise only for composite FKs so single-column
+                        # reads naturally: "FK violation: publisher_id -> ..."
+                        if len(fk_col_names) > 1:
+                            src_expr = f"({', '.join(fk_col_names)})"
+                            tgt_expr = f"({', '.join(uq_col_names)})"
+                        else:
+                            src_expr = fk_col_names[0]
+                            tgt_expr = uq_col_names[0]
+                        uq_schema = const_row["uq_schema"]
+                        uq_table = const_row["uq_table"]
+                        fk_description = f"FK violation: {src_expr} -> {uq_schema}.{uq_table}({tgt_expr})"
+                        for row in bad_rows_iter:
+                            violations.append(
+                                RowViolation(
+                                    pk_values=self._extract_pk_tuple(row, pk_cols),
+                                    pk_columns=list(pk_cols),
+                                    row_data=dict(row),
+                                    issue_type="fk",
+                                    issue_column=", ".join(fk_col_names),
+                                    constraint_name=constraint_row["constraint_name"],
+                                    description=fk_description,
+                                ),
+                            )
+
                     errors.append(
                         QAError(
                             table=table,
                             check_type=QACheckType.FOREIGN_KEY,
                             details=err_detail,
+                            violations=violations,
                         ),
                     )
 
@@ -526,6 +709,7 @@ class QARunner:
             A list of :class:`QAError` instances for any check-constraint violations.
         """
         errors: list[QAError] = []
+        ck_violations: list[RowViolation] = []
         logger.debug(f"Conducting check constraint QA checks on table {self.staging_schema}.{table}")
 
         # Build full check-constraint map once per session.
@@ -624,6 +808,33 @@ class QARunner:
             )
             if ck_check_rowcount > 0:
                 ck_check_row = next(iter(ck_check_rows))  # guarded by rowcount check above
+
+                if self.capture_detail_rows:
+                    # Fetch entire rows that violate this specific check
+                    # constraint, tagging each row with the constraint name.
+                    ck_detail_q = SQL(
+                        "SELECT * FROM {schema}.{table} WHERE NOT ({check_sql}) LIMIT {lim}",
+                    ).format(
+                        schema=Identifier(self.staging_schema),
+                        table=Identifier(table),
+                        check_sql=SQL(const_row["check_sql"]),
+                        lim=Literal(self.max_export_rows),
+                    )
+                    ck_detail_iter, _h, _rc = self.db.rowdict(ck_detail_q)
+                    pk_cols = self._get_pk_columns(table)
+                    cname = ck_row["constraint_name"]
+                    for bad_row in ck_detail_iter:
+                        ck_violations.append(
+                            RowViolation(
+                                pk_values=self._extract_pk_tuple(bad_row, pk_cols),
+                                pk_columns=list(pk_cols),
+                                row_data=dict(bad_row),
+                                issue_type="ck",
+                                constraint_name=cname,
+                                description=f"check '{cname}' failed",
+                            ),
+                        )
+
                 self.db.execute(
                     SQL(
                         """
@@ -665,7 +876,12 @@ class QARunner:
                 self.control.set_qa_errors(table, "ck_errors", error_str)
                 display.print_check_table_fail(self.staging_schema, table, error_str, ctx=ctx)
                 errors.append(
-                    QAError(table=table, check_type=QACheckType.CHECK_CONSTRAINT, details=error_str),
+                    QAError(
+                        table=table,
+                        check_type=QACheckType.CHECK_CONSTRAINT,
+                        details=error_str,
+                        violations=ck_violations,
+                    ),
                 )
         if not errors:
             display.print_check_table_pass(self.staging_schema, table, ctx=ctx)
@@ -777,8 +993,44 @@ class QARunner:
                         raise UserCancelledError("Script cancelled by user during unique constraint check")
 
                 error_strings.append(err_detail)
+
+                uq_violations: list[RowViolation] = []
+                if self.capture_detail_rows:
+                    # Re-query to fetch actual staging rows whose unique
+                    # column values are duplicated — we need full rows
+                    # for the fix sheet, not grouped aggregated values.
+                    full_row_q = SQL(
+                        "SELECT * FROM {schema}.{table} WHERE ({cols}) IN"
+                        " (SELECT {cols} FROM ups_uq_check) LIMIT {lim}",
+                    ).format(
+                        schema=Identifier(self.staging_schema),
+                        table=Identifier(table),
+                        cols=col_ids,
+                        lim=Literal(self.max_export_rows),
+                    )
+                    bad_rows_iter, _h, _rc = self.db.rowdict(full_row_q)
+                    pk_cols = self._get_pk_columns(table)
+                    joined_col_names = ", ".join(col_names)
+                    for bad_row in bad_rows_iter:
+                        uq_violations.append(
+                            RowViolation(
+                                pk_values=self._extract_pk_tuple(bad_row, pk_cols),
+                                pk_columns=list(pk_cols),
+                                row_data=dict(bad_row),
+                                issue_type="unique",
+                                issue_column=joined_col_names,
+                                constraint_name=constraint_name,
+                                description=f"duplicate unique ({joined_col_names})",
+                            ),
+                        )
+
                 errors.append(
-                    QAError(table=table, check_type=QACheckType.UNIQUE, details=err_detail),
+                    QAError(
+                        table=table,
+                        check_type=QACheckType.UNIQUE,
+                        details=err_detail,
+                        violations=uq_violations,
+                    ),
                 )
 
         if error_strings:
@@ -806,7 +1058,9 @@ class QARunner:
         spec = self.control.get_table_spec(table)
         exclude_cols: list[str] = []
         if spec and spec.get("exclude_cols"):
-            exclude_cols = [c.strip() for c in spec["exclude_cols"].split(",")]
+            # Filter empty fragments so "col1,,col2" or trailing commas
+            # don't inject an empty-string column into the set.
+            exclude_cols = [c.strip() for c in spec["exclude_cols"].split(",") if c.strip()]
 
         # Find base columns missing from staging.
         self.db.execute(
@@ -848,8 +1102,25 @@ class QARunner:
         err_detail = ", ".join(missing_cols)
         display.print_check_table_fail(self.staging_schema, table, f"missing columns: {err_detail}", ctx=ctx)
         self.control.set_qa_errors(table, "column_errors", err_detail)
+
+        schema_issues: list[SchemaIssue] = []
+        if self.capture_detail_rows:
+            for c in missing_cols:
+                schema_issues.append(
+                    SchemaIssue(
+                        check_type="column",
+                        column_name=c,
+                        description=f"missing column '{c}'",
+                    ),
+                )
+
         errors.append(
-            QAError(table=table, check_type=QACheckType.COLUMN_EXISTENCE, details=err_detail),
+            QAError(
+                table=table,
+                check_type=QACheckType.COLUMN_EXISTENCE,
+                details=err_detail,
+                schema_issues=schema_issues,
+            ),
         )
         return errors
 
@@ -912,15 +1183,36 @@ class QARunner:
             return errors
 
         mismatch_details: list[str] = []
+        schema_issues: list[SchemaIssue] = []
         for row in mismatch_rows:
             detail = f"{row['column_name']} ({row['staging_type']} → {row['base_type']})"
             mismatch_details.append(detail)
+            if self.capture_detail_rows:
+                schema_issues.append(
+                    SchemaIssue(
+                        check_type="type",
+                        column_name=row["column_name"],
+                        staging_type=row["staging_type"],
+                        base_type=row["base_type"],
+                        description=(
+                            f"type mismatch: '{row['column_name']}' is "
+                            f"{row['staging_type']} in staging, "
+                            f"{row['base_type']} in base"
+                        ),
+                    ),
+                )
 
         err_detail = ", ".join(mismatch_details)
         display.print_check_table_fail(self.staging_schema, table, err_detail, ctx=ctx)
         self.control.set_qa_errors(table, "type_errors", err_detail)
+
         errors.append(
-            QAError(table=table, check_type=QACheckType.TYPE_MISMATCH, details=err_detail),
+            QAError(
+                table=table,
+                check_type=QACheckType.TYPE_MISMATCH,
+                details=err_detail,
+                schema_issues=schema_issues,
+            ),
         )
         return errors
 

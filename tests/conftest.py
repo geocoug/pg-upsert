@@ -188,6 +188,61 @@ def ups_failing(db_failing):
 
 
 @pytest.fixture()
+def db_no_pk(global_variables):
+    """A PostgresDB with a staging/base table pair that has NO constraints.
+
+    Used to verify that pg-upsert handles unconstrained schemas gracefully:
+    QA checks pass vacuously, and the upsert step skips the table with a
+    warning because no PK is available.
+    """
+    db = PostgresDB(uri=global_variables["URI"])
+    db.execute(
+        """
+        create schema if not exists staging;
+        drop table if exists staging.unconstrained cascade;
+        drop table if exists public.unconstrained cascade;
+        create table public.unconstrained (
+            id int,
+            name text
+        );
+        create table staging.unconstrained (
+            id int,
+            name text
+        );
+        insert into public.unconstrained values (1, 'existing');
+        insert into staging.unconstrained values (1, 'from-stg'), (2, 'new-row');
+        """,
+    )
+    db.commit()
+    yield db
+    db.execute(
+        """
+        drop table if exists staging.unconstrained cascade;
+        drop table if exists public.unconstrained cascade;
+        """,
+    )
+    db.commit()
+    db.close()
+
+
+@pytest.fixture()
+def ups_failing_capture(db_failing):
+    """A PgUpsert against failing data with violation capture enabled."""
+    return PgUpsert(
+        conn=db_failing.conn,
+        tables=("genres", "books", "authors", "book_authors", "publishers"),
+        staging_schema="staging",
+        base_schema="public",
+        do_commit=False,
+        interactive=False,
+        upsert_method="upsert",
+        exclude_cols=("rev_user", "rev_time"),
+        capture_detail_rows=True,
+        max_export_rows=1000,
+    )
+
+
+@pytest.fixture()
 def ups_with_excludes(db):
     """A PgUpsert with exclude_cols and exclude_null_check_cols set."""
     return PgUpsert(

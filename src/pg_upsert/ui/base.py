@@ -49,6 +49,7 @@ class UIBackend(ABC):
         base_data: list,
         pk_cols: list[str],
         sidebyside: bool = False,
+        exclude_cols: list[str] | None = None,
     ) -> tuple[int, None]:
         """Show a two-table comparison dialog with action buttons.
 
@@ -62,6 +63,9 @@ class UIBackend(ABC):
             base_data: Row data for the base table.
             pk_cols: Primary key column names used to highlight mismatches.
             sidebyside: If ``True``, display the two tables side by side.
+            exclude_cols: Columns that will NOT be updated by the upsert.
+                Backends use this to skip flagging these columns when
+                computing diffs for the "Highlight Diffs" toggle.
 
         Returns:
             ``(button_value, None)`` — the value of the button the user clicked,

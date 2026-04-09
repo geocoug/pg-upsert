@@ -59,6 +59,7 @@ class ConsoleBackend(UIBackend):
         base_data: list,
         pk_cols: list[str],
         sidebyside: bool = False,
+        exclude_cols: list[str] | None = None,
     ) -> tuple[int, None]:
         """Render both comparison tables to the console and return ``(0, None)``.
 
@@ -72,6 +73,7 @@ class ConsoleBackend(UIBackend):
             base_data: Row data for the base table.
             pk_cols: Primary key columns (informational only for console).
             sidebyside: Ignored for console output.
+            exclude_cols: Ignored for console output (no diffs shown).
 
         Returns:
             ``(0, None)``

@@ -33,6 +33,7 @@ keywords = ["postgresql", "postgres", "dbms", "etl", "upsert", "database"]
 
 [project.optional-dependencies]
 tui = ["textual>=0.47.0"]
+xlsx = ["openpyxl>=3.1"]
 dev = [
     "build",
     "bump-my-version",
@@ -43,6 +44,7 @@ dev = [
     "python-dotenv",
     "ruff",
     "textual>=0.47.0",
+    "openpyxl>=3.1",
     "tox-uv",
     "twine",
     "zensical",

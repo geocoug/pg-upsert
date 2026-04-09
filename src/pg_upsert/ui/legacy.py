@@ -12,6 +12,12 @@ logger = logging.getLogger(__name__)
 
 
 class CompareUI:
+    # Diff highlighting palette (shared with execsql for visual consistency).
+    _DIFF_TAG_MATCH = ("diff_match", "#a3d9a5", "#1a3a1a")
+    _DIFF_TAG_CHANGED = ("diff_changed", "#f5d98e", "#3a2e00")
+    _DIFF_TAG_ONLY = ("diff_only", "#f5a3a3", "#3a0a0a")
+    _DIFF_MARKER = "● "  # Prefix applied to changed cells (ttk.Treeview has no cell bg).
+
     def __init__(
         self: CompareUI,
         title: str,
@@ -24,6 +30,7 @@ class CompareUI:
         keylist: list[str],
         selected_button=0,
         sidebyside=False,
+        exclude_cols: list[str] | None = None,
     ) -> None:
         """button_list: list of 3-tuples where the first item is the button label,
         the second item is the button's value, and the third (optional) value is the key
@@ -32,74 +39,41 @@ class CompareUI:
         e.g., "<Return>" and "<Escape>" for those keys, respectively.
         keylist: list of column names that make up a common key for both tables.
         selected_button: integer identifying which button should get the focus (0-based)
+        exclude_cols: columns the upsert will not update; skipped from diff detection.
         """
         self.headers1 = headers1
         self.rows1 = rows1
         self.headers2 = headers2
         self.rows2 = rows2
         self.keylist = keylist
+        self.exclude_cols = list(exclude_cols or [])
         self.return_value = None
         self.button_value = None
+        # Diff-highlighting state (lazy; computed on first toggle).
+        self._diff_on = False
+        self._diff_result = None
+        self._original_values1: dict[str, tuple] = {}
+        self._original_values2: dict[str, tuple] = {}
+        self._diff_summary_var: tk.StringVar | None = None
+        self._diff_btn_text_var: tk.StringVar | None = None
         self.win = tk.Toplevel()
         self.win.title(title)
 
-        def hl_unmatched(*args):
-            """Highlight all rows in both tables that are not matched in the
-            other table.
-
-            Create a list of lists of key values for table1.
-            """
-            keyvals1 = []
-            tblitems = self.tbl1.get_children()
-            for row_item in tblitems:
-                rowdict = dict(
-                    zip(self.headers1, self.tbl1.item(row_item)["values"], strict=True),
-                )
-                keyvals1.append([rowdict[k] for k in self.keylist])
-            # Create a list of lists of key values for table2.
-            keyvals2 = []
-            tblitems = self.tbl2.get_children()
-            for row_item in tblitems:
-                rowdict = dict(
-                    zip(self.headers2, self.tbl2.item(row_item)["values"], strict=True),
-                )
-                keyvals2.append([rowdict[k] for k in self.keylist])
-            # Create a list of only unique key values in common.
-            keyvals = []
-            for vals in keyvals1:
-                if vals in keyvals2 and vals not in keyvals:
-                    keyvals.append(vals)
-            # Highlight rows in table 1
-            tblitems = self.tbl1.get_children()
-            for row_item in tblitems:
-                self.tbl1.selection_remove(row_item)
-                rowdict = dict(
-                    zip(self.headers1, self.tbl1.item(row_item)["values"], strict=True),
-                )
-                rowkeys = [rowdict[k] for k in self.keylist]
-                if rowkeys not in keyvals:
-                    self.tbl1.selection_add(row_item)
-            # Highlight rows in table 2
-            tblitems = self.tbl2.get_children()
-            for row_item in tblitems:
-                self.tbl2.selection_remove(row_item)
-                rowdict = dict(
-                    zip(self.headers2, self.tbl2.item(row_item)["values"], strict=True),
-                )
-                rowkeys = [rowdict[k] for k in self.keylist]
-                if rowkeys not in keyvals:
-                    self.tbl2.selection_add(row_item)
-
-        # The checkbox variable controlling highlighting.
-        self.hl_both_var = tk.IntVar()
-        self.hl_both_var.set(0)
         controlframe = ttk.Frame(master=self.win, padding="3 3 3 3")
-        unmatch_btn = ttk.Button(
+        # Diff highlighting toggle button and summary label.
+        self._diff_btn_text_var = tk.StringVar(value="Highlight Diffs")
+        diff_btn = ttk.Button(
             controlframe,
-            text="Show mismatches",
-            command=hl_unmatched,
+            textvariable=self._diff_btn_text_var,
+            command=self._toggle_diffs,
         )
-        unmatch_btn.grid(column=0, row=1, sticky=tk.W)
+        diff_btn.grid(column=0, row=1, sticky=tk.W)
+        self._diff_summary_var = tk.StringVar(value="")
+        diff_summary_label = ttk.Label(
+            controlframe,
+            textvariable=self._diff_summary_var,
+        )
+        diff_summary_label.grid(column=1, row=1, sticky=tk.W, padx=(8, 0))
         self.msg_label = None
         # The ttk.Treeview widget that displays table 1.
         self.tbl1 = None
@@ -155,14 +129,10 @@ class CompareUI:
         def match2to1(event: tk.Event):
             """Find the matching row in table 1 for the selected row in table 2."""
             find_match(self.tbl1, self.headers1, self.tbl2, self.headers2)
-            if self.hl_both_var.get() == 1:
-                find_match(self.tbl1, self.headers1, self.tbl1, self.headers1)
 
         def match1to2(event: tk.Event):
             """Find the matching row in table 2 for the selected row in table 1."""
             find_match(self.tbl2, self.headers2, self.tbl1, self.headers1)
-            if self.hl_both_var.get() == 1:
-                find_match(self.tbl2, self.headers2, self.tbl2, self.headers2)
 
         # Create data tables.
         self.tablemaster = ttk.Frame(master=self.win)
@@ -180,6 +150,30 @@ class CompareUI:
         )
         self.tbl1.bind("<ButtonRelease-1>", match2to1)
         self.tbl2.bind("<ButtonRelease-1>", match1to2)
+        # Configure diff highlighting tags and snapshot original cell values.
+        for _tbl in (self.tbl1, self.tbl2):
+            for _name, _bg, _fg in (
+                self._DIFF_TAG_MATCH,
+                self._DIFF_TAG_CHANGED,
+                self._DIFF_TAG_ONLY,
+            ):
+                _tbl.tag_configure(_name, background=_bg, foreground=_fg)
+        for _iid in self.tbl1.get_children():
+            self._original_values1[_iid] = tuple(self.tbl1.item(_iid)["values"])
+        for _iid in self.tbl2.get_children():
+            self._original_values2[_iid] = tuple(self.tbl2.item(_iid)["values"])
+        # Compute diff eagerly and show summary regardless of toggle state.
+        from .diff import compute_row_diffs
+
+        self._diff_result = compute_row_diffs(
+            list(self.headers1),
+            list(self.rows1),
+            list(self.headers2),
+            list(self.rows2),
+            list(self.keylist),
+            exclude_cols=self.exclude_cols,
+        )
+        self._diff_summary_var.set(self._diff_result.summary)
         # Put the frames and other widgets in place.
         msgframe.grid(column=0, row=0, sticky=tk.EW)
         controlframe.grid(column=0, row=1, sticky=tk.EW)
@@ -232,6 +226,75 @@ class CompareUI:
         self.dialog_canceled = True
         self.win.destroy()
 
+    def _toggle_diffs(self: CompareUI) -> None:
+        """Toggle visual diff highlighting on both comparison tables.
+
+        The summary line is populated eagerly at dialog init time and is
+        NOT affected by this toggle — only the row/cell styling changes.
+        """
+        if self._diff_result is None:
+            return
+        self._diff_on = not self._diff_on
+
+        self._apply_diffs_to_table(
+            self.tbl1,
+            self.headers1,
+            self._diff_result.stg_row_states,
+            self._diff_result.stg_changed_cols,
+            self._original_values1,
+        )
+        self._apply_diffs_to_table(
+            self.tbl2,
+            self.headers2,
+            self._diff_result.base_row_states,
+            self._diff_result.base_changed_cols,
+            self._original_values2,
+        )
+
+        if self._diff_btn_text_var is not None:
+            self._diff_btn_text_var.set("Hide Diffs" if self._diff_on else "Highlight Diffs")
+
+    def _apply_diffs_to_table(
+        self: CompareUI,
+        tbl: ttk.Treeview,
+        headers: list[str],
+        row_states: list[str],
+        changed_cols: list[set[str]],
+        original_values: dict[str, tuple],
+    ) -> None:
+        """Apply or remove diff tags and cell markers on *tbl*."""
+        state_to_tag = {
+            "match": self._DIFF_TAG_MATCH[0],
+            "changed": self._DIFF_TAG_CHANGED[0],
+            "only_stg": self._DIFF_TAG_ONLY[0],
+            "only_base": self._DIFF_TAG_ONLY[0],
+        }
+        for iid in tbl.get_children():
+            try:
+                row_idx = int(iid)
+            except ValueError:
+                continue
+            if row_idx >= len(row_states):
+                continue
+            if not self._diff_on:
+                # Turning OFF: clear tags and restore original cell values.
+                tbl.item(iid, tags=())
+                if iid in original_values:
+                    tbl.item(iid, values=original_values[iid])
+                continue
+            # Turning ON: apply tag and, for changed rows, prefix cell markers.
+            state = row_states[row_idx]
+            tag = state_to_tag.get(state, "")
+            if tag:
+                tbl.item(iid, tags=(tag,))
+            if state == "changed" and iid in original_values:
+                orig = original_values[iid]
+                diff_set = changed_cols[row_idx]
+                marked = tuple(
+                    f"{self._DIFF_MARKER}{orig[i]}" if headers[i] in diff_set else orig[i] for i in range(len(headers))
+                )
+                tbl.item(iid, values=marked)
+
     def activate(self: CompareUI):
         """Activate the dialog."""
         # Window control
@@ -242,8 +305,6 @@ class CompareUI:
             self.buttons[self.focus_button].focus()
         self.win.wait_window(self.win)
         self.win.update_idletasks()
-        # Explicitly delete the Tkinter variable to suppress Tkinter error message.
-        self.hl_both_var = None
         rv = self.return_value
         return (self.button_clicked_value, rv)
 

@@ -176,6 +176,65 @@ class TestCliConfigFile:
         result = runner.invoke(app, ["-f", str(config_file)])
         assert result.exit_code == 1  # Connection will fail
 
+    def test_config_file_export_failures_as_path(self, tmp_path):
+        """Config file may provide --export-failures as a string path."""
+        config = {
+            "host": "localhost",
+            "port": 5432,
+            "database": "dev",
+            "user": "docker",
+            "staging_schema": "staging",
+            "base_schema": "public",
+            "tables": ["t1"],
+            "export_failures": str(tmp_path / "failures"),
+            "export_format": "csv",
+        }
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text(yaml.dump(config))
+        result = runner.invoke(app, ["-f", str(config_file)])
+        # Should fail at PgUpsert connection, NOT at Path coercion.
+        assert result.exit_code == 1
+        assert "TypeError" not in result.output
+
+    def test_config_file_export_failures_as_bool_errors(self, tmp_path):
+        """Config file with export_failures: true (bool) should error cleanly."""
+        config = {
+            "host": "localhost",
+            "port": 5432,
+            "database": "dev",
+            "user": "docker",
+            "staging_schema": "staging",
+            "base_schema": "public",
+            "tables": ["t1"],
+            "export_failures": True,
+        }
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text(yaml.dump(config))
+        result = runner.invoke(app, ["-f", str(config_file)])
+        assert result.exit_code == 1
+        assert "Invalid value for 'export_failures'" in result.stdout
+        # Must NOT crash with a TypeError from pathlib.
+        assert "TypeError" not in result.stdout
+
+    def test_config_file_export_failures_as_null(self, tmp_path):
+        """Config file with export_failures: null should be treated as unset."""
+        config = {
+            "host": "localhost",
+            "port": 5432,
+            "database": "dev",
+            "user": "docker",
+            "staging_schema": "staging",
+            "base_schema": "public",
+            "tables": ["t1"],
+            "export_failures": None,
+        }
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text(yaml.dump(config))
+        result = runner.invoke(app, ["-f", str(config_file)])
+        # Should not crash on Path(None).
+        assert result.exit_code == 1  # connection failure
+        assert "TypeError" not in result.stdout
+
     def test_config_file_exclude_columns_as_string(self, tmp_path, monkeypatch):
         """When config file provides exclude_columns as a comma-separated string."""
         config = {

@@ -55,6 +55,7 @@ class TkinterBackend(UIBackend):
         base_data: list,
         pk_cols: list[str],
         sidebyside: bool = False,
+        exclude_cols: list[str] | None = None,
     ) -> tuple[int, None]:
         """Show a :class:`~pg_upsert.ui.CompareUI` dialog.
 
@@ -68,6 +69,8 @@ class TkinterBackend(UIBackend):
             base_data: Row data for the base table.
             pk_cols: Primary key column names for mismatch highlighting.
             sidebyside: If ``True``, display the tables side by side.
+            exclude_cols: Columns the upsert will not update; skipped when
+                computing diffs for the "Highlight Diffs" toggle.
 
         Returns:
             ``(button_value, None)`` from the activated dialog.
@@ -84,4 +87,5 @@ class TkinterBackend(UIBackend):
             base_data,
             pk_cols,
             sidebyside=sidebyside,
+            exclude_cols=exclude_cols,
         ).activate()

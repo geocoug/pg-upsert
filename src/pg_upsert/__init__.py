@@ -7,6 +7,8 @@ from .models import (
     PipelineEvent,
     QACheckType,
     QAError,
+    RowViolation,
+    SchemaIssue,
     TableResult,
     UpsertResult,
 )
@@ -26,6 +28,8 @@ __all__ = [
     "TableResult",
     "QAError",
     "QACheckType",
+    "RowViolation",
+    "SchemaIssue",
     "CallbackEvent",
     "CheckContext",
     "PipelineEvent",

@@ -339,4 +339,24 @@ pg-upsert -h localhost -d dev -u docker \
 pg-upsert -h localhost -d dev -u docker \
   -s staging -b public -t genres \
   -l pg-upsert.log --commit
+
+# Export a fix sheet when QA fails (CSV — one file per table)
+pg-upsert -h localhost -d dev -u docker \
+  -s staging -b public -t genres -t books -t authors \
+  --export-failures ./failures/ --export-format csv
+#   -> ./failures/pg_upsert_failures_books.csv
+#   -> ./failures/pg_upsert_failures_authors.csv
+#   -> ./failures/pg_upsert_failures_schema.csv  (if schema issues exist)
+
+# Same fix sheet as an XLSX workbook (one sheet per table)
+pg-upsert -h localhost -d dev -u docker \
+  -s staging -b public -t genres -t books -t authors \
+  --export-failures ./failures/ --export-format xlsx
+#   -> ./failures/pg_upsert_failures.xlsx
+
+# Same fix sheet as a nested JSON file
+pg-upsert -h localhost -d dev -u docker \
+  -s staging -b public -t books \
+  --export-failures ./failures/ --export-format json
+#   -> ./failures/pg_upsert_failures.json
 ```

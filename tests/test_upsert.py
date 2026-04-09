@@ -1381,3 +1381,159 @@ class TestCheckSchemaLive:
         errors = ups._qa.check_column_existence("genres")
         assert len(errors) > 0
         assert any("genre" in e.details for e in errors)
+
+
+# ===================================================================
+# Violation capture (capture_detail_rows=True) for --export-failures
+# ===================================================================
+
+
+class TestViolationCapture:
+    """Verify that each QA check populates RowViolation objects when
+    ``capture_detail_rows=True``. Uses the failing-data fixture which has
+    pre-seeded constraint violations across all check types.
+    """
+
+    def test_check_nulls_captures_violations(self, ups_failing_capture):
+        errors = ups_failing_capture._qa.check_nulls("books")
+        assert errors, "failing fixture should produce NULL violations on books"
+        err = errors[0]
+        assert len(err.violations) > 0, "capture_detail_rows should populate violations"
+        for v in err.violations:
+            assert v.issue_type == "null"
+            assert v.issue_column is not None
+            assert v.description.startswith("NULL in ")
+            assert isinstance(v.row_data, dict)
+            assert isinstance(v.pk_values, tuple)
+            assert v.pk_columns  # populated by check_nulls
+
+    def test_check_pks_captures_violations(self, ups_failing_capture):
+        errors = ups_failing_capture._qa.check_pks("books")
+        assert errors, "failing fixture should produce PK violations on books"
+        err = errors[0]
+        assert len(err.violations) > 0
+        for v in err.violations:
+            assert v.issue_type == "pk"
+            assert v.description.startswith("duplicate PK (")
+            assert v.pk_columns
+            assert isinstance(v.row_data, dict)
+
+    def test_check_cks_captures_violations(self, ups_failing_capture):
+        """Failing fixture has CK-violating rows in authors (chk_authors_*)."""
+        errors = ups_failing_capture._qa.check_cks("authors")
+        assert errors, "failing fixture should produce CK violations on authors"
+        err = errors[0]
+        assert len(err.violations) > 0, "capture_detail_rows should populate CK violations"
+        for v in err.violations:
+            assert v.issue_type == "ck"
+            assert v.constraint_name is not None
+            assert v.description.startswith("check '")
+            assert v.pk_columns
+
+    def test_check_unique_captures_violations(self, ups_failing_capture):
+        errors = ups_failing_capture._qa.check_unique("authors")
+        assert errors, "failing fixture should produce UNIQUE violations on authors"
+        err = errors[0]
+        assert len(err.violations) > 0
+        for v in err.violations:
+            assert v.issue_type == "unique"
+            assert v.constraint_name is not None
+            assert v.description.startswith("duplicate unique (")
+            assert v.pk_columns
+
+    def test_check_fks_captures_violations(self, ups_failing_capture):
+        errors = ups_failing_capture._qa.check_fks("books")
+        assert errors, "failing fixture should produce FK violations on books"
+        err = errors[0]
+        assert len(err.violations) > 0, "capture_detail_rows should populate FK violations"
+        for v in err.violations:
+            assert v.issue_type == "fk"
+            assert v.constraint_name is not None
+            assert v.description.startswith("FK violation: ")
+            # New format should reference the target table.
+            assert " -> " in v.description
+            assert v.pk_columns
+
+    def test_check_column_existence_captures_schema_issues(self, db_failing):
+        """Missing-column check produces SchemaIssue entries, not violations."""
+        from pg_upsert import PgUpsert
+
+        db_failing.execute("ALTER TABLE staging.genres DROP COLUMN IF EXISTS description;")
+        db_failing.execute("ALTER TABLE public.genres ADD COLUMN IF NOT EXISTS description text;")
+        ups = PgUpsert(
+            conn=db_failing.conn,
+            tables=("genres",),
+            staging_schema="staging",
+            base_schema="public",
+            do_commit=False,
+            interactive=False,
+            upsert_method="upsert",
+            capture_detail_rows=True,
+        )
+        errors = ups._qa.check_column_existence("genres")
+        # Restore the column afterwards for other tests.
+        db_failing.execute("ALTER TABLE public.genres DROP COLUMN IF EXISTS description;")
+        assert errors, "missing 'description' column should be detected"
+        err = errors[0]
+        assert len(err.schema_issues) > 0
+        assert err.violations == []
+        for issue in err.schema_issues:
+            assert issue.check_type == "column"
+            assert issue.column_name
+
+    def test_default_does_not_capture(self, ups_failing):
+        """Without capture_detail_rows, violations should be empty."""
+        errors = ups_failing._qa.check_pks("books")
+        assert errors, "failing fixture should produce errors"
+        for err in errors:
+            assert err.violations == []
+
+
+# ===================================================================
+# Unconstrained schema (no PK / no data constraints) edge case
+# ===================================================================
+
+
+class TestUnconstrainedSchema:
+    """Verify graceful handling when the base table has no constraints.
+
+    Data QA checks should pass vacuously (no rules to check). The upsert
+    step should skip the table with a warning because it requires a PK
+    to decide UPDATE-vs-INSERT.  See docs/qa_checks.md#running-without-constraints.
+    """
+
+    def _make_ups(self, db_no_pk):
+        from pg_upsert import PgUpsert
+
+        return PgUpsert(
+            conn=db_no_pk.conn,
+            tables=("unconstrained",),
+            staging_schema="staging",
+            base_schema="public",
+            do_commit=False,
+            interactive=False,
+            upsert_method="upsert",
+        )
+
+    def test_qa_passes_vacuously_without_constraints(self, db_no_pk):
+        ups = self._make_ups(db_no_pk)
+        ups.qa_all()
+        assert ups.qa_passed is True, "QA should pass on an unconstrained table"
+        assert ups.qa_errors == []
+
+    def test_upsert_skips_table_without_pk(self, db_no_pk):
+        """upsert_one returns self; verify the base table was NOT mutated."""
+        ups = self._make_ups(db_no_pk)
+        ups.upsert_one("unconstrained")
+        # Base table should still have exactly one pre-existing row,
+        # confirming the staging rows were NOT applied.
+        cur = ups.db.execute("select count(*) from public.unconstrained;")
+        assert cur.fetchone()[0] == 1
+
+    def test_run_end_to_end_on_unconstrained_schema(self, db_no_pk):
+        ups = self._make_ups(db_no_pk)
+        result = ups.run()
+        # QA passes; upsert is a no-op.
+        assert result.qa_passed is True
+        assert result.total_updated == 0
+        assert result.total_inserted == 0

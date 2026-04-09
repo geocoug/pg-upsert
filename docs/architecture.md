@@ -26,6 +26,7 @@ src/pg_upsert/
     textual_backend.py  # TextualBackend (terminal TUI with row matching)
     display.py       # Rich-based formatting (tables, summaries, progress)
     legacy.py        # Original tkinter TableUI/CompareUI widgets
+    diff.py          # Backend-agnostic diff computation for compare dialog
 ```
 
 ## Pipeline Flow

@@ -25,3 +25,6 @@ output: "text"  # Options: "text", "json"
 check_schema: false
 compact: false
 ui_mode: "auto"  # Options: "auto", "textual", "tkinter"
+export_failures: null  # Directory to write the QA failure fix sheet into; null to disable
+export_format: "csv"  # Fix sheet format: csv, json, or xlsx
+export_max_rows: 1000  # Max rows captured per check per table for the fix sheet

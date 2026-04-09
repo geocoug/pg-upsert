@@ -347,6 +347,11 @@ class UpsertExecutor:
                 base_cols = [col.name for col in base_curs.description]
                 base_data = base_curs.fetchall()
                 if interactive:
+                    # Extract exclude_cols from the control-table spec so the
+                    # diff highlighting in the UI skips columns the upsert
+                    # will not actually update.
+                    _exclude_cols_str = spec.get("exclude_cols") or ""
+                    _exclude_cols = [c.strip() for c in _exclude_cols_str.split(",") if c.strip()]
                     btn, _return_value = self._ui.show_comparison(
                         "Compare Tables",
                         f"Do you want to make these changes? For table {table}, new data are shown in the top table; existing data are shown in the bottom table.",  # noqa: E501
@@ -361,6 +366,7 @@ class UpsertExecutor:
                         base_data,
                         pk_col_list.split(", "),
                         sidebyside=False,
+                        exclude_cols=_exclude_cols,
                     )
                 else:
                     btn = 0

@@ -9,6 +9,8 @@ import pytest
 from pg_upsert.models import (
     QACheckType,
     QAError,
+    RowViolation,
+    SchemaIssue,
     TableResult,
     UpsertResult,
     UserCancelledError,
@@ -54,6 +56,78 @@ class TestQAError:
     def test_to_dict_returns_dict(self):
         err = QAError(table="books", check_type=QACheckType.PRIMARY_KEY, details="pk (1)")
         assert isinstance(err.to_dict(), dict)
+
+    def test_default_violations_and_schema_issues_empty(self):
+        err = QAError(table="t", check_type=QACheckType.NULL, details="x")
+        assert err.violations == []
+        assert err.schema_issues == []
+
+    def test_to_dict_excludes_violations_and_schema_issues(self):
+        """Stability: to_dict stays compact so --output json does not grow."""
+        err = QAError(
+            table="books",
+            check_type=QACheckType.NULL,
+            details="title (1)",
+            violations=[
+                RowViolation(
+                    pk_values=(1,),
+                    row_data={"book_id": 1, "title": None},
+                    issue_type="null",
+                    issue_column="title",
+                    description="NULL in 'title'",
+                ),
+            ],
+            schema_issues=[
+                SchemaIssue(check_type="column", column_name="foo", description="missing"),
+            ],
+        )
+        d = err.to_dict()
+        assert set(d.keys()) == {"table", "check_type", "details"}
+
+
+class TestRowViolation:
+    def test_defaults(self):
+        v = RowViolation(
+            pk_values=(1,),
+            row_data={"id": 1, "name": "Alice"},
+            issue_type="null",
+        )
+        assert v.issue_column is None
+        assert v.constraint_name is None
+        assert v.description == ""
+        assert v.pk_columns == []
+
+    def test_full_construction(self):
+        v = RowViolation(
+            pk_values=(1, 2),
+            row_data={"org_id": 1, "dept_id": 2, "name": None},
+            issue_type="fk",
+            issue_column="dept_id",
+            constraint_name="fk_dept",
+            description="FK 'fk_dept' violation",
+        )
+        assert v.pk_values == (1, 2)
+        assert v.issue_column == "dept_id"
+        assert v.constraint_name == "fk_dept"
+
+
+class TestSchemaIssue:
+    def test_column_missing_defaults(self):
+        s = SchemaIssue(check_type="column", column_name="description")
+        assert s.staging_type is None
+        assert s.base_type is None
+        assert s.description == ""
+
+    def test_type_mismatch_full(self):
+        s = SchemaIssue(
+            check_type="type",
+            column_name="priority",
+            staging_type="int4",
+            base_type="text",
+            description="type mismatch",
+        )
+        assert s.staging_type == "int4"
+        assert s.base_type == "text"
 
 
 # ---------------------------------------------------------------------------

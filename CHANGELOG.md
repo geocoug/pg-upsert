@@ -8,6 +8,30 @@ ______________________________________________________________________
 
 ## [Unreleased]
 
+### Added
+
+- **Diff highlighting in compare tables dialog**: The interactive compare dialog shown before committing updates has a **Highlight Diffs** toggle button on both the Tkinter and Textual backends. Unchanged rows are tinted green, changed rows tan, and the specific cells that differ are prefixed with a `●` marker. A summary line (`N matching | N differing | 0 only in staging | 0 only in base`) is always visible at the top of the dialog regardless of toggle state. Columns in `exclude_cols` are skipped from diff detection. Native Python equality (`==`) is used for comparison so type-equivalent values (e.g. `Decimal("9.99")` vs `Decimal("9.9900")`) do not produce false diffs.
+- **Fix sheet export for QA failures**: `--export-failures <dir>` writes an actionable report of violating staging rows to a directory, in CSV (one file per table), JSON (single nested file), or XLSX (single workbook with sheet per table). Format is selected with `--export-format csv|json|xlsx` (default `csv`). Each unique staging row appears **once** (deduped by primary key) with an `_issues` column listing every problem found on that row and an `_issue_types` column for programmatic filtering. The `_issues` text includes primary key column names (e.g. `"duplicate PK (book_id)"`) and foreign key target references (e.g. `"FK violation: publisher_id -> public.publishers(publisher_id)"`). Rows are sorted by primary key. Schema-level errors (missing columns, type mismatches) are routed to a separate `_schema` output. Row cap per check per table controlled by `--export-max-rows` (default 1000). CSV uses stdlib only; XLSX requires the optional `openpyxl` dependency (`pip install pg-upsert[xlsx]`).
+- **`RowViolation` and `SchemaIssue` dataclasses** added to the public API (re-exported from `pg_upsert`). Populated on `QAError.violations` / `QAError.schema_issues` when `capture_detail_rows=True`. Each `RowViolation` carries `pk_values`, `pk_columns`, `row_data`, `issue_type`, `issue_column`, `constraint_name`, and `description` so programmatic consumers can build custom reports.
+- **"Running Without Constraints" documentation** — new section in `docs/qa_checks.md` explaining how pg-upsert handles databases with no constraints: data QA checks pass vacuously and the upsert step skips tables without a primary key (with a warning). A note was also added to the README.
+- **API reference reorganized** with section groupings (Main Entry Point, Result Objects, QA Error Models, Pipeline Callbacks and Context, Database Connection, Exceptions). Previously missing exported classes (`CheckContext`, `CallbackEvent`, `PipelineEvent`, `PipelineCallback`, `PostgresDB`, `RowViolation`, `SchemaIssue`) are now documented. Each class appears exactly once in the TOC (the previous config showed every class twice).
+- **`PgUpsert` constructor docs** — docstring now documents all 17 parameters. `ui_mode`, `compact`, `callback`, `capture_detail_rows`, and `max_export_rows` were previously missing from the `Args:` section.
+- **`pg-upsert.example.yaml`** now includes `export_failures`, `export_format`, and `export_max_rows` so users copying the example can discover the export feature.
+
+### Changed
+
+- **"Show mismatches" button removed from the Tkinter compare dialog.** It duplicated (less usefully) what the new Highlight Diffs button does, and was non-functional for the pre-joined view pairs pg-upsert feeds into the dialog.
+- **`QAError` shape**: the `detail_rows`/`detail_headers` fields added during the previous export rewrite are replaced with `violations: list[RowViolation]` and `schema_issues: list[SchemaIssue]`. `QAError.to_dict()` still excludes both, so `--output json` output is unchanged.
+- **Docs build**: `docs/pg_upsert.md` no longer uses manual `## ClassName` markdown headings above `:::` blocks — mkdocstrings generates the symbol headings, avoiding duplicated TOC entries.
+
+### Fixed
+
+- **Config file loader crashed on `Path(True)`** when YAML set `export_failures: true` (or similar non-string value). The loader now treats `export_failures` as a path-typed option alongside `logfile`: accepts `str` / `Path`, treats `None` / `False` / `""` as unset, and rejects bool/int/other types with a clear error message before any DB connection is attempted.
+- **XLSX sheet name collisions** — when two table names had the same first 31 characters, `_write_xlsx` silently overwrote the first sheet. It now tracks used sheet names and appends `_2`, `_3`, ... suffixes on collision, emitting a warning.
+- **`PgUpsert.cleanup()`** now invalidates the per-table PK column cache (`_qa._pk_cols_cache`). Previously, running on the same instance after a schema change returned stale PK columns.
+- **`_values_equal()` in `ui/diff.py`** caught `Exception` broadly, hiding programming errors. It now catches only `TypeError` / `ValueError` for the repr fallback.
+- **`check_column_existence`** filtered empty fragments when splitting the control-table `exclude_cols` string. Previously, a trailing comma or `col1,,col2` produced an empty-string entry in the exclude set.
+
 ______________________________________________________________________
 
 ## [1.20.0] - 2026-04-04

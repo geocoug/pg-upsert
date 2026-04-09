@@ -58,6 +58,50 @@ Evaluates [CHECK constraint](https://www.postgresql.org/docs/current/ddl-constra
 - **Catalog source**: [`pg_constraint`](https://www.postgresql.org/docs/current/catalog-pg-constraint.html) (`contype = 'c'`)
 - **Example error**: `chk_authors_first_name (1)`
 
+## Running Without Constraints
+
+pg-upsert is constraint-driven: every data QA check reads the base table's
+constraint catalog and validates staging against what it finds. If a table
+has no constraints of a given type, the corresponding check passes
+vacuously — it has nothing to compare against.
+
+Concretely, on a table with **no constraints at all**:
+
+| Check                     | Behavior                                                                      |
+| ------------------------- | ----------------------------------------------------------------------------- |
+| Column existence          | Still runs — compares staging and base column lists regardless of constraints |
+| Column type compatibility | Still runs — compares column types regardless of constraints                  |
+| NOT NULL                  | Passes (no non-nullable columns to check)                                     |
+| Primary Key               | Passes (no PK to check)                                                       |
+| Unique Constraints        | Passes (no unique constraints)                                                |
+| Foreign Key               | Passes (no FKs)                                                               |
+| Check Constraints         | Passes (no CHECK expressions)                                                 |
+
+!!! warning "Upsert is skipped for tables without a primary key"
+
+    The **upsert step** requires a primary key on the base table to decide
+    which staging rows are updates and which are inserts. If the base table
+    has no PK, pg-upsert prints a warning and **skips that table entirely**
+    — no rows are inserted or updated. The exit code is still `0` unless
+    another table failed QA.
+
+    ```text
+      public.books
+      Warning: Base table has no primary key
+    ```
+
+    To upsert against a table without a PK, add a PK to the base table
+    first. If you only want to INSERT rows (not UPDATE existing ones),
+    use `--upsert-method insert` — but this also requires a PK to detect
+    which staging rows are "new" via the `ups_stgmatches` / `ups_nk`
+    join logic.
+
+In practice this means pg-upsert is most useful when your base schema has
+at least primary keys. Tables without constraints still benefit from the
+column existence and type compatibility checks, so `--check-schema` alone
+can be used as a lightweight schema-compatibility validator on otherwise
+unconstrained databases.
+
 ## Configuration
 
 ### Excluding columns from checks
@@ -138,3 +182,45 @@ if ups.qa_errors:
     for err in ups.qa_errors:
         print(f"{err.table}: {err.check_type.value} — {err.details}")
 ```
+
+## Exporting a Fix Sheet
+
+When QA checks fail, pg-upsert can write a **fix sheet** — an actionable
+report showing exactly which staging rows need to be corrected. Use
+`--export-failures <dir>` to specify an output directory and
+`--export-format` to pick a file format:
+
+```bash
+pg-upsert -h localhost -d dev -u docker \
+  -s staging -b public -t books \
+  --export-failures ./failures/ --export-format csv
+```
+
+The fix sheet contains **one row per unique violating staging row**
+(deduped by primary key). Every problem found on that row is merged into
+a single `_issues` column, with a parallel `_issue_types` column listing
+the check types that flagged it. For example:
+
+| book_id | title    | genre   | price | \_issues                                                      | \_issue_types |
+| ------- | -------- | ------- | ----- | ------------------------------------------------------------- | ------------- |
+| 101     | Dune     |         | 9.99  | NULL in 'genre'; duplicate PK (book_id)                       | null,pk       |
+| 205     |          | sci-fi  | 14.99 | NULL in 'title'                                               | null          |
+| 300     | Free     | fiction | -1    | check 'price_positive' failed                                 | ck            |
+| 410     | Untitled | fic     | 5.0   | FK violation: publisher_id -> public.publishers(publisher_id) | fk            |
+
+Three output formats are supported:
+
+| `--export-format` | Output                       | Contents                                           |
+| ----------------- | ---------------------------- | -------------------------------------------------- |
+| `csv` (default)   | Directory of per-table files | `pg_upsert_failures_<table>.csv` per table         |
+| `json`            | Single nested file           | `pg_upsert_failures.json` with a key per table     |
+| `xlsx`            | Single workbook              | `pg_upsert_failures.xlsx` with one sheet per table |
+
+Schema-level problems (missing columns, type mismatches) are written to a
+dedicated `_schema` output: `pg_upsert_failures_schema.csv` (CSV mode),
+the `_schema` key (JSON), or the `_schema` sheet (XLSX). They are kept
+separate from the row-level fix sheets because they require a different
+remediation path (fix the staging loader, not the data).
+
+The row cap per check per table is controlled by `--export-max-rows`
+(default 1000).

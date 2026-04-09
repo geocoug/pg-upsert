@@ -14,8 +14,9 @@
 ## Why Use `pg-upsert`?
 
 - **7 Automated QA Checks** – Validates [NOT NULL](https://www.postgresql.org/docs/current/ddl-constraints.html#DDL-CONSTRAINTS-NOT-NULL), [PRIMARY KEY](https://www.postgresql.org/docs/current/ddl-constraints.html#DDL-CONSTRAINTS-PRIMARY-KEYS), [UNIQUE](https://www.postgresql.org/docs/current/ddl-constraints.html#DDL-CONSTRAINTS-UNIQUE-CONSTRAINTS), [FOREIGN KEY](https://www.postgresql.org/docs/current/ddl-constraints.html#DDL-CONSTRAINTS-FK), [CHECK CONSTRAINT](https://www.postgresql.org/docs/current/ddl-constraints.html#DDL-CONSTRAINTS-CHECK-CONSTRAINTS), column existence, and column type compatibility before any modifications occur.
-- **Interactive Confirmation** – Two UI backends: Textual TUI (terminal) and Tkinter (desktop). Auto-detected or choose with `--ui auto|textual|tkinter`.
+- **Interactive Confirmation** – Two UI backends: Textual TUI (terminal) and Tkinter (desktop). Auto-detected or choose with `--ui auto|textual|tkinter`. The compare-tables dialog includes a **Highlight Diffs** toggle that tints matching/changed rows and flags the exact cells that differ, skipping any columns excluded from the upsert.
 - **Structured Results** – `run()` returns an `UpsertResult` with per-table stats, QA errors, and JSON serialization (`--output=json` for CI/CD pipelines).
+- **Exportable Fix Sheets** – `--export-failures <dir>` writes an actionable report of failing rows: one row per unique violating staging row with an `_issues` column listing every problem (NULL in 'genre', duplicate PK, FK violation, etc.) so users can open it in Excel and fix the data. Supports CSV (file per table), JSON (nested), and XLSX (sheets per table) via `--export-format`.
 - **Schema Validation** – `--check-schema` flag validates column existence and type compatibility without running data checks or upserts.
 - **Flexible Upsert Strategies** – Supports `upsert`, `update`, and `insert` methods.
 - **Dependency-Aware Ordering** – Tables are processed in FK dependency order automatically.
@@ -155,6 +156,9 @@ pg-upsert -h localhost -p 5432 -d mydb -u user \
 | `--check-schema`          | Validate column existence and types only, then exit       |
 | `--compact`               | Use compact grid format for QA summary                    |
 | `--ui`                    | Interactive UI: `auto` (default), `textual`, or `tkinter` |
+| `--export-failures`       | Directory to write a QA failure fix sheet into            |
+| `--export-format`         | Fix sheet format: `csv` (default), `json`, or `xlsx`      |
+| `--export-max-rows`       | Max rows to capture per check per table (default 1000)    |
 | `-f`, `--config-file`     | Path to YAML configuration file                           |
 | `-g`, `--generate-config` | Generate a template config file                           |
 | `-v`, `--version`         | Show version and exit                                     |
@@ -223,6 +227,14 @@ pg-upsert runs 7 types of QA checks on staging data before upserting:
 | **Unique**           | No duplicate values in UNIQUE-constrained columns (NULLs allowed per PostgreSQL semantics)    |
 | **Foreign Key**      | All FK references point to existing rows in the referenced table                              |
 | **Check Constraint** | All CHECK constraint expressions evaluate to true                                             |
+
+> [!NOTE]
+> pg-upsert is constraint-driven. Data checks pass vacuously when the
+> base table has no constraints of that type, and **tables without a
+> primary key are skipped during the upsert step** (a warning is
+> printed). To upsert against a table, make sure the base table has a
+> PK. See [Running Without Constraints](https://pg-upsert.readthedocs.io/qa_checks/#running-without-constraints)
+> for details.
 
 See the [QA Checks Reference](https://pg-upsert.readthedocs.io/) for detailed documentation.
 
