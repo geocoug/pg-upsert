@@ -8,6 +8,10 @@ ______________________________________________________________________
 
 ## [Unreleased]
 
+______________________________________________________________________
+
+## [1.22.0] - 2026-04-20
+
 ### Added
 
 - **`QASeverity` enum** (`ERROR` / `WARNING`) added to the public API. Each `QAError` now carries a `severity` field (default `ERROR`), included in `to_dict()` and `--output json`. Programmatic consumers can filter by severity to distinguish blocking errors from informational warnings.
