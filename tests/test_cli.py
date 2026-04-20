@@ -525,6 +525,37 @@ class TestCliPgUpsertCall:
         assert parsed["schema_compatible"] is False
         assert len(parsed["errors"]) == 1
 
+    def test_check_schema_warnings_only_exits_zero(self, monkeypatch):
+        """Verify --check-schema exits 0 when only warnings exist."""
+        from pg_upsert.models import QACheckType, QAError, QASeverity
+
+        monkeypatch.setattr(pg_upsert.postgres.getpass, "getpass", "password")
+
+        class FakeQA:
+            def check_column_existence(self, table, **kwargs):
+                return [
+                    QAError(
+                        table="t1",
+                        check_type=QACheckType.COLUMN_EXISTENCE,
+                        details="notes",
+                        severity=QASeverity.WARNING,
+                    ),
+                ]
+
+            def check_type_mismatch(self, table, **kwargs):
+                return []
+
+        class FakePgUpsert:
+            def __init__(self, **kw):
+                self._qa = FakeQA()
+
+        monkeypatch.setattr("pg_upsert.cli.PgUpsert", FakePgUpsert)
+        result = runner.invoke(
+            app,
+            shlex.split("-h h -p 5432 -d dev -u u -s stg -b pub -t t1 --check-schema"),
+        )
+        assert result.exit_code == 0
+
     def test_encoding_passed_to_pgupsert(self, monkeypatch):
         """Verify --encoding is passed through to PgUpsert."""
         from pg_upsert.models import UpsertResult

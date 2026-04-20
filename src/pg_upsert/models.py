@@ -14,6 +14,22 @@ class UserCancelledError(Exception):
     """Raised when the user cancels an interactive operation."""
 
 
+class QASeverity(Enum):
+    """Severity level for a QA finding.
+
+    ``ERROR`` findings block the upsert pipeline — ``qa_passed`` is set to
+    ``False`` when any ERROR-severity finding is present, and ``commit()`` /
+    ``upsert_all()`` will refuse to proceed.
+
+    ``WARNING`` findings are informational only. They are displayed (yellow
+    ``⚠``) but do not set ``qa_passed`` to ``False`` and do not block the
+    upsert. Use ``qa_warnings`` or ``qa_findings`` to access them.
+    """
+
+    ERROR = "error"
+    WARNING = "warning"
+
+
 class QACheckType(Enum):
     """Types of QA checks performed on staging data."""
 
@@ -104,6 +120,7 @@ class QAError:
     table: str
     check_type: QACheckType
     details: str
+    severity: QASeverity = QASeverity.ERROR
     violations: list[RowViolation] = field(default_factory=list, repr=False)
     schema_issues: list[SchemaIssue] = field(default_factory=list, repr=False)
 
@@ -112,6 +129,7 @@ class QAError:
             "table": self.table,
             "check_type": self.check_type.value,
             "details": self.details,
+            "severity": self.severity.value,
         }
 
 
@@ -136,18 +154,36 @@ class TableResult:
         table_name: The name of the table.
         rows_updated: Number of rows updated during the upsert.
         rows_inserted: Number of rows inserted during the upsert.
-        qa_errors: List of QA errors found for this table.
+        _qa_findings: Internal list of all QA findings (errors + warnings).
     """
 
     table_name: str
     rows_updated: int = 0
     rows_inserted: int = 0
-    qa_errors: list[QAError] = field(default_factory=list)
+    _qa_findings: list[QAError] = field(default_factory=list)
+
+    @property
+    def qa_errors(self) -> list[QAError]:
+        """ERROR-level QA findings only — issues that blocked the upsert."""
+        return [e for e in self._qa_findings if e.severity == QASeverity.ERROR]
+
+    @property
+    def qa_warnings(self) -> list[QAError]:
+        """WARNING-level QA findings only — informational, did not block."""
+        return [e for e in self._qa_findings if e.severity == QASeverity.WARNING]
+
+    @property
+    def qa_findings(self) -> list[QAError]:
+        """All QA findings (errors and warnings combined)."""
+        return list(self._qa_findings)
 
     @property
     def qa_passed(self) -> bool:
-        """True if no QA errors were found for this table."""
-        return len(self.qa_errors) == 0
+        """True if no ERROR-level QA findings exist for this table.
+
+        Warnings do not count as failures.
+        """
+        return not any(e.severity == QASeverity.ERROR for e in self._qa_findings)
 
     def to_dict(self) -> dict:
         return {
@@ -156,6 +192,7 @@ class TableResult:
             "rows_inserted": self.rows_inserted,
             "qa_passed": self.qa_passed,
             "qa_errors": [e.to_dict() for e in self.qa_errors],
+            "qa_warnings": [e.to_dict() for e in self.qa_warnings],
         }
 
 
@@ -233,7 +270,7 @@ class UpsertResult:
         Returns the directory written, or ``None`` if there are no
         exportable violations.
         """
-        all_errors = [e for t in self.tables for e in t.qa_errors]
+        all_errors = [e for t in self.tables for e in t.qa_findings]
         from .export import export_failures
 
         return export_failures(all_errors, directory, fmt=fmt)
@@ -253,10 +290,12 @@ class PipelineEvent:
     Attributes:
         event: The type of event.
         table: The table name this event relates to.
-        qa_passed: Whether QA passed for this table (``None`` if not yet determined).
+        qa_passed: Whether QA passed for this table (``None`` if not yet
+            determined).  ``True`` when only WARNING-level findings exist;
+            ``False`` only when ERROR-level findings are present.
         rows_updated: Rows updated (0 if not applicable yet).
         rows_inserted: Rows inserted (0 if not applicable yet).
-        qa_errors: QA errors found for this table.
+        qa_findings: All QA findings (errors + warnings) for this table.
     """
 
     event: CallbackEvent
@@ -264,7 +303,17 @@ class PipelineEvent:
     qa_passed: bool | None = None
     rows_updated: int = 0
     rows_inserted: int = 0
-    qa_errors: list[QAError] = field(default_factory=list)
+    qa_findings: list[QAError] = field(default_factory=list)
+
+    @property
+    def qa_errors(self) -> list[QAError]:
+        """ERROR-level QA findings only."""
+        return [e for e in self.qa_findings if e.severity == QASeverity.ERROR]
+
+    @property
+    def qa_warnings(self) -> list[QAError]:
+        """WARNING-level QA findings only."""
+        return [e for e in self.qa_findings if e.severity == QASeverity.WARNING]
 
 
 PipelineCallback = Callable[[PipelineEvent], bool | None]

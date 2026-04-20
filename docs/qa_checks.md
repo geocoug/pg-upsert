@@ -4,11 +4,19 @@ pg-upsert runs 7 types of quality assurance checks on staging table data before 
 
 ## Column Existence
 
-Verifies that every column in the base table also exists in the staging table. Columns listed in `exclude_cols` are not flagged as missing.
+Checks that base table columns exist in the staging table. Missing columns are classified by severity:
 
-- **Control table column**: `column_errors`
+- **Error** — primary key columns or `NOT NULL` columns without a default value. These would cause the upsert to fail, so they block the pipeline.
+- **Warning** — all other missing columns. The upsert can proceed without them; they will be skipped during UPDATE/INSERT. Warnings are displayed (yellow `⚠`) but do not block the upsert.
+
+Columns listed in `exclude_cols` are not flagged at all. Use `--strict-columns` to treat all missing columns as errors (the previous default behavior).
+
+If a downstream check (e.g. FK or UNIQUE) references a missing column, the check is caught via a savepoint rollback, a warning is emitted, and subsequent checks continue normally.
+
+- **Control table column**: `column_errors` (only populated for error-severity findings)
 - **Catalog source**: [`information_schema.columns`](https://www.postgresql.org/docs/current/infoschema-columns.html)
-- **Example error**: `notes` (base column missing from staging)
+- **Example error**: `author_id` (missing primary key column)
+- **Example warning**: `notes` (nullable base column missing from staging)
 
 ## Column Type Compatibility
 
@@ -129,6 +137,21 @@ PgUpsert(
 ```
 
 CLI: `pg-upsert ... -n book_alias`
+
+### Enforcing strict column presence
+
+By default, missing columns that are not required (i.e., not primary key and not `NOT NULL` without a default) produce warnings rather than errors. Warnings are displayed but do not block the upsert pipeline. Set `strict_columns=True` to treat every missing staging column as an error:
+
+```python
+PgUpsert(
+    ...,
+    strict_columns=True,
+)
+```
+
+CLI: `pg-upsert ... --strict-columns`
+
+YAML: `strict_columns: true`
 
 ## Output
 

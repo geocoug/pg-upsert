@@ -52,9 +52,9 @@ src/pg_upsert/
 1. Foreign Key → `check_fks()`
 1. Check Constraints → `check_cks()`
 
-Each method returns `list[QAError]`, writes errors to the control table, and prints its own pass/fail output via `display.print_check_table_pass()` / `display.print_check_table_fail()`. This means each method produces visible feedback whether called through `run_all()` or standalone (e.g., `qa_column_existence()`).
+Each method returns `list[QAError]`, writes errors to the control table, and prints its own pass/fail/warn output via `display.print_check_table_pass()` / `display.print_check_table_warn()` / `display.print_check_table_fail()`. This means each method produces visible feedback whether called through `run_all()` or standalone (e.g., `qa_column_existence()`).
 
-Schema checks (1-2) run first so column/type issues are caught before data checks.
+Schema checks (1-2) run first so column/type issues are caught before data checks. Each per-table check runs inside a PostgreSQL savepoint — if a check crashes (e.g. querying a column that doesn't exist in staging), the savepoint is rolled back, a warning is emitted, and subsequent checks continue normally. Column existence findings carry a `severity` (`QASeverity.ERROR` or `QASeverity.WARNING`) — only errors block the upsert pipeline.
 
 ## Upsert Flow
 

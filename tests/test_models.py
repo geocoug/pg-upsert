@@ -7,8 +7,11 @@ import json
 import pytest
 
 from pg_upsert.models import (
+    CallbackEvent,
+    PipelineEvent,
     QACheckType,
     QAError,
+    QASeverity,
     RowViolation,
     SchemaIssue,
     TableResult,
@@ -46,6 +49,7 @@ class TestQAError:
         assert d["table"] == "genres"
         assert d["check_type"] == "null"
         assert d["details"] == "genre (2)"
+        assert d["severity"] == "error"
 
     def test_to_dict_all_check_types(self):
         for check_type in QACheckType:
@@ -82,7 +86,7 @@ class TestQAError:
             ],
         )
         d = err.to_dict()
-        assert set(d.keys()) == {"table", "check_type", "details"}
+        assert set(d.keys()) == {"table", "check_type", "details", "severity"}
 
 
 class TestRowViolation:
@@ -148,7 +152,32 @@ class TestTableResult:
 
     def test_qa_passed_with_errors(self):
         err = QAError(table="genres", check_type=QACheckType.NULL, details="genre (1)")
-        tr = TableResult(table_name="genres", qa_errors=[err])
+        tr = TableResult(table_name="genres", _qa_findings=[err])
+        assert tr.qa_passed is False
+
+    def test_qa_passed_with_warning_only(self):
+        from pg_upsert.models import QASeverity
+
+        err = QAError(
+            table="genres",
+            check_type=QACheckType.COLUMN_EXISTENCE,
+            details="notes",
+            severity=QASeverity.WARNING,
+        )
+        tr = TableResult(table_name="genres", _qa_findings=[err])
+        assert tr.qa_passed is True
+
+    def test_qa_passed_with_warning_and_error(self):
+        from pg_upsert.models import QASeverity
+
+        warn = QAError(
+            table="genres",
+            check_type=QACheckType.COLUMN_EXISTENCE,
+            details="notes",
+            severity=QASeverity.WARNING,
+        )
+        err = QAError(table="genres", check_type=QACheckType.NULL, details="genre (1)")
+        tr = TableResult(table_name="genres", _qa_findings=[warn, err])
         assert tr.qa_passed is False
 
     def test_to_dict_no_errors(self):
@@ -162,7 +191,7 @@ class TestTableResult:
 
     def test_to_dict_with_errors(self):
         err = QAError(table="authors", check_type=QACheckType.FOREIGN_KEY, details="book_id (2)")
-        tr = TableResult(table_name="authors", qa_errors=[err])
+        tr = TableResult(table_name="authors", _qa_findings=[err])
         d = tr.to_dict()
         assert d["qa_passed"] is False
         assert len(d["qa_errors"]) == 1
@@ -171,7 +200,7 @@ class TestTableResult:
     def test_to_dict_keys_present(self):
         tr = TableResult(table_name="books")
         d = tr.to_dict()
-        for key in ("table_name", "rows_updated", "rows_inserted", "qa_passed", "qa_errors"):
+        for key in ("table_name", "rows_updated", "rows_inserted", "qa_passed", "qa_errors", "qa_warnings"):
             assert key in d
 
 
@@ -198,7 +227,7 @@ class TestUpsertResult:
     def test_qa_passed_one_failure(self):
         err = QAError(table="books", check_type=QACheckType.NULL, details="title (1)")
         t1 = TableResult(table_name="genres")
-        t2 = TableResult(table_name="books", qa_errors=[err])
+        t2 = TableResult(table_name="books", _qa_findings=[err])
         result = UpsertResult(tables=[t1, t2])
         assert result.qa_passed is False
 
@@ -252,3 +281,59 @@ class TestUpsertResult:
         raw = result.to_json()
         parsed = json.loads(raw)
         assert isinstance(parsed, dict)
+
+
+# ---------------------------------------------------------------------------
+# PipelineEvent
+# ---------------------------------------------------------------------------
+
+
+class TestPipelineEvent:
+    def test_qa_errors_filters_to_error_only(self):
+        warn = QAError(
+            table="t",
+            check_type=QACheckType.COLUMN_EXISTENCE,
+            details="notes",
+            severity=QASeverity.WARNING,
+        )
+        err = QAError(table="t", check_type=QACheckType.NULL, details="x (1)")
+        event = PipelineEvent(
+            event=CallbackEvent.QA_TABLE_COMPLETE,
+            table="t",
+            qa_findings=[warn, err],
+        )
+        assert len(event.qa_errors) == 1
+        assert event.qa_errors[0].severity == QASeverity.ERROR
+
+    def test_qa_warnings_filters_to_warning_only(self):
+        warn = QAError(
+            table="t",
+            check_type=QACheckType.COLUMN_EXISTENCE,
+            details="notes",
+            severity=QASeverity.WARNING,
+        )
+        err = QAError(table="t", check_type=QACheckType.NULL, details="x (1)")
+        event = PipelineEvent(
+            event=CallbackEvent.QA_TABLE_COMPLETE,
+            table="t",
+            qa_findings=[warn, err],
+        )
+        assert len(event.qa_warnings) == 1
+        assert event.qa_warnings[0].severity == QASeverity.WARNING
+
+    def test_qa_passed_true_with_warnings_only(self):
+        warn = QAError(
+            table="t",
+            check_type=QACheckType.COLUMN_EXISTENCE,
+            details="notes",
+            severity=QASeverity.WARNING,
+        )
+        event = PipelineEvent(
+            event=CallbackEvent.QA_TABLE_COMPLETE,
+            table="t",
+            qa_passed=True,
+            qa_findings=[warn],
+        )
+        assert event.qa_passed is True
+        assert event.qa_errors == []
+        assert len(event.qa_warnings) == 1

@@ -504,7 +504,7 @@ class TestAllCheckTypes:
 class TestUpsertResultExport:
     def test_export_via_result(self, tmp_path: Path):
         err = _pk_dup_error()
-        tr = TableResult(table_name="books", qa_errors=[err])
+        tr = TableResult(table_name="books", _qa_findings=[err])
         result = UpsertResult(tables=[tr])
         out = tmp_path / "failures"
         result.export_failures(out)
@@ -512,7 +512,7 @@ class TestUpsertResultExport:
 
     def test_export_via_result_json(self, tmp_path: Path):
         err = _pk_dup_error()
-        tr = TableResult(table_name="books", qa_errors=[err])
+        tr = TableResult(table_name="books", _qa_findings=[err])
         result = UpsertResult(tables=[tr])
         out = tmp_path / "failures"
         result.export_failures(out, fmt="json")

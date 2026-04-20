@@ -58,6 +58,7 @@ class PostgresDB:
         self.conn = conn or psycopg2.connect(uri, **kwargs)
         self.encoding = encoding
         self.in_transaction = False
+        self._in_savepoint = False
         self.kwargs = kwargs
         if not self._is_valid_connection():
             raise psycopg2.Error(f"Error connecting to {self.conn.dsn}")
@@ -208,7 +209,8 @@ class PostgresDB:
                     logger.debug(f"\nSQL:\n{sql}\nParameters:\n{params}")
                     curs.execute(sql.encode(self.encoding), params)
         except psycopg2.Error:
-            self.rollback()
+            if not self._in_savepoint:
+                self.rollback()
             raise
         return curs
 

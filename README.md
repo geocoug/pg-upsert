@@ -81,6 +81,11 @@ ups = PgUpsert(
     base_schema="public",
 ).qa_all()
 
+# qa_passed is False only when ERROR-level findings exist.
+# qa_errors returns ERROR findings only (block the upsert).
+# qa_warnings returns WARNING findings only (informational, do not block).
+# qa_findings returns all findings combined.
+# qa_passed may be True while qa_warnings is non-empty.
 if not ups.qa_passed:
     for err in ups.qa_errors:
         print(f"{err.table}: {err.check_type.value} — {err.details}")
@@ -159,6 +164,7 @@ pg-upsert -h localhost -p 5432 -d mydb -u user \
 | `--export-failures`       | Directory to write a QA failure fix sheet into            |
 | `--export-format`         | Fix sheet format: `csv` (default), `json`, or `xlsx`      |
 | `--export-max-rows`       | Max rows to capture per check per table (default 1000)    |
+| `--strict-columns`        | Treat all missing staging columns as errors               |
 | `-f`, `--config-file`     | Path to YAML configuration file                           |
 | `-g`, `--generate-config` | Generate a template config file                           |
 | `-v`, `--version`         | Show version and exit                                     |
@@ -200,6 +206,10 @@ output: "text"  # Options: "text", "json"
 check_schema: false
 compact: false
 ui_mode: "auto"  # Options: "auto", "textual", "tkinter"
+export_failures: null  # Directory to write QA failure fix sheet; null to disable
+export_format: "csv"  # Fix sheet format: "csv", "json", or "xlsx"
+export_max_rows: 1000  # Max rows captured per check per table for the fix sheet
+strict_columns: false  # Treat all missing staging columns as errors
 ```
 
 Run with: `pg-upsert -f config.yaml`
@@ -218,15 +228,15 @@ docker run -it --rm \
 
 pg-upsert runs 7 types of QA checks on staging data before upserting:
 
-| Check                | What it validates                                                                             |
-| -------------------- | --------------------------------------------------------------------------------------------- |
-| **Column Existence** | All base table columns exist in the staging table (respects `--exclude-columns`)              |
-| **Column Type**      | No hard type incompatibilities between staging and base (uses PostgreSQL's `pg_cast` catalog) |
-| **NOT NULL**         | Non-nullable base columns have no NULL values in staging                                      |
-| **Primary Key**      | No duplicate values in PK columns                                                             |
-| **Unique**           | No duplicate values in UNIQUE-constrained columns (NULLs allowed per PostgreSQL semantics)    |
-| **Foreign Key**      | All FK references point to existing rows in the referenced table                              |
-| **Check Constraint** | All CHECK constraint expressions evaluate to true                                             |
+| Check                | What it validates                                                                                                                                   |
+| -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Column Existence** | PK and NOT NULL (no default) columns must exist in staging (error); other missing columns produce warnings. Use `--strict-columns` for strict mode. |
+| **Column Type**      | No hard type incompatibilities between staging and base (uses PostgreSQL's `pg_cast` catalog)                                                       |
+| **NOT NULL**         | Non-nullable base columns have no NULL values in staging                                                                                            |
+| **Primary Key**      | No duplicate values in PK columns                                                                                                                   |
+| **Unique**           | No duplicate values in UNIQUE-constrained columns (NULLs allowed per PostgreSQL semantics)                                                          |
+| **Foreign Key**      | All FK references point to existing rows in the referenced table                                                                                    |
+| **Check Constraint** | All CHECK constraint expressions evaluate to true                                                                                                   |
 
 > [!NOTE]
 > pg-upsert is constraint-driven. Data checks pass vacuously when the

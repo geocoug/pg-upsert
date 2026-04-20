@@ -146,6 +146,26 @@ def print_check_table_pass(
     _file_logger.info(f"  ✓ {counter_log}{schema}.{table}")
 
 
+def print_check_table_warn(
+    schema: str,
+    table: str,
+    message: str,
+    ctx: CheckContext | None = None,
+) -> None:
+    """Print a warning status line for a single table check.
+
+    Args:
+        schema: The staging schema name.
+        table: The table name.
+        message: Short warning description.
+        ctx: Optional progress context with table counter.
+    """
+    counter = f"[dim][{ctx.table_num}/{ctx.total_tables}][/dim] " if ctx else ""
+    counter_log = f"[{ctx.table_num}/{ctx.total_tables}] " if ctx else ""
+    console.print(f"  [bold yellow]⚠[/bold yellow] {counter}{schema}.{table} — {message}")
+    _file_logger.warning(f"  ⚠ {counter_log}{schema}.{table} — {message}")
+
+
 def print_check_table_fail(
     schema: str,
     table: str,
@@ -204,7 +224,9 @@ def _print_qa_summary_panel(
     tables: list[str],
     errors: list[QAError],
 ) -> None:
-    """Default summary: per-table panel with pass/fail + error details."""
+    """Default summary: per-table panel with pass/fail/warn + error details."""
+    from ..models import QASeverity
+
     errors_by_table: dict[str, list[QAError]] = {}
     for err in errors:
         errors_by_table.setdefault(err.table, []).append(err)
@@ -212,45 +234,84 @@ def _print_qa_summary_panel(
     rich_lines: list[Text | str] = []
     log_lines: list[str] = []
     passed = 0
+    warned = 0
     failed = 0
 
     for table in tables:
         table_errors = errors_by_table.get(table, [])
-        if not table_errors:
-            passed += 1
-            line = Text()
-            line.append("  ✓ ", style="bold green")
-            line.append(table)
-            rich_lines.append(line)
-            log_lines.append(f"  [PASS] {table}")
-        else:
+        has_errors = any(e.severity == QASeverity.ERROR for e in table_errors)
+        has_warnings = any(e.severity == QASeverity.WARNING for e in table_errors)
+        if has_errors:
             failed += 1
             line = Text()
             line.append("  ✗ ", style="bold red")
             line.append(table, style="bold")
             rich_lines.append(line)
             log_lines.append(f"  [FAIL] {table}")
-            for err in table_errors:
-                detail = Text()
-                detail.append(f"      {err.check_type.value}: ", style="dim")
-                detail.append(err.details)
-                rich_lines.append(detail)
-                log_lines.append(f"    - {err.check_type.value}: {err.details}")
+        elif has_warnings:
+            warned += 1
+            line = Text()
+            line.append("  ⚠ ", style="bold yellow")
+            line.append(table)
+            rich_lines.append(line)
+            log_lines.append(f"  [WARN] {table}")
+        else:
+            passed += 1
+            line = Text()
+            line.append("  ✓ ", style="bold green")
+            line.append(table)
+            rich_lines.append(line)
+            log_lines.append(f"  [PASS] {table}")
+        # Separate real findings from skip-warnings (checks that crashed
+        # on missing columns and were caught by the savepoint).
+        real_errors = [e for e in table_errors if not e.details.startswith("check skipped:")]
+        skip_errors = [e for e in table_errors if e.details.startswith("check skipped:")]
+        for err in real_errors:
+            tag = err.check_type.value
+            detail = Text()
+            detail.append(f"      {tag}: ", style="dim")
+            detail.append(err.details)
+            rich_lines.append(detail)
+            log_lines.append(f"    - {tag}: {err.details}")
+        if skip_errors:
+            n = len(skip_errors)
+            skip_msg = f"{n} check(s) skipped due to missing columns"
+            detail = Text()
+            detail.append("      skipped: ", style="dim")
+            detail.append(skip_msg)
+            rich_lines.append(detail)
+            log_lines.append(f"    - skipped: {skip_msg}")
 
     # Footer
     rich_lines.append("")
-    if failed == 0:
+    total = passed + warned + failed
+    if failed == 0 and warned == 0:
         footer = Text(f"  All {passed} tables passed QA checks", style="bold green")
         footer_log = f"Result: All {passed} tables passed QA checks"
+    elif failed == 0:
+        footer = Text(
+            f"  {passed} of {total} tables passed, {warned} warned",
+            style="bold yellow",
+        )
+        footer_log = f"Result: {passed} of {total} tables passed, {warned} warned"
     else:
-        footer = Text(f"  {failed} of {passed + failed} tables failed QA checks", style="bold red")
-        footer_log = f"Result: {failed} of {passed + failed} tables failed QA checks"
+        parts = [f"{failed} of {total} tables failed QA checks"]
+        if warned > 0:
+            parts.append(f"{warned} warned")
+        footer = Text(f"  {', '.join(parts)}", style="bold red")
+        footer_log = f"Result: {', '.join(parts)}"
     rich_lines.append(footer)
 
+    if failed > 0:
+        border = "red"
+    elif warned > 0:
+        border = "yellow"
+    else:
+        border = "green"
     panel = Panel(
         Group(*rich_lines),
         title="[bold]QA Results[/bold]",
-        border_style="red" if failed > 0 else "green",
+        border_style=border,
         expand=False,
         padding=(1, 2),
     )
@@ -268,8 +329,8 @@ def _print_qa_summary_compact(
     tables: list[str],
     errors: list[QAError],
 ) -> None:
-    """Compact summary: grid with ✓/✗ per check type per table."""
-    from ..models import QACheckType
+    """Compact summary: grid with ✓/⚠/✗ per check type per table."""
+    from ..models import QACheckType, QASeverity
 
     check_types = [
         ("Col", QACheckType.COLUMN_EXISTENCE),
@@ -281,9 +342,13 @@ def _print_qa_summary_compact(
         ("CK", QACheckType.CHECK_CONSTRAINT),
     ]
 
-    errors_by_table: dict[str, set[QACheckType]] = {}
+    # Build per-table, per-check-type severity map.
+    severity_map: dict[str, dict[QACheckType, QASeverity]] = {}
     for err in errors:
-        errors_by_table.setdefault(err.table, set()).add(err.check_type)
+        current = severity_map.setdefault(err.table, {}).get(err.check_type)
+        # ERROR trumps WARNING.
+        if current is None or err.severity == QASeverity.ERROR:
+            severity_map.setdefault(err.table, {})[err.check_type] = err.severity
 
     t = Table(show_lines=False, pad_edge=True, expand=False, box=None)
     t.add_column("Table", style="bold")
@@ -291,25 +356,41 @@ def _print_qa_summary_compact(
         t.add_column(label, justify="center", width=5)
 
     failed = 0
+    warned = 0
     for table in tables:
-        failed_checks = errors_by_table.get(table, set())
-        if failed_checks:
+        table_sevs = severity_map.get(table, {})
+        has_error = QASeverity.ERROR in table_sevs.values()
+        has_warn = QASeverity.WARNING in table_sevs.values()
+        if has_error:
             failed += 1
+        elif has_warn:
+            warned += 1
         cells = []
         for _label, ct in check_types:
-            if ct in failed_checks:
+            sev = table_sevs.get(ct)
+            if sev == QASeverity.ERROR:
                 cells.append("[bold red]✗[/bold red]")
+            elif sev == QASeverity.WARNING:
+                cells.append("[bold yellow]⚠[/bold yellow]")
             else:
                 cells.append("[green]✓[/green]")
         t.add_row(table, *cells)
 
     console.print()
     console.print(t)
-    passed = len(tables) - failed
-    if failed == 0:
+    passed = len(tables) - failed - warned
+    total = len(tables)
+    if failed == 0 and warned == 0:
         console.print(f"\n  [bold green]All {passed} tables passed QA checks[/bold green]")
+    elif failed == 0:
+        console.print(
+            f"\n  [bold yellow]{passed} of {total} tables passed, {warned} warned[/bold yellow]",
+        )
     else:
-        console.print(f"\n  [bold red]{failed} of {len(tables)} tables failed QA checks[/bold red]")
+        parts = [f"{failed} of {total} tables failed QA checks"]
+        if warned > 0:
+            parts.append(f"{warned} warned")
+        console.print(f"\n  [bold red]{', '.join(parts)}[/bold red]")
 
     # Logfile — simple text grid
     header = f"  {'Table':<20}" + "".join(f"{label:>5}" for label, _ct in check_types)
@@ -317,10 +398,23 @@ def _print_qa_summary_compact(
     _file_logger.info(header)
     _file_logger.info(f"  {'─' * 20}" + "─" * (5 * len(check_types)))
     for table in tables:
-        failed_checks = errors_by_table.get(table, set())
-        cells = "".join("    ✗" if ct in failed_checks else "    ✓" for _label, ct in check_types)
-        _file_logger.info(f"  {table:<20}{cells}")
-    if failed == 0:
+        table_sevs = severity_map.get(table, {})
+        cells_str = ""
+        for _label, ct in check_types:
+            sev = table_sevs.get(ct)
+            if sev == QASeverity.ERROR:
+                cells_str += "    ✗"
+            elif sev == QASeverity.WARNING:
+                cells_str += "    ⚠"
+            else:
+                cells_str += "    ✓"
+        _file_logger.info(f"  {table:<20}{cells_str}")
+    if failed == 0 and warned == 0:
         _file_logger.info(f"Result: All {passed} tables passed QA checks")
+    elif failed == 0:
+        _file_logger.info(f"Result: {passed} of {total} tables passed, {warned} warned")
     else:
-        _file_logger.info(f"Result: {failed} of {len(tables)} tables failed QA checks")
+        parts = [f"{failed} of {total} tables failed QA checks"]
+        if warned > 0:
+            parts.append(f"{warned} warned")
+        _file_logger.info(f"Result: {', '.join(parts)}")

@@ -26,6 +26,8 @@ is active, each error is also populated with per-row `RowViolation`
 objects (for data checks) or `SchemaIssue` objects (for column
 existence and type mismatch checks). These feed the fix-sheet exporter.
 
+::: pg_upsert.QASeverity
+
 ::: pg_upsert.QAError
 
 ::: pg_upsert.QACheckType

@@ -846,10 +846,17 @@ class TestFailingData:
         assert cur.rowcount == 1
 
     def test_failing_column_existence(self, ups_failing):
-        """The failing schema is missing 'notes' column in staging.books."""
+        """The failing schema is missing 'notes' column in staging.books.
+
+        'notes' is nullable with no NOT NULL constraint, so it produces
+        a WARNING (not an ERROR) under the relaxed column check.
+        """
+        from pg_upsert.models import QASeverity
+
         errors = ups_failing._qa.check_column_existence("books")
         assert len(errors) == 1
         assert "notes" in errors[0].details
+        assert errors[0].severity == QASeverity.WARNING
 
     def test_failing_type_mismatch(self, ups_failing):
         """The failing schema has publisher_name as integer in staging (varchar in base)."""
@@ -915,8 +922,13 @@ class TestQAColumnExistence:
     def test_column_existence_detects_missing(self, ups):
         """Without exclude_cols covering the missing columns, they're flagged.
 
+        rev_time and rev_user are nullable with defaults, so they produce
+        a WARNING (not an ERROR) under the relaxed column check.
+
         Temporarily clear the exclude_cols in the control table to simulate.
         """
+        from pg_upsert.models import QASeverity
+
         ups.db.execute(
             SQL("UPDATE {ct} SET exclude_cols = NULL WHERE table_name = {t}").format(
                 ct=Identifier(ups.control_table),
@@ -927,6 +939,42 @@ class TestQAColumnExistence:
         assert len(errors) == 1
         assert "rev_time" in errors[0].details
         assert "rev_user" in errors[0].details
+        assert errors[0].severity == QASeverity.WARNING
+
+    def test_strict_columns_makes_warnings_errors(self, db):
+        """With strict_columns=True, all missing columns become ERROR."""
+        from pg_upsert.models import QASeverity
+
+        ups = PgUpsert(
+            conn=db.conn,
+            tables=("genres",),
+            staging_schema="staging",
+            base_schema="public",
+            do_commit=False,
+            interactive=False,
+            upsert_method="upsert",
+            strict_columns=True,
+        )
+        # genres is missing rev_time and rev_user (nullable with defaults).
+        # Without strict_columns these are warnings; with it they're errors.
+        errors = ups._qa.check_column_existence("genres")
+        assert len(errors) == 1
+        assert errors[0].severity == QASeverity.ERROR
+
+    def test_strict_columns_blocks_qa_passed(self, db):
+        """strict_columns=True should cause qa_passed to be False."""
+        ups = PgUpsert(
+            conn=db.conn,
+            tables=("genres",),
+            staging_schema="staging",
+            base_schema="public",
+            do_commit=False,
+            interactive=False,
+            upsert_method="upsert",
+            strict_columns=True,
+        )
+        ups.qa_column_existence()
+        assert ups.qa_passed is False
 
 
 # ===================================================================
@@ -1384,6 +1432,60 @@ class TestCheckSchemaLive:
 
 
 # ===================================================================
+# Savepoint crash resilience
+# ===================================================================
+
+
+class TestSavepointCrashResilience:
+    def test_missing_column_does_not_abort_pipeline(self, db):
+        """When a check crashes on a missing column, other checks continue."""
+        from pg_upsert.models import QACheckType, QASeverity
+
+        # Drop a column from staging to create a mismatch that will crash
+        # downstream null/PK checks.
+        db.execute("ALTER TABLE staging.genres DROP COLUMN IF EXISTS genre;")
+        ups = PgUpsert(
+            conn=db.conn,
+            tables=("genres",),
+            staging_schema="staging",
+            base_schema="public",
+            do_commit=False,
+            interactive=False,
+            upsert_method="upsert",
+        )
+        # run_all should NOT crash — savepoints catch errors.
+        errors = ups._qa.run_all(["genres"])
+        # Should have column existence error (genre is PK/NOT NULL),
+        # plus skipped-check warnings from downstream checks.
+        assert len(errors) > 1
+        col_errors = [e for e in errors if e.check_type == QACheckType.COLUMN_EXISTENCE]
+        assert any(e.severity == QASeverity.ERROR for e in col_errors)
+        skip_warnings = [e for e in errors if e.details.startswith("check skipped:")]
+        assert len(skip_warnings) > 0
+        assert all(w.severity == QASeverity.WARNING for w in skip_warnings)
+
+    def test_subsequent_checks_run_after_crash(self, db):
+        """After a savepoint-caught crash, later checks for other tables run."""
+        # Drop genre column from staging.genres to cause crashes on genres,
+        # but authors should still be checked normally.
+        db.execute("ALTER TABLE staging.genres DROP COLUMN IF EXISTS genre;")
+        ups = PgUpsert(
+            conn=db.conn,
+            tables=("genres", "authors"),
+            staging_schema="staging",
+            base_schema="public",
+            do_commit=False,
+            interactive=False,
+            upsert_method="upsert",
+        )
+        errors = ups._qa.run_all(["genres", "authors"])
+        # authors should have real check results (not just skipped warnings).
+        author_errors = [e for e in errors if e.table == "authors"]
+        # authors has no data issues in the passing fixture — should be clean.
+        assert all(not e.details.startswith("check skipped:") for e in author_errors)
+
+
+# ===================================================================
 # Violation capture (capture_detail_rows=True) for --export-failures
 # ===================================================================
 
@@ -1455,8 +1557,13 @@ class TestViolationCapture:
             assert v.pk_columns
 
     def test_check_column_existence_captures_schema_issues(self, db_failing):
-        """Missing-column check produces SchemaIssue entries, not violations."""
+        """Missing-column check produces SchemaIssue entries, not violations.
+
+        'description text' is nullable, so it produces a WARNING with schema
+        issues attached.
+        """
         from pg_upsert import PgUpsert
+        from pg_upsert.models import QASeverity
 
         db_failing.execute("ALTER TABLE staging.genres DROP COLUMN IF EXISTS description;")
         db_failing.execute("ALTER TABLE public.genres ADD COLUMN IF NOT EXISTS description text;")
@@ -1475,6 +1582,7 @@ class TestViolationCapture:
         db_failing.execute("ALTER TABLE public.genres DROP COLUMN IF EXISTS description;")
         assert errors, "missing 'description' column should be detected"
         err = errors[0]
+        assert err.severity == QASeverity.WARNING
         assert len(err.schema_issues) > 0
         assert err.violations == []
         for issue in err.schema_issues:
@@ -1537,3 +1645,59 @@ class TestUnconstrainedSchema:
         assert result.qa_passed is True
         assert result.total_updated == 0
         assert result.total_inserted == 0
+
+
+# ===================================================================
+# Property separation: qa_errors, qa_warnings, qa_findings
+# ===================================================================
+
+
+class TestPropertySeparation:
+    def test_qa_warnings_populated_on_missing_nullable_col(self, db):
+        """Missing nullable columns produce qa_warnings, not qa_errors."""
+        # Clear exclude_cols so rev_time/rev_user are detected as missing.
+        ups = PgUpsert(
+            conn=db.conn,
+            tables=("genres",),
+            staging_schema="staging",
+            base_schema="public",
+            do_commit=False,
+            interactive=False,
+            upsert_method="upsert",
+            exclude_cols=(),  # don't exclude anything
+        )
+        ups.qa_column_existence()
+        # rev_time and rev_user are nullable with defaults → warnings
+        assert ups.qa_passed is True
+        assert ups.qa_errors == []
+        assert len(ups.qa_warnings) > 0
+        assert "rev_time" in ups.qa_warnings[0].details
+
+    def test_qa_findings_includes_both(self, db):
+        """qa_findings returns both errors and warnings."""
+        # Drop a PK column to get an error, and rev_time/rev_user give warnings.
+        db.execute("ALTER TABLE staging.genres DROP COLUMN IF EXISTS genre;")
+        ups = PgUpsert(
+            conn=db.conn,
+            tables=("genres",),
+            staging_schema="staging",
+            base_schema="public",
+            do_commit=False,
+            interactive=False,
+            upsert_method="upsert",
+            exclude_cols=(),
+        )
+        ups.qa_column_existence()
+        # genre is NOT NULL/PK → error; rev_time/rev_user → warnings
+        assert len(ups.qa_errors) > 0
+        assert len(ups.qa_warnings) > 0
+        assert len(ups.qa_findings) == len(ups.qa_errors) + len(ups.qa_warnings)
+        assert ups.qa_passed is False
+
+    def test_cleanup_resets_findings(self, ups):
+        """cleanup() should reset qa_passed and all findings."""
+        ups.qa_all()
+        ups.cleanup()
+        assert ups.qa_errors == []
+        assert ups.qa_warnings == []
+        assert ups.qa_findings == []

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 
 from psycopg2.sql import SQL, Identifier, Literal
 
@@ -14,6 +15,7 @@ from .models import (
     PipelineEvent,
     QACheckType,
     QAError,
+    QASeverity,
     RowViolation,
     SchemaIssue,
     UserCancelledError,
@@ -49,6 +51,7 @@ class QARunner:
         ui: UIBackend | None = None,
         capture_detail_rows: bool = False,
         max_export_rows: int = 1000,
+        strict_columns: bool = False,
     ) -> None:
         self.db = db
         self.control = control
@@ -57,6 +60,7 @@ class QARunner:
         self.exclude_null_check_cols: list[str] | tuple[str, ...] = exclude_null_check_cols or ()
         self.capture_detail_rows = capture_detail_rows
         self.max_export_rows = max_export_rows
+        self.strict_columns = strict_columns
         # Cached PK columns per base table for use during row capture.
         self._pk_cols_cache: dict[str, list[str]] = {}
         if ui is None:
@@ -1043,7 +1047,15 @@ class QARunner:
         """Check that all base table columns exist in the staging table.
 
         Columns listed in ``exclude_cols`` for this table are not flagged
-        as missing.
+        as missing.  Missing columns are classified by severity:
+
+        * **ERROR** — primary key columns or ``NOT NULL`` columns with no
+          default (these would cause the upsert to fail).
+        * **WARNING** — all other missing columns (the upsert can proceed
+          without them; they will be skipped).
+
+        When ``strict_columns`` is enabled on the :class:`QARunner`, all
+        missing columns are treated as errors regardless of their constraints.
 
         Args:
             table: The table name to check.
@@ -1062,13 +1074,13 @@ class QARunner:
             # don't inject an empty-string column into the set.
             exclude_cols = [c.strip() for c in spec["exclude_cols"].split(",") if c.strip()]
 
-        # Find base columns missing from staging.
+        # Find base columns missing from staging, with nullability and default info.
         self.db.execute(
             SQL(
                 """
             drop view if exists ups_missing_cols cascade;
             create temporary view ups_missing_cols as
-            select b.column_name
+            select b.column_name, b.is_nullable, b.column_default
             from information_schema.columns b
             where b.table_schema = {base_schema}
                 and b.table_name = {table}
@@ -1093,35 +1105,85 @@ class QARunner:
             display.print_check_table_pass(self.staging_schema, table, ctx=ctx)
             return errors
 
-        # Filter out excluded columns.
-        missing_cols = [row["column_name"] for row in missing_rows if row["column_name"] not in exclude_cols]
-        if not missing_cols:
+        # Filter out excluded columns and build the full missing list.
+        missing_info = [row for row in missing_rows if row["column_name"] not in exclude_cols]
+        if not missing_info:
             display.print_check_table_pass(self.staging_schema, table, ctx=ctx)
             return errors
 
-        err_detail = ", ".join(missing_cols)
-        display.print_check_table_fail(self.staging_schema, table, f"missing columns: {err_detail}", ctx=ctx)
-        self.control.set_qa_errors(table, "column_errors", err_detail)
+        # Classify each missing column as ERROR or WARNING.
+        pk_cols = set(self._get_pk_columns(table))
+        error_cols: list[str] = []
+        warn_cols: list[str] = []
+        for row in missing_info:
+            col = row["column_name"]
+            is_pk = col in pk_cols
+            is_required = row["is_nullable"] == "NO" and row["column_default"] is None
+            if self.strict_columns or is_pk or is_required:
+                error_cols.append(col)
+            else:
+                warn_cols.append(col)
 
-        schema_issues: list[SchemaIssue] = []
-        if self.capture_detail_rows:
-            for c in missing_cols:
-                schema_issues.append(
-                    SchemaIssue(
-                        check_type="column",
-                        column_name=c,
-                        description=f"missing column '{c}'",
-                    ),
-                )
+        # Emit warning for non-critical missing columns.
+        if warn_cols:
+            warn_detail = ", ".join(warn_cols)
+            display.print_check_table_warn(
+                self.staging_schema,
+                table,
+                f"missing columns (skipped): {warn_detail}",
+                ctx=ctx,
+            )
+            schema_issues: list[SchemaIssue] = []
+            if self.capture_detail_rows:
+                for c in warn_cols:
+                    schema_issues.append(
+                        SchemaIssue(
+                            check_type="column",
+                            column_name=c,
+                            description=f"missing column '{c}' (skipped)",
+                        ),
+                    )
+            errors.append(
+                QAError(
+                    table=table,
+                    check_type=QACheckType.COLUMN_EXISTENCE,
+                    details=warn_detail,
+                    severity=QASeverity.WARNING,
+                    schema_issues=schema_issues,
+                ),
+            )
 
-        errors.append(
-            QAError(
-                table=table,
-                check_type=QACheckType.COLUMN_EXISTENCE,
-                details=err_detail,
-                schema_issues=schema_issues,
-            ),
-        )
+        # Emit error for critical missing columns.
+        if error_cols:
+            err_detail = ", ".join(error_cols)
+            display.print_check_table_fail(
+                self.staging_schema,
+                table,
+                f"missing columns: {err_detail}",
+                ctx=ctx,
+            )
+            self.control.set_qa_errors(table, "column_errors", err_detail)
+            schema_issues_err: list[SchemaIssue] = []
+            if self.capture_detail_rows:
+                for c in error_cols:
+                    reason = "primary key" if c in pk_cols else "NOT NULL, no default"
+                    schema_issues_err.append(
+                        SchemaIssue(
+                            check_type="column",
+                            column_name=c,
+                            description=f"missing column '{c}' ({reason})",
+                        ),
+                    )
+            errors.append(
+                QAError(
+                    table=table,
+                    check_type=QACheckType.COLUMN_EXISTENCE,
+                    details=err_detail,
+                    severity=QASeverity.ERROR,
+                    schema_issues=schema_issues_err,
+                ),
+            )
+
         return errors
 
     def check_type_mismatch(self, table: str, ctx: CheckContext | None = None) -> list[QAError]:
@@ -1266,6 +1328,18 @@ class QARunner:
             "Check Constraint": self.check_cks,
         }
 
+        import psycopg2
+
+        check_type_map: dict[str, QACheckType] = {
+            "Column Existence": QACheckType.COLUMN_EXISTENCE,
+            "Column Type": QACheckType.TYPE_MISMATCH,
+            "Non-NULL": QACheckType.NULL,
+            "Primary Key": QACheckType.PRIMARY_KEY,
+            "Unique": QACheckType.UNIQUE,
+            "Foreign Key": QACheckType.FOREIGN_KEY,
+            "Check Constraint": QACheckType.CHECK_CONSTRAINT,
+        }
+
         total_phases = len(check_types)
         for phase_num, (check_label, supports_interactive) in enumerate(check_types, 1):
             display.print_check_start(check_label, phase=phase_num, total_phases=total_phases)
@@ -1274,11 +1348,64 @@ class QARunner:
             total_tables = len(tables)
             for table_num, table in enumerate(tables, 1):
                 ctx = CheckContext(table_num=table_num, total_tables=total_tables)
-                table_errors = (
-                    check_func(table, interactive=interactive, ctx=ctx)  # type: ignore[call-arg]
-                    if supports_interactive
-                    else check_func(table, ctx=ctx)  # type: ignore[call-arg]
-                )
+                # Use a savepoint so that a database error (e.g. querying a
+                # column that doesn't exist in staging) doesn't poison the
+                # transaction for subsequent checks.
+                #
+                # db.execute() normally does a full conn.rollback() on error,
+                # which would destroy the savepoint.  We temporarily set
+                # _in_savepoint so execute() re-raises without rolling back,
+                # letting us ROLLBACK TO SAVEPOINT instead.
+                self.db.execute("SAVEPOINT qa_check")
+                self.db._in_savepoint = True
+                try:
+                    table_errors = (
+                        check_func(table, interactive=interactive, ctx=ctx)  # type: ignore[call-arg]
+                        if supports_interactive
+                        else check_func(table, ctx=ctx)  # type: ignore[call-arg]
+                    )
+                    self.db.execute("RELEASE SAVEPOINT qa_check")
+                except psycopg2.Error as exc:
+                    # Roll back to the savepoint to restore the transaction
+                    # to a clean state, then release it.  We use the raw
+                    # connection cursor because the transaction is in error
+                    # state and db.execute() can't run normal queries until
+                    # the savepoint rollback clears the error.
+                    _raw = self.db.conn.cursor()
+                    _raw.execute("ROLLBACK TO SAVEPOINT qa_check")
+                    _raw.execute("RELEASE SAVEPOINT qa_check")
+                    _raw.close()
+                    msg = str(exc).strip().split("\n")[0]
+                    # Normalize column references in error messages:
+                    # strip SQL table aliases (e.g. "s.", "b.") and
+                    # remove quotes around column names for consistency.
+                    msg = re.sub(r"column \w+\.", "column ", msg)
+                    msg = msg.replace('"', "")
+                    logger.debug(
+                        f"{check_label} check on {self.staging_schema}.{table} failed with database error: {msg}",
+                    )
+                    display.print_check_table_warn(
+                        self.staging_schema,
+                        table,
+                        f"skipped ({msg})",
+                        ctx=ctx,
+                    )
+                    table_errors = [
+                        QAError(
+                            table=table,
+                            check_type=check_type_map[check_label],
+                            details=f"check skipped: {msg}",
+                            severity=QASeverity.WARNING,
+                        ),
+                    ]
+                except UserCancelledError:
+                    # User cancelled an interactive dialog — clean up the
+                    # savepoint and re-raise so the pipeline aborts cleanly.
+                    self.db.execute("ROLLBACK TO SAVEPOINT qa_check")
+                    self.db.execute("RELEASE SAVEPOINT qa_check")
+                    raise
+                finally:
+                    self.db._in_savepoint = False
                 all_errors.extend(table_errors)
             logger.debug(f"{check_label} checks completed in {elapsed_time(start_time)}")
 
@@ -1292,8 +1419,8 @@ class QARunner:
                 event = PipelineEvent(
                     event=CallbackEvent.QA_TABLE_COMPLETE,
                     table=table,
-                    qa_passed=len(table_errors) == 0,
-                    qa_errors=table_errors,
+                    qa_passed=not any(e.severity == QASeverity.ERROR for e in table_errors),
+                    qa_findings=table_errors,
                 )
                 if callback(event) is False:
                     raise UserCancelledError(f"Pipeline aborted by callback after QA for {table}")

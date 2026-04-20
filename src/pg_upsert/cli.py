@@ -235,6 +235,13 @@ def cli(
             help="Maximum rows to capture per check per table for the fix sheet (default 1000).",
         ),
     ] = 1000,
+    strict_columns: Annotated[
+        bool,
+        typer.Option(
+            "--strict-columns",
+            help="Treat all missing staging columns as errors. By default only primary key and NOT NULL (no default) columns are errors; others are warnings.",  # noqa
+        ),
+    ] = False,
 ) -> None:
     args = SimpleNamespace(**locals())
     if args.version:
@@ -290,6 +297,7 @@ def cli(
             "export_failures": None,
             "export_format": "csv",
             "export_max_rows": 1000,
+            "strict_columns": False,
         }
         _path_keys = {"logfile", "export_failures"}
         for key in config:
@@ -421,6 +429,7 @@ def cli(
             compact=args.compact,
             capture_detail_rows=bool(args.export_failures),
             max_export_rows=args.export_max_rows,
+            strict_columns=args.strict_columns,
         )
         if args.check_schema:
             from .ui import display
@@ -442,29 +451,46 @@ def cli(
                 if not table_errs and args.output != "json":
                     display.print_check_table_pass(args.staging_schema, table, ctx=ctx)
                 errors.extend(table_errs)
+            from .models import QASeverity
+
+            _has_errors = any(e.severity == QASeverity.ERROR for e in errors)
             if args.output == "json":
                 import json
 
                 print(
                     json.dumps(
-                        {"schema_compatible": len(errors) == 0, "errors": [e.to_dict() for e in errors]},
+                        {"schema_compatible": not _has_errors, "errors": [e.to_dict() for e in errors]},
                         indent=2,
                     ),
                 )
             else:
+                _n_errors = sum(1 for e in errors if e.severity == QASeverity.ERROR)
+                _n_warnings = sum(1 for e in errors if e.severity == QASeverity.WARNING)
                 display.console.print()
-                if errors:
+                if _n_errors:
                     display.console.print(
-                        f"  [bold red]Schema check failed:[/bold red] {len(errors)} issue(s) found.",
+                        f"  [bold red]Schema check failed:[/bold red] {_n_errors} error(s)"
+                        + (f", {_n_warnings} warning(s)" if _n_warnings else "")
+                        + " found.",
                     )
-                    _fl.error(f"Schema check failed: {len(errors)} issue(s) found.")
+                    _fl.error(
+                        f"Schema check failed: {_n_errors} error(s)"
+                        + (f", {_n_warnings} warning(s)" if _n_warnings else "")
+                        + " found.",
+                    )
+                elif _n_warnings:
+                    display.console.print(
+                        f"  [bold yellow]Schema check passed with warnings:[/bold yellow] "
+                        f"{_n_warnings} warning(s) found.",
+                    )
+                    _fl.warning(f"Schema check passed with warnings: {_n_warnings} warning(s) found.")
                 else:
                     display.console.print(
                         "  [bold green]Schema check passed:[/bold green] "
                         "all staging tables are compatible with base tables.",
                     )
                     _fl.info("Schema check passed: all staging tables are compatible with base tables.")
-            sys.exit(1 if errors else 0)
+            sys.exit(1 if _has_errors else 0)
         result = ups.run()
         if args.output == "json":
             print(result.to_json())

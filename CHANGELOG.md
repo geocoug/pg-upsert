@@ -8,6 +8,25 @@ ______________________________________________________________________
 
 ## [Unreleased]
 
+### Added
+
+- **`QASeverity` enum** (`ERROR` / `WARNING`) added to the public API. Each `QAError` now carries a `severity` field (default `ERROR`), included in `to_dict()` and `--output json`. Programmatic consumers can filter by severity to distinguish blocking errors from informational warnings.
+- **`--strict-columns` CLI flag** and `strict_columns` API parameter. When enabled, all missing staging columns are treated as errors (previous behavior). Defaults to `False`.
+
+### Changed
+
+- **`qa_errors`, `qa_warnings`, and `qa_findings` are now filtered properties.** On `TableResult`, `UpsertResult`, and `PipelineEvent`, `qa_errors` returns ERROR-severity findings only (those that block the upsert). `qa_warnings` returns WARNING-severity findings only. `qa_findings` returns all findings combined. Previously `qa_errors` held every finding regardless of severity. The `--output json` response now includes separate `qa_errors` and `qa_warnings` arrays per table; the previous `qa_errors` array in that output now contains only ERROR-level items. `PipelineEvent.qa_findings` replaces what was formerly stored in `PipelineEvent.qa_errors`.
+- **Column existence checks are now severity-aware.** Missing primary key columns and `NOT NULL` columns without a default are errors (they would cause the upsert to fail). All other missing columns produce warnings instead of errors. Warnings do not block `qa_passed` or the upsert pipeline. Use `--strict-columns` to restore the previous strict behavior.
+- **QA checks use savepoints for crash resilience.** Each per-table check runs inside a PostgreSQL savepoint. If a check crashes (e.g. querying a column that doesn't exist in staging), the savepoint is rolled back, a warning is emitted, and subsequent checks continue normally. Previously a database error would abort the entire QA pipeline.
+- **QA summary displays three states.** The summary panel and compact grid now show pass (green `✓`), warning (yellow `⚠`), and failure (red `✗`) indicators. The footer line reports passed, warned, and failed counts separately.
+- **`--check-schema` exit code respects severity.** The command now exits 0 when only warnings are present (previously any missing column caused exit 1).
+
+### Fixed
+
+- **Database crash when staging table is missing columns.** Non-NULL, PK, FK, and check constraint checks queried columns from the base schema definition against the staging table without verifying the column existed in staging. This caused `column "X" does not exist` errors that aborted the entire QA pipeline. Each check now runs inside a savepoint — if it crashes, the error is caught, a warning is emitted, and subsequent checks continue.
+- **`TableResult.qa_passed` and `PipelineEvent.qa_passed` were severity-blind.** Both used `len(errors) == 0`, causing `UpsertResult.qa_passed` to return `False` and the CLI to exit 1 even after a successful commit when only warnings were present. They now filter to ERROR severity only, matching `PgUpsert._update_qa_passed()`.
+- **`strict_columns` config file key was not recognized.** The CLI now accepts `strict_columns` in YAML config files (previously logged "Invalid configuration key will be ignored").
+
 ______________________________________________________________________
 
 ## [1.21.0] - 2026-04-09

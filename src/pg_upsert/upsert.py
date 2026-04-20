@@ -14,6 +14,7 @@ from .models import (
     CheckContext,
     PipelineCallback,
     QAError,
+    QASeverity,
     TableResult,
     UpsertResult,
     UserCancelledError,
@@ -61,6 +62,7 @@ class PgUpsert:
         callback (PipelineCallback or None, optional): Optional callable invoked at key pipeline events (``QA_TABLE_COMPLETE``, ``UPSERT_TABLE_COMPLETE``). Receives a :class:`PipelineEvent`. Returning ``False`` aborts the pipeline and triggers a rollback. Defaults to ``None``.
         capture_detail_rows (bool, optional): If ``True``, each QA check captures the actual violating staging rows onto ``QAError.violations`` / ``QAError.schema_issues`` so they can be exported by :meth:`UpsertResult.export_failures`. Adds extra queries per check and is only enabled automatically when ``--export-failures`` is passed on the CLI. Defaults to ``False``.
         max_export_rows (int, optional): Maximum number of violating rows captured per check per table when ``capture_detail_rows=True``. Applied as a SQL ``LIMIT`` on each detail query. Defaults to ``1000``.
+        strict_columns (bool, optional): If ``True``, treat all missing staging columns as errors during column existence checks. By default only primary key columns and ``NOT NULL`` columns without a default are errors; other missing columns produce warnings. Defaults to ``False``.
 
     Example:
 
@@ -134,6 +136,7 @@ class PgUpsert:
         callback: PipelineCallback | None = None,
         capture_detail_rows: bool = False,
         max_export_rows: int = 1000,
+        strict_columns: bool = False,
     ):
         if upsert_method not in self._upsert_methods():
             raise ValueError(
@@ -169,7 +172,7 @@ class PgUpsert:
         self.control_table = control_table
         self.compact = compact
         self.qa_passed = False
-        self.qa_errors: list[QAError] = []
+        self._qa_findings: list[QAError] = []
         self._callback = callback
 
         # Validate schemas once (not twice — bug fix).
@@ -190,6 +193,7 @@ class PgUpsert:
             ui=self._ui,
             capture_detail_rows=capture_detail_rows,
             max_export_rows=max_export_rows,
+            strict_columns=strict_columns,
         )
         self._executor = UpsertExecutor(
             db=self.db,
@@ -206,6 +210,26 @@ class PgUpsert:
             exclude_null_check_cols=list(exclude_null_check_cols) if exclude_null_check_cols else None,
             interactive=interactive,
         )
+
+    @property
+    def qa_errors(self) -> list[QAError]:
+        """ERROR-level QA findings only — issues that blocked the upsert.
+
+        This is the backwards-compatible view: it contains the same items
+        that ``qa_errors`` contained before severity was introduced.  Use
+        :attr:`qa_findings` for the full list (errors + warnings).
+        """
+        return [e for e in self._qa_findings if e.severity == QASeverity.ERROR]
+
+    @property
+    def qa_warnings(self) -> list[QAError]:
+        """WARNING-level QA findings only — informational, did not block the upsert."""
+        return [e for e in self._qa_findings if e.severity == QASeverity.WARNING]
+
+    @property
+    def qa_findings(self) -> list[QAError]:
+        """All QA findings (errors and warnings combined)."""
+        return list(self._qa_findings)
 
     @staticmethod
     def _upsert_methods() -> tuple[str, str, str]:
@@ -237,7 +261,7 @@ class PgUpsert:
         self.db.execute(SQL("DROP TABLE IF EXISTS {} CASCADE").format(Identifier(self.control_table)))
         # Reset pipeline state so the instance isn't left with stale results.
         self.qa_passed = False
-        self.qa_errors = []
+        self._qa_findings = []
         # Invalidate the per-table PK column cache so a subsequent run
         # after a schema change doesn't return stale PKs.
         self._qa._pk_cols_cache.clear()
@@ -425,31 +449,31 @@ class PgUpsert:
         """  # noqa: E501
         self._validate_control()
         self._control.clear_results()
-        self.qa_errors = self._qa.run_all(
+        self._qa_findings = self._qa.run_all(
             list(self.tables),
             interactive=self.interactive,
             compact=self.compact,
             callback=self._callback,
         )
-        if not self._control.has_errors():
-            self.qa_passed = True
+        self._update_qa_passed()
         return self
 
     def _update_qa_passed(self) -> None:
         """Recalculate ``qa_passed`` from current error state.
 
-        Sets ``qa_passed`` to ``True`` when no QA errors have been recorded.
+        Sets ``qa_passed`` to ``True`` when no ERROR-level QA errors have
+        been recorded.  Warnings do not block the upsert.
         Called automatically by every step-by-step ``qa_*`` method so that
         ``commit()`` and ``upsert_all()`` honour the result.
         """
-        self.qa_passed = len(self.qa_errors) == 0
+        self.qa_passed = not any(e.severity == QASeverity.ERROR for e in self._qa_findings)
 
     def qa_all_null(self: PgUpsert) -> PgUpsert:
         """Performs null checks for non-null columns in selected staging tables."""
         total = len(self.tables)
         for i, table in enumerate(self.tables, 1):
             ctx = CheckContext(table_num=i, total_tables=total)
-            self.qa_errors.extend(self._qa.check_nulls(table, ctx=ctx))
+            self._qa_findings.extend(self._qa.check_nulls(table, ctx=ctx))
         self._update_qa_passed()
         return self
 
@@ -460,7 +484,7 @@ class PgUpsert:
             table (str): The name of the staging table to check for null values.
         """
         self._validate_table(table)
-        self.qa_errors.extend(self._qa.check_nulls(table))
+        self._qa_findings.extend(self._qa.check_nulls(table))
         self._update_qa_passed()
         return self
 
@@ -469,7 +493,7 @@ class PgUpsert:
         total = len(self.tables)
         for i, table in enumerate(self.tables, 1):
             ctx = CheckContext(table_num=i, total_tables=total)
-            self.qa_errors.extend(self._qa.check_pks(table, interactive=self.interactive, ctx=ctx))
+            self._qa_findings.extend(self._qa.check_pks(table, interactive=self.interactive, ctx=ctx))
         self._update_qa_passed()
         return self
 
@@ -480,7 +504,7 @@ class PgUpsert:
             table (str): The name of the staging table to check for duplicate primary key values.
         """
         self._validate_table(table)
-        self.qa_errors.extend(self._qa.check_pks(table, interactive=self.interactive))
+        self._qa_findings.extend(self._qa.check_pks(table, interactive=self.interactive))
         self._update_qa_passed()
         return self
 
@@ -489,7 +513,7 @@ class PgUpsert:
         total = len(self.tables)
         for i, table in enumerate(self.tables, 1):
             ctx = CheckContext(table_num=i, total_tables=total)
-            self.qa_errors.extend(self._qa.check_fks(table, interactive=self.interactive, ctx=ctx))
+            self._qa_findings.extend(self._qa.check_fks(table, interactive=self.interactive, ctx=ctx))
         self._update_qa_passed()
         return self
 
@@ -500,7 +524,7 @@ class PgUpsert:
             table (str): The name of the staging table to check for invalid foreign key values.
         """
         self._validate_table(table)
-        self.qa_errors.extend(self._qa.check_fks(table, interactive=self.interactive))
+        self._qa_findings.extend(self._qa.check_fks(table, interactive=self.interactive))
         self._update_qa_passed()
         return self
 
@@ -509,7 +533,7 @@ class PgUpsert:
         total = len(self.tables)
         for i, table in enumerate(self.tables, 1):
             ctx = CheckContext(table_num=i, total_tables=total)
-            self.qa_errors.extend(self._qa.check_cks(table, ctx=ctx))
+            self._qa_findings.extend(self._qa.check_cks(table, ctx=ctx))
         self._update_qa_passed()
         return self
 
@@ -520,7 +544,7 @@ class PgUpsert:
             table (str): The name of the staging table to check for invalid check constraint values.
         """
         self._validate_table(table)
-        self.qa_errors.extend(self._qa.check_cks(table))
+        self._qa_findings.extend(self._qa.check_cks(table))
         self._update_qa_passed()
         return self
 
@@ -529,7 +553,7 @@ class PgUpsert:
         total = len(self.tables)
         for i, table in enumerate(self.tables, 1):
             ctx = CheckContext(table_num=i, total_tables=total)
-            self.qa_errors.extend(self._qa.check_unique(table, interactive=self.interactive, ctx=ctx))
+            self._qa_findings.extend(self._qa.check_unique(table, interactive=self.interactive, ctx=ctx))
         self._update_qa_passed()
         return self
 
@@ -540,7 +564,7 @@ class PgUpsert:
             table (str): The name of the staging table to check.
         """
         self._validate_table(table)
-        self.qa_errors.extend(self._qa.check_unique(table, interactive=self.interactive))
+        self._qa_findings.extend(self._qa.check_unique(table, interactive=self.interactive))
         self._update_qa_passed()
         return self
 
@@ -552,7 +576,7 @@ class PgUpsert:
         total = len(self.tables)
         for i, table in enumerate(self.tables, 1):
             ctx = CheckContext(table_num=i, total_tables=total)
-            self.qa_errors.extend(self._qa.check_column_existence(table, ctx=ctx))
+            self._qa_findings.extend(self._qa.check_column_existence(table, ctx=ctx))
         self._update_qa_passed()
         return self
 
@@ -564,7 +588,7 @@ class PgUpsert:
         total = len(self.tables)
         for i, table in enumerate(self.tables, 1):
             ctx = CheckContext(table_num=i, total_tables=total)
-            self.qa_errors.extend(self._qa.check_type_mismatch(table, ctx=ctx))
+            self._qa_findings.extend(self._qa.check_type_mismatch(table, ctx=ctx))
         self._update_qa_passed()
         return self
 
@@ -669,7 +693,7 @@ class PgUpsert:
 
         # Reset qa_passed and reinitialise the control table for a fresh run.
         self.qa_passed = False
-        self.qa_errors = []
+        self._qa_findings = []
         self._init_ups_control()
 
         committed = False
@@ -677,14 +701,13 @@ class PgUpsert:
 
         try:
             self._control.clear_results()
-            self.qa_errors = self._qa.run_all(
+            self._qa_findings = self._qa.run_all(
                 list(self.tables),
                 interactive=self.interactive,
                 compact=self.compact,
                 callback=self._callback,
             )
-            if not self._control.has_errors():
-                self.qa_passed = True
+            self._update_qa_passed()
             if self.qa_passed:
                 table_results = self._executor.upsert_all(
                     list(self.tables),
@@ -713,7 +736,7 @@ class PgUpsert:
 
         # Merge QA errors into table results.
         error_map: dict[str, list[QAError]] = {}
-        for err in self.qa_errors:
+        for err in self._qa_findings:
             error_map.setdefault(err.table, []).append(err)
 
         # Build a TableResult for every table (including QA-only runs).
@@ -721,7 +744,7 @@ class PgUpsert:
         for table in self.tables:
             if table not in result_map:
                 result_map[table] = TableResult(table_name=table)
-            result_map[table].qa_errors = error_map.get(table, [])
+            result_map[table]._qa_findings = error_map.get(table, [])
 
         duration_seconds = (end_time - start_time).total_seconds()
         return UpsertResult(
