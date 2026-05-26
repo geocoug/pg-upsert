@@ -8,6 +8,10 @@ ______________________________________________________________________
 
 ## [Unreleased]
 
+______________________________________________________________________
+
+## [1.22.1] - 2026-05-26
+
 ### Changed
 
 - **Upper bounds removed from `typer` and `pyyaml` dependencies.** Both are now pinned only by a lower bound (`typer>=0.15`, `pyyaml>=6.0.1`) so downstream projects can pick up newer releases without resolver conflicts. Resolved versions in the lock file move to `typer 0.26.x` and `pyyaml 6.0.3`.
