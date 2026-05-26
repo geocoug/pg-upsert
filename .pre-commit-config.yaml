@@ -18,7 +18,7 @@ repos:
       - id: gitleaks
   # uv lockfile management
   - repo: https://github.com/astral-sh/uv-pre-commit
-    rev: 0.11.1
+    rev: 0.11.16
     hooks:
       - id: uv-lock
   # Base hooks
@@ -60,12 +60,12 @@ repos:
         args: [--disable, MD013]
   # Spell check
   - repo: https://github.com/crate-ci/typos
-    rev: v1.44.0
+    rev: v1
     hooks:
       - id: typos
   # Lint & format with ruff
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.15.7
+    rev: v0.15.14
     hooks:
       - id: ruff-check
         args: [--config=pyproject.toml, --exit-non-zero-on-fix]
