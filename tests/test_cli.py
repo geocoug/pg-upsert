@@ -35,7 +35,9 @@ def pg_upsert_cli(command_string):
 class TestCliExitZero:
     def test_no_args_shows_help(self):
         result = runner.invoke(app, [])
-        assert result.exit_code == 0
+        # click >= 8.2 exits with code 2 (usage error) when no_args_is_help fires;
+        # the help text is still shown.
+        assert result.exit_code == 2
         assert "Usage:" in result.stdout
 
     def test_help(self):
@@ -94,7 +96,8 @@ class TestCliMissingArgs:
     def test_missing_required_args(self, missing_flag, expected_msg):
         result = runner.invoke(app, shlex.split(missing_flag))
         assert result.exit_code == 1
-        assert expected_msg in result.stdout
+        # Error messages are emitted on stderr via Rich's stderr console.
+        assert expected_msg in result.stderr
 
 
 # ---------------------------------------------------------------------------
@@ -141,7 +144,7 @@ class TestCliConfigFile:
         config_file.write_text(yaml.dump(config))
         result = runner.invoke(app, ["-f", str(config_file)])
         assert result.exit_code == 1
-        assert expected_msg in result.stdout
+        assert expected_msg in result.stderr
 
     def test_config_file_invalid_key_ignored(self, tmp_path):
         config = {

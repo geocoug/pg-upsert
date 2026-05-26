@@ -8,6 +8,11 @@ ______________________________________________________________________
 
 ## [Unreleased]
 
+### Changed
+
+- **Upper bounds removed from `typer` and `pyyaml` dependencies.** Both are now pinned only by a lower bound (`typer>=0.15`, `pyyaml>=6.0.1`) so downstream projects can pick up newer releases without resolver conflicts. Resolved versions in the lock file move to `typer 0.26.x` and `pyyaml 6.0.3`.
+- **CLI exit code when invoked with no arguments is now `2` (was `0`).** Click 8.2+ standardized `no_args_is_help` to exit with the usage-error code; the help text is still printed. Scripts that previously checked `pg-upsert; echo $?` for `0` on a bare invocation must be updated.
+
 ______________________________________________________________________
 
 ## [1.22.0] - 2026-04-20
