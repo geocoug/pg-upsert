@@ -71,6 +71,27 @@ def _no_interactive_getpass(monkeypatch):
     monkeypatch.setattr(getpass, "getpass", lambda *args, **kwargs: "test_password")
 
 
+@pytest.fixture(autouse=True)
+def _no_real_db_connections(request, monkeypatch):
+    """Keep unit tests hermetic — never open a real database connection.
+
+    Several CLI tests run the command to the point of a connection attempt
+    (asserting it "fails at connection").  Against a host with no listening
+    server that connect returns instantly on Linux/macOS but can stall for
+    minutes on Windows CI, blowing past the job timeout.  For any test NOT
+    marked ``postgres`` (the integration marker), stub ``psycopg.connect`` to
+    fail fast so the connection-failure path is exercised deterministically.
+    Integration tests keep the real ``connect``.
+    """
+    if request.node.get_closest_marker("postgres"):
+        return
+
+    def _refuse(*args, **kwargs):
+        raise psycopg.OperationalError("database connections are disabled in unit tests")
+
+    monkeypatch.setattr(psycopg, "connect", _refuse)
+
+
 # ---------------------------------------------------------------------------
 # Pytest hooks & markers
 # ---------------------------------------------------------------------------
