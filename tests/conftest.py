@@ -9,6 +9,7 @@ unit-level tests still run locally without Docker.
 
 from __future__ import annotations
 
+import getpass
 import os
 from pathlib import Path
 
@@ -50,6 +51,24 @@ def _pg_available() -> bool:
 
 
 PG_AVAILABLE = _pg_available()
+
+
+# ---------------------------------------------------------------------------
+# Safety nets
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(autouse=True)
+def _no_interactive_getpass(monkeypatch):
+    """Never let a test block on an interactive password prompt.
+
+    ``PostgresDB`` falls back to ``getpass.getpass()`` when no password is
+    supplied via the URI or ``PGPASSWORD``.  On a headless runner that call
+    blocks forever (notably on Windows, where ``getpass`` reads the console
+    directly and ignores redirected stdin), which hangs the whole CI job.
+    Stub it out globally so any unmocked CLI path returns immediately.
+    """
+    monkeypatch.setattr(getpass, "getpass", lambda *args, **kwargs: "test_password")
 
 
 # ---------------------------------------------------------------------------
