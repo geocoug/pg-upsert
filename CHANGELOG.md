@@ -12,6 +12,10 @@ ______________________________________________________________________
 
 - **Migrated the database driver from psycopg2 to psycopg (psycopg 3).** The dependency changed from `psycopg2-binary>=2.9,<3` to `psycopg[binary]>=3.1,<4`. Internally, `PostgresDB` now uses psycopg 3 APIs (`psycopg.connect`, `conn.info.dsn`, `conn.info.get_parameters()`, `conn.autocommit`, and a `SET client_encoding` statement in place of `set_client_encoding`). **Breaking for callers using the `conn=` parameter:** a connection passed to `PgUpsert(conn=...)` / `PostgresDB(conn=...)` must now be a psycopg 3 connection (`psycopg.connect(...)`) rather than a psycopg2 connection. The public API (constructor, `qa_all()/upsert_all()/run()/commit()`, `qa_passed`, return values) is otherwise unchanged.
 
+### Fixed
+
+- **`CustomLogFormatter` no longer mutates the shared log record.** The debug log formatter rewrote `record.lineno` (to a padded string), `record.name`, and `record.levelname` in place. Because Python's logging passes the same record object to every handler, this corrupted formatting for any other handler on the chain — e.g. a configured logfile handler or an outer capture handler could receive a non-integer `lineno` and ANSI color codes. The formatter now works on a copy, leaving the original record intact.
+
 ______________________________________________________________________
 
 ## [1.22.1] - 2026-05-26
