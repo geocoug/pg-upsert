@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 
-from psycopg2.sql import SQL, Identifier, Literal
+from psycopg.sql import SQL, Identifier, Literal
 
 from .postgres import PostgresDB
 from .ui import UIBackend, display

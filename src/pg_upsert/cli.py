@@ -9,7 +9,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Annotated
 
-import psycopg2
+import psycopg
 import typer
 import yaml
 from rich import print as rprint
@@ -512,7 +512,7 @@ def cli(
             sys.exit(1)
     except UserCancelledError:
         sys.exit(0)
-    except (ValueError, psycopg2.Error, OSError, yaml.YAMLError) as e:
+    except (ValueError, psycopg.Error, OSError, yaml.YAMLError) as e:
         from .ui import display
 
         display.console.print(f"  [bold red]Error:[/bold red] {e}")

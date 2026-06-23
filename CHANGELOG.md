@@ -8,6 +8,10 @@ ______________________________________________________________________
 
 ## [Unreleased]
 
+### Changed
+
+- **Migrated the database driver from psycopg2 to psycopg (psycopg 3).** The dependency changed from `psycopg2-binary>=2.9,<3` to `psycopg[binary]>=3.1,<4`. Internally, `PostgresDB` now uses psycopg 3 APIs (`psycopg.connect`, `conn.info.dsn`, `conn.info.get_parameters()`, `conn.autocommit`, and a `SET client_encoding` statement in place of `set_client_encoding`). **Breaking for callers using the `conn=` parameter:** a connection passed to `PgUpsert(conn=...)` / `PostgresDB(conn=...)` must now be a psycopg 3 connection (`psycopg.connect(...)`) rather than a psycopg2 connection. The public API (constructor, `qa_all()/upsert_all()/run()/commit()`, `qa_passed`, return values) is otherwise unchanged.
+
 ______________________________________________________________________
 
 ## [1.22.1] - 2026-05-26

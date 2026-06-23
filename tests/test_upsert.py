@@ -10,7 +10,7 @@ from __future__ import annotations
 from unittest.mock import patch
 
 import pytest
-from psycopg2.sql import SQL, Identifier, Literal
+from psycopg.sql import SQL, Identifier, Literal
 
 from pg_upsert.models import UpsertResult
 from pg_upsert.upsert import PgUpsert, UserCancelledError
@@ -1010,7 +1010,7 @@ class TestFacadeMethods:
 
     def test_qa_all_null_passing_data_no_errors(self, ups):
         ups.qa_all_null()
-        from psycopg2.sql import SQL, Identifier
+        from psycopg.sql import SQL, Identifier
 
         cur = ups.db.execute(
             SQL("SELECT COUNT(*) FROM {ct} WHERE null_errors IS NOT NULL").format(
@@ -1025,7 +1025,7 @@ class TestFacadeMethods:
 
     def test_qa_all_unique_passing_data_no_errors(self, ups):
         ups.qa_all_unique()
-        from psycopg2.sql import SQL, Identifier
+        from psycopg.sql import SQL, Identifier
 
         cur = ups.db.execute(
             SQL("SELECT COUNT(*) FROM {ct} WHERE unique_errors IS NOT NULL").format(
@@ -1040,7 +1040,7 @@ class TestFacadeMethods:
 
     def test_qa_column_existence_passing_data_no_errors(self, ups):
         ups.qa_column_existence()
-        from psycopg2.sql import SQL, Identifier
+        from psycopg.sql import SQL, Identifier
 
         cur = ups.db.execute(
             SQL("SELECT COUNT(*) FROM {ct} WHERE column_errors IS NOT NULL").format(
@@ -1055,7 +1055,7 @@ class TestFacadeMethods:
 
     def test_qa_type_mismatch_passing_data_no_errors(self, ups):
         ups.qa_type_mismatch()
-        from psycopg2.sql import SQL, Identifier
+        from psycopg.sql import SQL, Identifier
 
         cur = ups.db.execute(
             SQL("SELECT COUNT(*) FROM {ct} WHERE type_errors IS NOT NULL").format(
@@ -1070,7 +1070,7 @@ class TestFacadeMethods:
 
     def test_qa_all_pk_passing_data_no_errors(self, ups):
         ups.qa_all_pk()
-        from psycopg2.sql import SQL, Identifier
+        from psycopg.sql import SQL, Identifier
 
         cur = ups.db.execute(
             SQL("SELECT COUNT(*) FROM {ct} WHERE pk_errors IS NOT NULL").format(
@@ -1085,7 +1085,7 @@ class TestFacadeMethods:
 
     def test_qa_all_fk_passing_data_no_errors(self, ups):
         ups.qa_all_fk()
-        from psycopg2.sql import SQL, Identifier
+        from psycopg.sql import SQL, Identifier
 
         cur = ups.db.execute(
             SQL("SELECT COUNT(*) FROM {ct} WHERE fk_errors IS NOT NULL").format(
@@ -1100,7 +1100,7 @@ class TestFacadeMethods:
 
     def test_qa_all_ck_passing_data_no_errors(self, ups):
         ups.qa_all_ck()
-        from psycopg2.sql import SQL, Identifier
+        from psycopg.sql import SQL, Identifier
 
         cur = ups.db.execute(
             SQL("SELECT COUNT(*) FROM {ct} WHERE ck_errors IS NOT NULL").format(

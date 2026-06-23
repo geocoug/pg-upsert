@@ -12,7 +12,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-import psycopg2
+import psycopg
 import pytest
 from dotenv import load_dotenv
 
@@ -42,7 +42,7 @@ def _pg_uri() -> str:
 def _pg_available() -> bool:
     """Return True if a Postgres server is reachable."""
     try:
-        conn = psycopg2.connect(_pg_uri())
+        conn = psycopg.connect(_pg_uri())
         conn.close()
         return True
     except Exception:

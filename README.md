@@ -51,10 +51,10 @@ print(result.to_json())       # JSON serialization for CI/CD
 Using an existing connection:
 
 ```python
-import psycopg2
+import psycopg
 from pg_upsert import PgUpsert
 
-conn = psycopg2.connect(host="localhost", port=5432, dbname="mydb", user="user", password="pass")
+conn = psycopg.connect(host="localhost", port=5432, dbname="mydb", user="user", password="pass")
 
 ups = PgUpsert(
     conn=conn,
@@ -264,7 +264,7 @@ PGPASSWORD=secret pg-upsert -h host -d db -u user \
   --output json --commit
 ```
 
-pg-upsert also supports PostgreSQL's [`.pgpass`](https://www.postgresql.org/docs/current/libpq-pgpass.html) file via psycopg2.
+pg-upsert also supports PostgreSQL's [`.pgpass`](https://www.postgresql.org/docs/current/libpq-pgpass.html) file via psycopg (libpq).
 
 ## Exit Codes
 

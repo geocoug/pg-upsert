@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import re
 
-from psycopg2.sql import SQL, Identifier, Literal
+from psycopg.sql import SQL, Identifier, Literal
 
 from .control import ControlTable
 from .models import (
@@ -1328,7 +1328,7 @@ class QARunner:
             "Check Constraint": self.check_cks,
         }
 
-        import psycopg2
+        import psycopg
 
         check_type_map: dict[str, QACheckType] = {
             "Column Existence": QACheckType.COLUMN_EXISTENCE,
@@ -1365,7 +1365,7 @@ class QARunner:
                         else check_func(table, ctx=ctx)  # type: ignore[call-arg]
                     )
                     self.db.execute("RELEASE SAVEPOINT qa_check")
-                except psycopg2.Error as exc:
+                except psycopg.Error as exc:
                     # Roll back to the savepoint to restore the transaction
                     # to a clean state, then release it.  We use the raw
                     # connection cursor because the transaction is in error
