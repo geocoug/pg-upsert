@@ -128,7 +128,7 @@ def _build_fix_sheet(
         by_pk.setdefault(v.pk_values, []).append(v)
 
     # Determine column order from the first violation's row_data.
-    # psycopg2 returns columns in SELECT order (table's declared order
+    # psycopg returns columns in SELECT order (table's declared order
     # for SELECT *), so row_data insertion order is the column order.
     first_violation = next(iter(by_pk.values()))[0]
     first_row = first_violation.row_data

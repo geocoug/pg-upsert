@@ -24,7 +24,7 @@ classifiers = [
     "License :: OSI Approved :: GNU Lesser General Public License v3 (LGPLv3)",
 ]
 dependencies = [
-    "psycopg2-binary>=2.9,<3",
+    "psycopg[binary]>=3.1,<4",
     "pyyaml>=6.0.1",
     "rich>=13.0",
     "typer>=0.15",
@@ -39,7 +39,10 @@ dev = [
     "bump-my-version",
     "mkdocstrings-python",
     "pre-commit",
-    "pytest",
+    # Stopgap: pytest 9.1 changed capture/fd handling and breaks typer's
+    # CliRunner stream capture (test_cli.py -> "I/O operation on closed file",
+    # which cascades into test_export). Proper fix tracked in a follow-up PR.
+    "pytest<9.1",
     "pytest-cov",
     "python-dotenv",
     "ruff",

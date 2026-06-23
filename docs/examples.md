@@ -299,10 +299,10 @@ result = PgUpsert(..., callback=abort_on_failure).run()
 pg-upsert creates temporary tables and views (all prefixed with `ups_`) during its pipeline. These are session-scoped and normally dropped when the connection closes. For long-lived connections, use `cleanup()` to drop them explicitly:
 
 ```python
-import psycopg2
+import psycopg
 from pg_upsert import PgUpsert
 
-conn = psycopg2.connect(...)
+conn = psycopg.connect(...)
 
 ups = PgUpsert(conn=conn, tables=("books",), staging_schema="staging", base_schema="public")
 result = ups.run()

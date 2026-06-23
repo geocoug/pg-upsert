@@ -9,9 +9,9 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-import psycopg2
+import psycopg
 import pytest
-from psycopg2.sql import SQL, Identifier, Literal
+from psycopg.sql import SQL, Identifier, Literal
 
 from pg_upsert import PostgresDB
 
@@ -26,7 +26,7 @@ class TestPostgresDBInit:
             PostgresDB()
 
     def test_bad_uri_raises(self):
-        with pytest.raises(psycopg2.Error):
+        with pytest.raises(psycopg.Error):
             PostgresDB(uri="postgresql://nouser:nopass@127.0.0.1:59999/nodb")
 
     def test_conn_and_uri_prefers_conn(self):
@@ -37,7 +37,7 @@ class TestPostgresDBInit:
         mock_conn.cursor.return_value.__enter__ = MagicMock(return_value=mock_cursor)
         mock_conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
         mock_conn.get_dsn_parameters.return_value = {"host": "localhost"}
-        with patch("psycopg2.connect") as mock_connect:
+        with patch("psycopg.connect") as mock_connect:
             db = PostgresDB(uri="postgresql://fake", conn=mock_conn)
             mock_connect.assert_not_called()
             assert db.conn is mock_conn
@@ -46,7 +46,7 @@ class TestPostgresDBInit:
         """If URI has no password, getpass is called."""
         with (
             patch("getpass.getpass", return_value="secret") as mock_gp,
-            patch("psycopg2.connect") as mock_connect,
+            patch("psycopg.connect") as mock_connect,
         ):
             mock_conn = MagicMock()
             mock_conn.closed = False
@@ -59,7 +59,7 @@ class TestPostgresDBInit:
 
     def test_password_present_no_prompt(self):
         """If URI already contains a password, getpass is NOT called."""
-        with patch("getpass.getpass") as mock_gp, patch("psycopg2.connect") as mock_connect:
+        with patch("getpass.getpass") as mock_gp, patch("psycopg.connect") as mock_connect:
             mock_conn = MagicMock()
             mock_conn.closed = False
             mock_cursor = MagicMock()
@@ -82,7 +82,7 @@ class TestPostgresDBRepr:
     def test_repr_with_conn(self):
         mock_conn = MagicMock()
         mock_conn.closed = False
-        mock_conn.get_dsn_parameters.return_value = {"host": "localhost", "dbname": "test"}
+        mock_conn.info.get_parameters.return_value = {"host": "localhost", "dbname": "test"}
         mock_cursor = MagicMock()
         mock_conn.cursor.return_value.__enter__ = MagicMock(return_value=mock_cursor)
         mock_conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
@@ -178,7 +178,7 @@ class TestPostgresDBIntegration:
         db.close()
 
     def test_connect_with_existing_conn(self, global_variables):
-        conn = psycopg2.connect(global_variables["URI"])
+        conn = psycopg.connect(global_variables["URI"])
         db = PostgresDB(conn=conn)
         assert db.conn is conn
         db.close()
@@ -231,7 +231,7 @@ class TestPostgresDBIntegration:
         assert rows_list[0]["one"] == 99
 
     def test_execute_rollback_on_error(self, db):
-        with pytest.raises(psycopg2.errors.UndefinedTable):
+        with pytest.raises(psycopg.errors.UndefinedTable):
             db.execute("SELECT * FROM nonexistent_table_xyz")
         assert db.in_transaction is False
 

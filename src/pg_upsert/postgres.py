@@ -6,9 +6,8 @@ import getpass
 import logging
 from urllib.parse import urlparse, urlunparse
 
-import psycopg2
-from psycopg2.extras import DictCursor
-from psycopg2.sql import Composable
+import psycopg
+from psycopg.sql import SQL, Composable, Literal
 
 logger = logging.getLogger(__name__)
 
@@ -17,23 +16,23 @@ class PostgresDB:
     """Base database object for connecting and executing SQL queries on a PostgreSQL database.
 
     Args:
-        conn (psycopg2.extensions.connection, optional): An existing connection object to a PostgreSQL database.
+        conn (psycopg.Connection, optional): An existing connection object to a PostgreSQL database.
         uri (str, optional): A connection URI for a PostgreSQL database.
         encoding (str, optional): The encoding to use for the database connection.
-        **kwargs: Additional keyword arguments passed to `psycopg2.connect()`.
+        **kwargs: Additional keyword arguments passed to `psycopg.connect()`.
 
     Returns:
         PostgresDB: A new PostgresDB object for connecting to a PostgreSQL database and executing queries.
 
     Raises:
         AttributeError: If neither a connection URI nor an existing connection object is provided.
-        psycopg2.Error: If an error occurs while connecting to the database or executing a query.
+        psycopg.Error: If an error occurs while connecting to the database or executing a query.
     """
 
     def __init__(
         self,
         uri: None | str = None,
-        conn: None | psycopg2.extensions.connection = None,
+        conn: None | psycopg.Connection = None,
         encoding: str = "utf-8",
         **kwargs,
     ):
@@ -55,17 +54,17 @@ class PostgresDB:
         if uri:
             uri, self._password, self._sanitized_uri = self._extract_password(uri)
             self._connect_uri = uri
-        self.conn = conn or psycopg2.connect(uri, **kwargs)
+        self.conn = conn or psycopg.connect(uri, **kwargs)
         self.encoding = encoding
         self.in_transaction = False
         self._in_savepoint = False
         self.kwargs = kwargs
         if not self._is_valid_connection():
-            raise psycopg2.Error(f"Error connecting to {self.conn.dsn}")
+            raise psycopg.Error(f"Error connecting to {self.conn.info.dsn}")
 
     def __repr__(self) -> str:
         """Return a string representation of the object."""
-        params = self.conn.get_dsn_parameters() if self.conn else "No connection"
+        params = self.conn.info.get_parameters() if self.conn else "No connection"
         return f"{self.__class__.__name__}({params})"
 
     def __del__(self):
@@ -118,13 +117,22 @@ class PostgresDB:
         sanitized_uri = urlunparse(parsed._replace(netloc=sanitized_netloc))
         return uri, password, sanitized_uri
 
+    def _set_client_encoding(self) -> None:
+        """Set the client encoding for the connection.
+
+        psycopg3 has no ``set_client_encoding`` method, so this issues the
+        equivalent ``SET client_encoding`` command. The value is inlined safely
+        via ``Literal`` because PostgreSQL does not accept bound parameters in
+        ``SET`` statements.
+        """
+        self.conn.execute(SQL("SET client_encoding TO {}").format(Literal(self.encoding)))
+
     def _is_valid_connection(self) -> bool:
         """Check if the database connection is valid."""
         try:
-            with self.conn.cursor():
-                self.conn.set_client_encoding(self.encoding)
+            self._set_client_encoding()
             return True
-        except psycopg2.Error:
+        except psycopg.Error:
             return False
 
     def open_db(self) -> None:
@@ -137,23 +145,23 @@ class PostgresDB:
         if not self.conn or self.conn.closed:
             logger.debug("Opening database connection.")
             if self._connect_uri:
-                self.conn = psycopg2.connect(self._connect_uri, **self.kwargs)
+                self.conn = psycopg.connect(self._connect_uri, **self.kwargs)
             elif not self._owns_connection and self.conn:
                 # External connection — try DSN (may lack password).
-                self.conn = psycopg2.connect(self.conn.dsn, **self.kwargs)
+                self.conn = psycopg.connect(self.conn.info.dsn, **self.kwargs)
             else:
-                raise psycopg2.OperationalError(
+                raise psycopg.OperationalError(
                     "Cannot reopen connection: no stored credentials. "
                     "Connections passed via conn= cannot be automatically reopened.",
                 )
             self.in_transaction = False
-            self.conn.set_client_encoding(self.encoding)
-            self.conn.set_session(autocommit=False)
+            self.conn.autocommit = False
+            self._set_client_encoding()
 
     def cursor(self):
         """Return a cursor for executing database queries."""
         self.open_db()
-        return self.conn.cursor(cursor_factory=DictCursor)
+        return self.conn.cursor()
 
     def close(self) -> None:
         """Close the database connection if open and owned by this instance.
@@ -183,17 +191,17 @@ class PostgresDB:
         self: PostgresDB,
         sql: str | Composable,
         params=None,
-    ) -> psycopg2.extensions.cursor:
+    ) -> psycopg.Cursor:
         """A shortcut to self.cursor().execute() that handles encoding.
 
         Handles insert, updates, deletes
 
         Args:
-            sql (str | psycopg2.sql.Composable): The SQL query to execute. Accepts a `str` or `Composable` object.
+            sql (str | psycopg.sql.Composable): The SQL query to execute. Accepts a `str` or `Composable` object.
             params (tuple, optional): A tuple of parameters to pass to the query.
                 Note that a `Composable` object should not have parameters passed separately. Default is None.
         Returns:
-            psycopg2.extensions.cursor: A cursor object for the executed query.
+            psycopg.Cursor: A cursor object for the executed query.
         """
         self.in_transaction = True
         try:
@@ -208,7 +216,7 @@ class PostgresDB:
                 else:
                     logger.debug(f"\nSQL:\n{sql}\nParameters:\n{params}")
                     curs.execute(sql.encode(self.encoding), params)
-        except psycopg2.Error:
+        except psycopg.Error:
             if not self._in_savepoint:
                 self.rollback()
             raise

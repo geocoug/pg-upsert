@@ -9,10 +9,11 @@ unit-level tests still run locally without Docker.
 
 from __future__ import annotations
 
+import getpass
 import os
 from pathlib import Path
 
-import psycopg2
+import psycopg
 import pytest
 from dotenv import load_dotenv
 
@@ -42,7 +43,7 @@ def _pg_uri() -> str:
 def _pg_available() -> bool:
     """Return True if a Postgres server is reachable."""
     try:
-        conn = psycopg2.connect(_pg_uri())
+        conn = psycopg.connect(_pg_uri())
         conn.close()
         return True
     except Exception:
@@ -50,6 +51,45 @@ def _pg_available() -> bool:
 
 
 PG_AVAILABLE = _pg_available()
+
+
+# ---------------------------------------------------------------------------
+# Safety nets
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(autouse=True)
+def _no_interactive_getpass(monkeypatch):
+    """Never let a test block on an interactive password prompt.
+
+    ``PostgresDB`` falls back to ``getpass.getpass()`` when no password is
+    supplied via the URI or ``PGPASSWORD``.  On a headless runner that call
+    blocks forever (notably on Windows, where ``getpass`` reads the console
+    directly and ignores redirected stdin), which hangs the whole CI job.
+    Stub it out globally so any unmocked CLI path returns immediately.
+    """
+    monkeypatch.setattr(getpass, "getpass", lambda *args, **kwargs: "test_password")
+
+
+@pytest.fixture(autouse=True)
+def _no_real_db_connections(request, monkeypatch):
+    """Keep unit tests hermetic — never open a real database connection.
+
+    Several CLI tests run the command to the point of a connection attempt
+    (asserting it "fails at connection").  Against a host with no listening
+    server that connect returns instantly on Linux/macOS but can stall for
+    minutes on Windows CI, blowing past the job timeout.  For any test NOT
+    marked ``postgres`` (the integration marker), stub ``psycopg.connect`` to
+    fail fast so the connection-failure path is exercised deterministically.
+    Integration tests keep the real ``connect``.
+    """
+    if request.node.get_closest_marker("postgres"):
+        return
+
+    def _refuse(*args, **kwargs):
+        raise psycopg.OperationalError("database connections are disabled in unit tests")
+
+    monkeypatch.setattr(psycopg, "connect", _refuse)
 
 
 # ---------------------------------------------------------------------------

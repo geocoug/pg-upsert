@@ -5,8 +5,8 @@ from __future__ import annotations
 import logging
 from datetime import datetime
 
-import psycopg2
-from psycopg2.sql import SQL, Identifier, Literal
+import psycopg
+from psycopg.sql import SQL, Identifier, Literal
 
 from .control import ControlTable
 from .executor import UpsertExecutor
@@ -42,11 +42,11 @@ class PgUpsert:
 
     The upsert process is transactional. If any part of the process fails, the transaction will be rolled back. Committing changes to the database is optional and can be controlled with the `do_commit` flag.
 
-    All SQL statements are generated using the [`psycopg2.sql`](https://www.psycopg.org/docs/sql.html) module.
+    All SQL statements are generated using the [`psycopg.sql`](https://www.psycopg.org/psycopg3/docs/api/sql.html) module.
 
     Args:
         uri (str or None, optional): Connection URI for the PostgreSQL database. Defaults to None. **Note**: If a connection URI is not provided, an existing connection object must be provided.
-        conn (psycopg2.extensions.connection or None, optional): An existing connection object to the PostgreSQL database. Defaults to None. **Note**: If a connection object is not provided, a connection URI must be provided. If both are provided, the connection object will be used.
+        conn (psycopg.Connection or None, optional): An existing connection object to the PostgreSQL database. Defaults to None. **Note**: If a connection object is not provided, a connection URI must be provided. If both are provided, the connection object will be used.
         encoding (str, optional): The encoding to use for the database connection. Defaults to "utf-8".
         tables (list or tuple or None, optional): List of table names to perform QA checks on and upsert. Defaults to ().
         staging_schema (str or None, optional): Name of the staging schema where tables are located which will be used for QA checks and upserts. Tables in the staging schema must have the same name as the tables in the base schema that they will be upserted to. Defaults to None.
@@ -120,7 +120,7 @@ class PgUpsert:
     def __init__(
         self,
         uri: None | str = None,
-        conn: None | psycopg2.extensions.connection = None,
+        conn: None | psycopg.Connection = None,
         encoding: str = "utf-8",
         tables: list | tuple | None = (),
         staging_schema: str | None = None,
@@ -656,7 +656,7 @@ class PgUpsert:
             _ver = "unknown"
         try:
             _pg_ver = self.db.execute("SELECT version()").fetchone()[0]
-        except (psycopg2.Error, IndexError, TypeError):
+        except (psycopg.Error, IndexError, TypeError):
             _pg_ver = "unknown"
         _file_logger.info("")
         _file_logger.info("=" * 60)
@@ -719,7 +719,7 @@ class PgUpsert:
             display.console.print("  [bold yellow]Rolling back changes due to user cancellation[/bold yellow]")
             _file_logger.info("Rolling back changes due to user cancellation")
             self.db.rollback()
-        except psycopg2.Error as e:
+        except psycopg.Error as e:
             display.console.print(f"  [bold red]Database error — rolling back:[/bold red] {e}")
             _file_logger.error(f"Database error — rolling back: {e}")
             self.db.rollback()
