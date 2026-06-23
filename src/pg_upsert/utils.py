@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import logging
 from datetime import datetime
 from typing import ClassVar
@@ -23,6 +24,11 @@ class CustomLogFormatter(logging.Formatter):
 
     def format(self: CustomLogFormatter, record: logging.LogRecord) -> str:
         self.datefmt = "%Y-%m-%d %H:%M:%S"
+        # Work on a shallow copy: logging passes the same record object to
+        # every handler, so mutating it here (e.g. coercing lineno to a padded
+        # string) would corrupt formatting for other handlers on the chain
+        # (such as a file handler or pytest's log-capture handler).
+        record = copy.copy(record)
         self.asctime = self.formatTime(record, self.datefmt)
         record.name = f"{record.name:<20}"
         record.lineno = f"{record.lineno!s:<5}"

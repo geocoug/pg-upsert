@@ -19,7 +19,36 @@ import pg_upsert
 from pg_upsert import __version__
 from pg_upsert.cli import app
 
-runner = CliRunner()
+
+class _CliRunner(CliRunner):
+    """``CliRunner`` that disables pytest's capture during ``invoke``.
+
+    Typer/click's ``CliRunner`` does its own stdout/stderr capture (tests read
+    ``result.stdout``/``result.output``).  Under pytest>=9.1 pytest's capture
+    conflicts with that nested redirection and the runner's buffer is closed
+    before it can be read ("I/O operation on closed file").  Disabling pytest
+    capture only for the duration of the invocation — the same mechanism as
+    ``capsys.disabled()`` — avoids the conflict without pinning pytest.
+    """
+
+    capmanager = None
+
+    def invoke(self, *args, **kwargs):
+        if self.capmanager is not None:
+            with self.capmanager.global_and_fixture_disabled():
+                return super().invoke(*args, **kwargs)
+        return super().invoke(*args, **kwargs)
+
+
+runner = _CliRunner()
+
+
+@pytest.fixture(autouse=True)
+def _attach_capmanager(request):
+    """Give the CLI runner access to pytest's capture manager for this test."""
+    runner.capmanager = request.config.pluginmanager.getplugin("capturemanager")
+    yield
+    runner.capmanager = None
 
 
 def pg_upsert_cli(command_string):
