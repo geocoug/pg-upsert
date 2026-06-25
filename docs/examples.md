@@ -345,6 +345,41 @@ result = PgUpsert.from_config("pg-upsert.yaml", do_commit=True).run()
 
 Both CLI-style keys (`exclude_columns`, `null_columns`, `commit`) and the constructor's native names (`exclude_cols`, `do_commit`) are accepted, and unknown keys are ignored. When `host`, `port`, `database`, and `user` are present they are assembled into a connection URI; the password is prompted for (or read from `PGPASSWORD`) at connect time. A dictionary may be passed in place of a file path.
 
+### 9 - Per-table column excludes
+
+`exclude_columns` / `null_columns` apply to every table. To exclude columns from specific tables, add `exclude_columns_by_table` / `null_columns_by_table` — these map a table name to its own column list and are **merged on top of** the global lists for that table (the global lists still apply everywhere):
+
+```yaml
+# pg-upsert.yaml
+exclude_columns:            # excluded from the upsert on every table
+  - rev_user
+  - rev_time
+exclude_columns_by_table:   # ...plus these, only on the named table
+  books:
+    - isbn_legacy
+null_columns_by_table:      # skip null checks for books.reprint_date only
+  books:
+    - reprint_date
+```
+
+With the config above, `books` excludes `rev_user`, `rev_time`, and `isbn_legacy` from the upsert; every other table excludes just `rev_user` and `rev_time`. The same mappings are available as constructor arguments:
+
+```python
+from pg_upsert import PgUpsert
+
+result = PgUpsert(
+    uri="postgresql://user@localhost:5432/dev",
+    tables=("books", "authors"),
+    staging_schema="staging",
+    base_schema="public",
+    exclude_cols=("rev_user", "rev_time"),
+    exclude_cols_by_table={"books": ["isbn_legacy"]},
+    exclude_null_check_cols_by_table={"books": ["reprint_date"]},
+).run()
+```
+
+Every key in a per-table mapping must be one of the configured `tables`, otherwise a `ValueError` is raised.
+
 ## CLI examples
 
 ```sh

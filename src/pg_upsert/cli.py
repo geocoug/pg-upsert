@@ -14,6 +14,7 @@ import typer
 import yaml
 from rich import print as rprint
 
+from .config import is_recognized_key
 from .upsert import PgUpsert, UserCancelledError
 from .utils import CustomLogFormatter
 
@@ -320,6 +321,11 @@ def cli(
                             sys.exit(1)
                     else:
                         setattr(args, key, value)
+            elif is_recognized_key(key):
+                # Recognised config key without a matching CLI flag (e.g. the
+                # per-table exclude mappings). Pass it straight through to the
+                # constructor via config_to_kwargs(vars(args)).
+                setattr(args, key, config[key])
             else:
                 rprint(
                     f"Invalid configuration key will be ignored in {args.config_file}: {key}",

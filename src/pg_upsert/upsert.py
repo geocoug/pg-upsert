@@ -57,6 +57,8 @@ class PgUpsert:
         upsert_method (str, optional): The method to use for upserting data. Must be one of "upsert", "update", or "insert". Defaults to "upsert".
         exclude_cols (list or tuple or None, optional): List of column names to exclude from the upsert process. These columns will not be updated or inserted to, however, they will still be checked during the QA process.
         exclude_null_check_cols (list or tuple or None, optional): List of column names to exclude from the not-null check during the QA process. You may wish to exclude certain columns from null checks, such as auto-generated timestamps or serial columns as they may not be populated until after records are inserted or updated. Defaults to ().
+        exclude_cols_by_table (dict or None, optional): Per-table upsert excludes, mapping a table name to a list of column names. These are merged with (added on top of) the global ``exclude_cols`` list for that table. Every key must be one of the configured ``tables``. Defaults to ``None``.
+        exclude_null_check_cols_by_table (dict or None, optional): Per-table null-check excludes, mapping a table name to a list of column names. These are merged with the global ``exclude_null_check_cols`` list for that table. Every key must be one of the configured ``tables``. Defaults to ``None``.
         control_table (str, optional): Name of the temporary control table that will be used to track changes during the upsert process. Defaults to "ups_control".
         ui_mode (str, optional): Interactive UI backend to use when ``interactive=True``. One of ``"auto"`` (pick tkinter if a display is available, else textual), ``"tkinter"`` (force desktop GUI), or ``"textual"`` (force terminal TUI). When ``interactive=False`` this is ignored and a non-interactive console backend is used internally. Defaults to ``"auto"``.
         compact (bool, optional): If ``True``, render the QA summary as a compact ``✓``/``✗`` grid (one row per table, one column per check type) instead of a per-check panel. Useful for runs with many tables. Defaults to ``False``.
@@ -131,6 +133,8 @@ class PgUpsert:
         upsert_method: str = "upsert",
         exclude_cols: list | tuple | None = (),
         exclude_null_check_cols: list | tuple | None = (),
+        exclude_cols_by_table: dict | None = None,
+        exclude_null_check_cols_by_table: dict | None = None,
         control_table: str = "ups_control",
         ui_mode: str = "auto",
         compact: bool = False,
@@ -156,6 +160,16 @@ class PgUpsert:
             raise ValueError(
                 f"Staging and base schemas must be different. Got {staging_schema} for both.",
             )
+        exclude_cols_by_table = self._validate_by_table(
+            exclude_cols_by_table,
+            tables,
+            "exclude_cols_by_table",
+        )
+        exclude_null_check_cols_by_table = self._validate_by_table(
+            exclude_null_check_cols_by_table,
+            tables,
+            "exclude_null_check_cols_by_table",
+        )
         self.db = PostgresDB(
             uri=uri,
             conn=conn,
@@ -170,6 +184,8 @@ class PgUpsert:
         self.upsert_method = upsert_method
         self.exclude_cols = exclude_cols
         self.exclude_null_check_cols = exclude_null_check_cols
+        self.exclude_cols_by_table = exclude_cols_by_table
+        self.exclude_null_check_cols_by_table = exclude_null_check_cols_by_table
         self.control_table = control_table
         self.compact = compact
         self.qa_passed = False
@@ -210,7 +226,45 @@ class PgUpsert:
             exclude_cols=list(exclude_cols) if exclude_cols else None,
             exclude_null_check_cols=list(exclude_null_check_cols) if exclude_null_check_cols else None,
             interactive=interactive,
+            exclude_cols_by_table=exclude_cols_by_table,
+            exclude_null_check_cols_by_table=exclude_null_check_cols_by_table,
         )
+
+    @staticmethod
+    def _validate_by_table(
+        by_table: dict | None,
+        tables: list | tuple,
+        param_name: str,
+    ) -> dict | None:
+        """Validate a per-table exclude mapping and normalise its values to lists.
+
+        Ensures the argument is a ``dict`` of table names (each present in
+        *tables*) to iterables of column-name strings. Returns ``None`` when the
+        mapping is empty so downstream code can treat it uniformly.
+        """
+        if not by_table:
+            return None
+        if not isinstance(by_table, dict):
+            raise ValueError(
+                f"{param_name} must be a mapping of table name to column list, got {type(by_table).__name__}",
+            )
+        known = set(tables)
+        normalised: dict[str, list[str]] = {}
+        for table, cols in by_table.items():
+            if table not in known:
+                raise ValueError(
+                    f"{param_name} references table {table!r} which is not in the configured tables {tuple(tables)}",
+                )
+            if isinstance(cols, str):
+                cols = [c.strip() for c in cols.split(",") if c.strip()]
+            elif isinstance(cols, (list, tuple)):
+                cols = [str(c) for c in cols]
+            else:
+                raise ValueError(
+                    f"{param_name}[{table!r}] must be a list of column names, got {type(cols).__name__}",
+                )
+            normalised[table] = cols
+        return normalised or None
 
     @classmethod
     def from_config(
@@ -423,6 +477,8 @@ class PgUpsert:
             exclude_cols=list(self.exclude_cols) if self.exclude_cols else None,
             exclude_null_check_cols=(list(self.exclude_null_check_cols) if self.exclude_null_check_cols else None),
             interactive=self.interactive,
+            exclude_cols_by_table=self.exclude_cols_by_table,
+            exclude_null_check_cols_by_table=self.exclude_null_check_cols_by_table,
         )
 
     def show_control(self: PgUpsert) -> None:

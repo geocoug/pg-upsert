@@ -33,6 +33,8 @@ _VALID_PARAMS = frozenset(
         "upsert_method",
         "exclude_cols",
         "exclude_null_check_cols",
+        "exclude_cols_by_table",
+        "exclude_null_check_cols_by_table",
         "control_table",
         "ui_mode",
         "compact",
@@ -47,6 +49,8 @@ _VALID_PARAMS = frozenset(
 _ALIASES = {
     "exclude_columns": "exclude_cols",
     "null_columns": "exclude_null_check_cols",
+    "exclude_columns_by_table": "exclude_cols_by_table",
+    "null_columns_by_table": "exclude_null_check_cols_by_table",
     "commit": "do_commit",
     "export_max_rows": "max_export_rows",
     "ui": "ui_mode",
@@ -55,6 +59,10 @@ _ALIASES = {
 # Config keys whose values are comma-separated strings on the CLI but lists in
 # the constructor.
 _LIST_KEYS = frozenset({"tables", "exclude_cols", "exclude_null_check_cols"})
+
+# Config keys whose values are mappings of table name to a (comma-separated or
+# list) set of columns. Each mapping value is normalised to a list.
+_DICT_LIST_KEYS = frozenset({"exclude_cols_by_table", "exclude_null_check_cols_by_table"})
 
 # Connection keys consumed to build a URI when one is not supplied directly.
 _CONN_KEYS = frozenset({"host", "port", "database", "user"})
@@ -129,8 +137,14 @@ def config_to_kwargs(config: dict[str, Any], **overrides: Any) -> dict[str, Any]
 
     for key, value in merged.items():
         param = _ALIASES.get(key, key)
-        if param in _VALID_PARAMS:
-            kwargs[param] = _as_list(value) if param in _LIST_KEYS else value
+        if param not in _VALID_PARAMS:
+            continue
+        if param in _LIST_KEYS:
+            kwargs[param] = _as_list(value)
+        elif param in _DICT_LIST_KEYS and isinstance(value, dict):
+            kwargs[param] = {table: _as_list(cols) for table, cols in value.items()}
+        else:
+            kwargs[param] = value
 
     # ``--export-failures`` implies row capture so failures can be exported.
     if merged.get("export_failures") and "capture_detail_rows" not in kwargs:
@@ -148,3 +162,13 @@ def config_to_kwargs(config: dict[str, Any], **overrides: Any) -> dict[str, Any]
             )
 
     return kwargs
+
+
+def is_recognized_key(key: str) -> bool:
+    """Return ``True`` if *key* is a known config key (native, alias, or connection).
+
+    Used by the CLI to decide whether a config-file key that has no matching
+    command-line flag (e.g. ``exclude_columns_by_table``) should still be passed
+    through to the constructor rather than warned about as unknown.
+    """
+    return key in _VALID_PARAMS or key in _ALIASES or key in _CONN_KEYS or key == "export_failures"
