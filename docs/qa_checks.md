@@ -138,6 +138,20 @@ PgUpsert(
 
 CLI: `pg-upsert ... -n book_alias`
 
+### Per-table excludes
+
+`exclude_cols` and `exclude_null_check_cols` apply to every table. To target specific tables, pass `exclude_cols_by_table` / `exclude_null_check_cols_by_table` — mappings of table name to column list that are **merged on top of** the global lists for that table:
+
+```python
+PgUpsert(
+    ...,
+    exclude_cols=("rev_user", "rev_time"),       # every table
+    exclude_cols_by_table={"books": ["isbn_legacy"]},  # books also excludes isbn_legacy
+)
+```
+
+Each key must be one of the configured `tables`. These mappings are configuration-file and library only (there is no dedicated CLI flag); in a YAML config they are spelled `exclude_columns_by_table` and `null_columns_by_table`. See [Per-table column excludes](examples.md#9-per-table-column-excludes) for a full example.
+
 ### Enforcing strict column presence
 
 By default, missing columns that are not required (i.e., not primary key and not `NOT NULL` without a default) produce warnings rather than errors. Warnings are displayed but do not block the upsert pipeline. Set `strict_columns=True` to treat every missing staging column as an error:

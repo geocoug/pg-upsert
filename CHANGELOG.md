@@ -8,6 +8,15 @@ ______________________________________________________________________
 
 ## [Unreleased]
 
+### Added
+
+- **`PgUpsert.from_config()`** — construct a `PgUpsert` directly from a YAML configuration file (or a dict), the same file accepted by the CLI's `--config-file` (resolves [#14](https://github.com/geocoug/pg-upsert/issues/14)). Accepts a single path/dict *or* a `list`/`tuple` of sources, which are shallow-merged left-to-right so later sources override earlier ones key-by-key (e.g. `from_config(["base.yaml", "task.yaml"])`). Both CLI-style keys (`exclude_columns`, `null_columns`, `commit`) and native constructor names (`exclude_cols`, `do_commit`) are accepted; unknown keys are ignored. Connection parts (`host`, `port`, `database`, `user`) are assembled into a URI when one is not supplied, and `**overrides` (including non-YAML values like `conn` or `callback`) take precedence over all files. Examples: `PgUpsert.from_config("pg-upsert.yaml")`, `PgUpsert.from_config("pg-upsert.yaml", do_commit=True)`, `PgUpsert.from_config(["base.yaml", "task.yaml"])`.
+- **Per-table column excludes** (resolves [#30](https://github.com/geocoug/pg-upsert/issues/30)) — new `exclude_cols_by_table` and `exclude_null_check_cols_by_table` constructor parameters (config-file keys `exclude_columns_by_table` and `null_columns_by_table`) map a table name to its own column list. These are merged on top of the global `exclude_cols` / `exclude_null_check_cols` lists for that table, so a column can be excluded everywhere, only on specific tables, or both. Every key must be one of the configured tables.
+
+### Changed
+
+- The CLI now builds its `PgUpsert` instance through the shared `pg_upsert.config` loader, so command-line and `from_config()` usage share a single source of truth for config-key handling and cannot drift.
+
 ______________________________________________________________________
 
 ## [1.23.0] - 2026-06-23
@@ -28,8 +37,6 @@ ______________________________________________________________________
 
 - **Upper bounds removed from `typer` and `pyyaml` dependencies.** Both are now pinned only by a lower bound (`typer>=0.15`, `pyyaml>=6.0.1`) so downstream projects can pick up newer releases without resolver conflicts. Resolved versions in the lock file move to `typer 0.26.x` and `pyyaml 6.0.3`.
 - **CLI exit code when invoked with no arguments is now `2` (was `0`).** Click 8.2+ standardized `no_args_is_help` to exit with the usage-error code; the help text is still printed. Scripts that previously checked `pg-upsert; echo $?` for `0` on a bare invocation must be updated.
-
-______________________________________________________________________
 
 ## [1.22.0] - 2026-04-20
 

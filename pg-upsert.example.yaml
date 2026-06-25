@@ -16,11 +16,18 @@ tables:
   - "books"
   - "book_authors"
   - "genres"
-exclude_columns:
+exclude_columns:  # Excluded from upsert on every table
   - "rev_time"
   - "rev_user"
-null_columns:
+null_columns:  # Skipped during null checks on every table
   - "book_alias"
+# Per-table excludes are merged on top of the global lists above.
+# exclude_columns_by_table:
+#   books:
+#     - "isbn_legacy"
+# null_columns_by_table:
+#   books:
+#     - "reprint_date"
 output: "text"  # Options: "text", "json"
 check_schema: false
 compact: false

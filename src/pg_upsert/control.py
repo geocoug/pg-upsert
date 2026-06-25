@@ -13,6 +13,24 @@ logger = logging.getLogger(__name__)
 _file_logger = logging.getLogger("pg_upsert.display")
 
 
+def _merge_excludes(
+    global_cols: list[str] | tuple[str, ...] | None,
+    by_table: dict[str, list[str] | tuple[str, ...]] | None,
+    table: str,
+) -> list[str]:
+    """Merge global and per-table exclude lists for *table*, preserving order.
+
+    The global list applies to every table; per-table entries are appended on
+    top. Duplicates are removed while keeping first-seen order so the result is
+    stable regardless of overlap between the two lists.
+    """
+    merged: list[str] = []
+    for col in list(global_cols or ()) + list((by_table or {}).get(table, ())):
+        if col not in merged:
+            merged.append(col)
+    return merged
+
+
 class ControlTable:
     """Manages the temporary upsert control table in the database.
 
@@ -51,6 +69,8 @@ class ControlTable:
         exclude_cols: list[str] | tuple[str, ...] | None,
         exclude_null_check_cols: list[str] | tuple[str, ...] | None,
         interactive: bool,
+        exclude_cols_by_table: dict[str, list[str] | tuple[str, ...]] | None = None,
+        exclude_null_check_cols_by_table: dict[str, list[str] | tuple[str, ...]] | None = None,
     ) -> None:
         """Create and populate the control table.
 
@@ -58,11 +78,20 @@ class ControlTable:
         per table.  Exclude-column lists and the ``interactive`` flag are
         written into the table when provided.
 
+        The global ``exclude_cols`` / ``exclude_null_check_cols`` lists apply
+        to every table; the optional ``*_by_table`` mappings add table-specific
+        columns on top of (merged with) the global lists.
+
         Args:
             tables: Ordered list of table names to process.
-            exclude_cols: Column names to skip during upsert.
-            exclude_null_check_cols: Column names to skip during null checks.
+            exclude_cols: Column names to skip during upsert (all tables).
+            exclude_null_check_cols: Column names to skip during null checks
+                (all tables).
             interactive: Whether the run is interactive.
+            exclude_cols_by_table: Per-table upsert excludes, merged with the
+                global ``exclude_cols`` list.
+            exclude_null_check_cols_by_table: Per-table null-check excludes,
+                merged with the global ``exclude_null_check_cols`` list.
         """
         logger.debug("Initializing upsert control table")
         sql = SQL(
@@ -94,29 +123,29 @@ class ControlTable:
         )
         self.db.execute(sql)
 
-        if exclude_cols and len(exclude_cols) > 0:
-            self.db.execute(
-                SQL(
-                    """
-                    update {control_table}
-                    set exclude_cols = {exclude_cols};
-                """,
-                ).format(
-                    control_table=Identifier(self.table_name),
-                    exclude_cols=Literal(",".join(exclude_cols)),
-                ),
+        # Write merged (global + per-table) excludes into each table's row.
+        for table in tables:
+            merged_cols = _merge_excludes(exclude_cols, exclude_cols_by_table, table)
+            merged_null = _merge_excludes(
+                exclude_null_check_cols,
+                exclude_null_check_cols_by_table,
+                table,
             )
-
-        if exclude_null_check_cols and len(exclude_null_check_cols) > 0:
+            if not merged_cols and not merged_null:
+                continue
             self.db.execute(
                 SQL(
                     """
                     update {control_table}
-                    set exclude_null_checks = {exclude_null_check_cols};
+                    set exclude_cols = {exclude_cols},
+                        exclude_null_checks = {exclude_null_checks}
+                    where table_name = {table};
                 """,
                 ).format(
                     control_table=Identifier(self.table_name),
-                    exclude_null_check_cols=Literal(",".join(exclude_null_check_cols)),
+                    exclude_cols=Literal(",".join(merged_cols)) if merged_cols else Literal(None),
+                    exclude_null_checks=Literal(",".join(merged_null)) if merged_null else Literal(None),
+                    table=Literal(table),
                 ),
             )
 
@@ -284,7 +313,7 @@ class ControlTable:
         rows, _headers, rowcount = self.db.rowdict(
             SQL(
                 """
-            select table_name, exclude_cols, interactive
+            select table_name, exclude_cols, exclude_null_checks, interactive
             from {control_table}
             where table_name = {table};
             """,

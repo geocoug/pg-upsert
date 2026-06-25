@@ -311,6 +311,91 @@ ups.cleanup()  # drops all ups_* temp objects; connection stays open
 # conn is still usable for other work
 ```
 
+### 8 - Configure from a YAML file or files
+
+The same configuration file used by the CLI's `--config-file` flag can drive `PgUpsert` directly with `PgUpsert.from_config()`, so a single file works in both contexts:
+
+```yaml
+# pg-upsert.yaml
+host: localhost
+port: 5432
+user: docker
+database: dev
+staging_schema: staging
+base_schema: public
+tables:
+  - books
+  - authors
+exclude_columns:   # CLI-style keys are accepted (also: exclude_cols)
+  - rev_user
+  - rev_time
+commit: false      # maps to do_commit
+```
+
+```python
+from pg_upsert import PgUpsert
+
+# Build straight from the file...
+result = PgUpsert.from_config("pg-upsert.yaml").run()
+
+# ...or override individual values (overrides win over the file).
+# Overrides may include things YAML can't hold, e.g. an existing connection.
+result = PgUpsert.from_config("pg-upsert.yaml", do_commit=True).run()
+
+# Layer multiple files: later sources override earlier ones key-by-key.
+# This is useful for a shared base config plus task-specific overrides.
+result = PgUpsert.from_config([
+    "base-config.yaml",      # shared defaults
+    "task-specific.yaml"      # task-specific overrides
+]).run()
+```
+
+Both CLI-style keys (`exclude_columns`, `null_columns`, `commit`) and the constructor's native names (`exclude_cols`, `do_commit`) are accepted, and unknown keys are ignored. When `host`, `port`, `database`, and `user` are present they are assembled into a connection URI; the password is prompted for (or read from `PGPASSWORD`) at connect time. A dictionary may be passed in place of a file path.
+
+**Layering multiple files.** Pass a list (or tuple) of sources to keep a large shared config in one place and small task-specific overrides in another. Sources are shallow-merged left-to-right — later files override earlier ones key-by-key, and explicit overrides beat them all:
+
+```python
+# base.yaml has the connection + schemas; task.yaml has just the tables for this job.
+result = PgUpsert.from_config(["base.yaml", "task.yaml"]).run()
+```
+
+Merging is shallow: a key in a later file *replaces* the earlier value rather than being deep-merged. For example, a `tables` list (or an `exclude_columns_by_table` mapping) in `task.yaml` wholly replaces the one in `base.yaml` — it is not appended to or combined. Connection parts (`host`/`port`/`database`/`user`) merge across files before the URI is built, so a later file can override just the `user`. Multiple configuration sources can be passed as a `list` or `tuple` and are shallow-merged left-to-right, so later sources override earlier ones key-by-key.
+
+### 9 - Per-table column excludes
+
+`exclude_columns` / `null_columns` apply to every table. To exclude columns from specific tables, add `exclude_columns_by_table` / `null_columns_by_table` — these map a table name to its own column list and are **merged on top of** the global lists for that table (the global lists still apply everywhere):
+
+```yaml
+# pg-upsert.yaml
+exclude_columns:            # excluded from the upsert on every table
+  - rev_user
+  - rev_time
+exclude_columns_by_table:   # ...plus these, only on the named table
+  books:
+    - isbn_legacy
+null_columns_by_table:      # skip null checks for books.reprint_date only
+  books:
+    - reprint_date
+```
+
+With the config above, `books` excludes `rev_user`, `rev_time`, and `isbn_legacy` from the upsert; every other table excludes just `rev_user` and `rev_time`. The same mappings are available as constructor arguments:
+
+```python
+from pg_upsert import PgUpsert
+
+result = PgUpsert(
+    uri="postgresql://user@localhost:5432/dev",
+    tables=("books", "authors"),
+    staging_schema="staging",
+    base_schema="public",
+    exclude_cols=("rev_user", "rev_time"),
+    exclude_cols_by_table={"books": ["isbn_legacy"]},
+    exclude_null_check_cols_by_table={"books": ["reprint_date"]},
+).run()
+```
+
+Every key in a per-table mapping must be one of the configured `tables`, otherwise a `ValueError` is raised.
+
 ## CLI examples
 
 ```sh

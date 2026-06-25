@@ -14,6 +14,7 @@ import typer
 import yaml
 from rich import print as rprint
 
+from .config import is_recognized_key
 from .upsert import PgUpsert, UserCancelledError
 from .utils import CustomLogFormatter
 
@@ -320,6 +321,11 @@ def cli(
                             sys.exit(1)
                     else:
                         setattr(args, key, value)
+            elif is_recognized_key(key):
+                # Recognised config key without a matching CLI flag (e.g. the
+                # per-table exclude mappings). Pass it straight through to the
+                # constructor via config_to_kwargs(vars(args)).
+                setattr(args, key, config[key])
             else:
                 rprint(
                     f"Invalid configuration key will be ignored in {args.config_file}: {key}",
@@ -408,29 +414,9 @@ def cli(
                 "Pass a directory path (it will be created if missing).",
             )
     try:
-        from urllib.parse import quote
+        from .config import config_to_kwargs
 
-        ups = PgUpsert(
-            uri=(
-                f"postgresql://{quote(args.user, safe='')}"
-                f"@{quote(args.host, safe='')}:{args.port}"
-                f"/{quote(args.database, safe='')}"
-            ),
-            encoding=args.encoding,
-            tables=args.tables,
-            staging_schema=args.staging_schema,
-            base_schema=args.base_schema,
-            do_commit=args.commit,
-            upsert_method=args.upsert_method,
-            interactive=args.interactive,
-            exclude_cols=args.exclude_columns,
-            exclude_null_check_cols=args.null_columns,
-            ui_mode=args.ui_mode,
-            compact=args.compact,
-            capture_detail_rows=bool(args.export_failures),
-            max_export_rows=args.export_max_rows,
-            strict_columns=args.strict_columns,
-        )
+        ups = PgUpsert(**config_to_kwargs(vars(args)))
         if args.check_schema:
             from .ui import display
 

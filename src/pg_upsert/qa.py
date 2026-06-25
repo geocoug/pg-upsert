@@ -74,6 +74,19 @@ class QARunner:
     # Internal helpers
     # ------------------------------------------------------------------
 
+    def _table_null_excludes(self, table: str) -> list[str]:
+        """Return the null-check excludes for *table*.
+
+        Reads the per-table value resolved into the control table (which
+        already merges the global list with any per-table additions). Falls
+        back to the global ``exclude_null_check_cols`` attribute when no
+        control row exists for the table.
+        """
+        spec = self.control.get_table_spec(table)
+        if spec and spec.get("exclude_null_checks"):
+            return [c.strip() for c in spec["exclude_null_checks"].split(",") if c.strip()]
+        return list(self.exclude_null_check_cols)
+
     def _get_pk_columns(self, table: str) -> list[str]:
         """Return the PK column names for *table* in the base schema.
 
@@ -135,9 +148,13 @@ class QARunner:
                 and is_nullable = 'NO'
                 and column_default is null""",
         ).format(base_schema=Literal(self.base_schema), table=Literal(table))
-        if self.exclude_null_check_cols:
+        # Prefer the per-table excludes resolved into the control table (which
+        # already merge the global list); fall back to the global attribute when
+        # the control row is absent (e.g. a QARunner used directly in tests).
+        exclude_null_cols = self._table_null_excludes(table)
+        if exclude_null_cols:
             col_query += SQL(" and column_name not in ({cols})").format(
-                cols=SQL(",").join(Literal(col) for col in self.exclude_null_check_cols),
+                cols=SQL(",").join(Literal(col) for col in exclude_null_cols),
             )
         col_rows, _ch, _cc = self.db.rowdict(col_query)
         nonnull_cols = [r["column_name"] for r in col_rows]
