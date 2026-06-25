@@ -10,15 +10,12 @@ ______________________________________________________________________
 
 ### Added
 
-- **`PgUpsert.from_config()`** — construct a `PgUpsert` directly from a YAML configuration file (or a dict), the same file accepted by the CLI's `--config-file` (resolves [#14](https://github.com/geocoug/pg-upsert/issues/14)). Both CLI-style keys (`exclude_columns`, `null_columns`, `commit`) and native constructor names (`exclude_cols`, `do_commit`) are accepted; unknown keys are ignored. Connection parts (`host`, `port`, `database`, `user`) are assembled into a URI when one is not supplied, and `**overrides` (including non-YAML values like `conn` or `callback`) take precedence over the file. Example: `PgUpsert.from_config("pg-upsert.yaml", do_commit=True)`.
+- **`PgUpsert.from_config()`** — construct a `PgUpsert` directly from a YAML configuration file (or a dict), the same file accepted by the CLI's `--config-file` (resolves [#14](https://github.com/geocoug/pg-upsert/issues/14)). Accepts a single path/dict *or* a `list`/`tuple` of sources, which are shallow-merged left-to-right so later sources override earlier ones key-by-key (e.g. `from_config(["base.yaml", "task.yaml"])`). Both CLI-style keys (`exclude_columns`, `null_columns`, `commit`) and native constructor names (`exclude_cols`, `do_commit`) are accepted; unknown keys are ignored. Connection parts (`host`, `port`, `database`, `user`) are assembled into a URI when one is not supplied, and `**overrides` (including non-YAML values like `conn` or `callback`) take precedence over all files. Examples: `PgUpsert.from_config("pg-upsert.yaml")`, `PgUpsert.from_config("pg-upsert.yaml", do_commit=True)`, `PgUpsert.from_config(["base.yaml", "task.yaml"])`.
 - **Per-table column excludes** (resolves [#30](https://github.com/geocoug/pg-upsert/issues/30)) — new `exclude_cols_by_table` and `exclude_null_check_cols_by_table` constructor parameters (config-file keys `exclude_columns_by_table` and `null_columns_by_table`) map a table name to its own column list. These are merged on top of the global `exclude_cols` / `exclude_null_check_cols` lists for that table, so a column can be excluded everywhere, only on specific tables, or both. Every key must be one of the configured tables.
 
 ### Changed
 
 - The CLI now builds its `PgUpsert` instance through the shared `pg_upsert.config` loader, so command-line and `from_config()` usage share a single source of truth for config-key handling and cannot drift.
-- **Config parameter handling enhanced** in `config_to_kwargs()` to properly normalize dictionary values for per-table column exclusion parameters.
-- **CLI imports `is_recognized_key`** from the config module to validate configuration keys from YAML files, ensuring only recognized keys are accepted during config file parsing.
-- **Example configuration documentation improved** — `pg-upsert.example.yaml` now includes inline comments explaining the purpose of `exclude_columns` and `null_columns`, plus commented-out examples showing how to configure per-table column exclusions via `exclude_columns_by_table` and `null_columns_by_table`.
 
 ______________________________________________________________________
 

@@ -311,7 +311,7 @@ ups.cleanup()  # drops all ups_* temp objects; connection stays open
 # conn is still usable for other work
 ```
 
-### 8 - Configure from a YAML file
+### 8 - Configure from a YAML file or files
 
 The same configuration file used by the CLI's `--config-file` flag can drive `PgUpsert` directly with `PgUpsert.from_config()`, so a single file works in both contexts:
 
@@ -341,9 +341,25 @@ result = PgUpsert.from_config("pg-upsert.yaml").run()
 # ...or override individual values (overrides win over the file).
 # Overrides may include things YAML can't hold, e.g. an existing connection.
 result = PgUpsert.from_config("pg-upsert.yaml", do_commit=True).run()
+
+# Layer multiple files: later sources override earlier ones key-by-key.
+# This is useful for a shared base config plus task-specific overrides.
+result = PgUpsert.from_config([
+    "base-config.yaml",      # shared defaults
+    "task-specific.yaml"      # task-specific overrides
+]).run()
 ```
 
 Both CLI-style keys (`exclude_columns`, `null_columns`, `commit`) and the constructor's native names (`exclude_cols`, `do_commit`) are accepted, and unknown keys are ignored. When `host`, `port`, `database`, and `user` are present they are assembled into a connection URI; the password is prompted for (or read from `PGPASSWORD`) at connect time. A dictionary may be passed in place of a file path.
+
+**Layering multiple files.** Pass a list (or tuple) of sources to keep a large shared config in one place and small task-specific overrides in another. Sources are shallow-merged left-to-right — later files override earlier ones key-by-key, and explicit overrides beat them all:
+
+```python
+# base.yaml has the connection + schemas; task.yaml has just the tables for this job.
+result = PgUpsert.from_config(["base.yaml", "task.yaml"]).run()
+```
+
+Merging is shallow: a key in a later file *replaces* the earlier value rather than being deep-merged. For example, a `tables` list (or an `exclude_columns_by_table` mapping) in `task.yaml` wholly replaces the one in `base.yaml` — it is not appended to or combined. Connection parts (`host`/`port`/`database`/`user`) merge across files before the URI is built, so a later file can override just the `user`. Multiple configuration sources can be passed as a `list` or `tuple` and are shallow-merged left-to-right, so later sources override earlier ones key-by-key.
 
 ### 9 - Per-table column excludes
 

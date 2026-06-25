@@ -98,6 +98,55 @@ def load_config(path: str | Path) -> dict[str, Any]:
     return config
 
 
+def _canonicalize(config: dict[str, Any]) -> dict[str, Any]:
+    """Rename CLI-style alias keys to their canonical names (shallow).
+
+    Ensures that, when several config sources are merged, the same setting
+    spelled two ways (e.g. ``commit`` and ``do_commit``) collapses onto one
+    key so later sources override earlier ones cleanly.
+    """
+    return {_ALIASES.get(key, key): value for key, value in config.items()}
+
+
+def merge_configs(sources: list[dict[str, Any]] | tuple[dict[str, Any], ...]) -> dict[str, Any]:
+    """Shallow-merge config mappings left-to-right; later sources win.
+
+    Each top-level key is wholly replaced by the value from the last source
+    that sets it (no deep/recursive merging of nested lists or dicts). Alias
+    keys are canonicalised first so different spellings of the same setting
+    override one another rather than coexisting.
+
+    Args:
+        sources: Ordered config mappings, lowest precedence first.
+
+    Returns:
+        A single merged mapping.
+    """
+    merged: dict[str, Any] = {}
+    for source in sources:
+        merged.update(_canonicalize(source))
+    return merged
+
+
+def load_sources(config: str | Path | dict | list | tuple) -> dict[str, Any]:
+    """Resolve one or more config sources into a single merged mapping.
+
+    Accepts a single source (a path or an already-parsed mapping) or an
+    ordered ``list``/``tuple`` of them. Paths are read from disk; mappings are
+    used as-is. Multiple sources are shallow-merged with later entries
+    overriding earlier ones (see :func:`merge_configs`).
+
+    Args:
+        config: A path, a mapping, or a list/tuple of paths and/or mappings.
+
+    Returns:
+        The merged configuration mapping.
+    """
+    sources = list(config) if isinstance(config, (list, tuple)) else [config]
+    dicts = [src if isinstance(src, dict) else load_config(src) for src in sources]
+    return merge_configs(dicts)
+
+
 def build_uri(*, host: str, database: str, user: str, port: int | str = 5432) -> str:
     """Build a PostgreSQL connection URI (without a password) from parts.
 

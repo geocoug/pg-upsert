@@ -269,10 +269,10 @@ class PgUpsert:
     @classmethod
     def from_config(
         cls,
-        config: str | Path | dict,
+        config: str | Path | dict | list | tuple,
         **overrides,
     ) -> PgUpsert:
-        """Construct a :class:`PgUpsert` from a configuration file or mapping.
+        """Construct a :class:`PgUpsert` from one or more configuration sources.
 
         Accepts the same YAML configuration file used by the command line
         (``--config-file``), so a single file can drive both the CLI and
@@ -284,29 +284,37 @@ class PgUpsert:
         the password is prompted for (or read from ``PGPASSWORD``) at connect
         time.
 
+        Passing a ``list``/``tuple`` of sources layers them: they are
+        shallow-merged left-to-right, so later sources override earlier ones
+        key-by-key (no deep merging — a later ``tables`` or
+        ``exclude_columns_by_table`` wholly replaces an earlier one). This lets
+        a small task-specific file override a larger shared base file. Explicit
+        ``overrides`` win over every file.
+
         Args:
-            config: Path to a YAML configuration file, or an already-parsed
-                mapping of configuration values.
-            **overrides: Keyword arguments that take precedence over the config
-                file's values. May include values that cannot live in YAML,
+            config: A path to a YAML file or an already-parsed mapping, or an
+                ordered ``list``/``tuple`` of such sources (lowest precedence
+                first).
+            **overrides: Keyword arguments that take precedence over every
+                config source. May include values that cannot live in YAML,
                 such as an existing ``conn`` or a ``callback``.
 
         Returns:
             A configured :class:`PgUpsert` instance.
 
         Raises:
-            FileNotFoundError: If ``config`` is a path that does not exist.
-            ValueError: If the configuration is not a valid mapping or required
+            FileNotFoundError: If a source path does not exist.
+            ValueError: If a source is not a valid mapping or required
                 arguments are missing.
 
         Example:
             >>> ups = PgUpsert.from_config("pg-upsert.yaml")
             >>> ups = PgUpsert.from_config("pg-upsert.yaml", do_commit=True)
+            >>> ups = PgUpsert.from_config(["base.yaml", "task.yaml"])
         """
-        from .config import config_to_kwargs, load_config
+        from .config import config_to_kwargs, load_sources
 
-        data = config if isinstance(config, dict) else load_config(config)
-        return cls(**config_to_kwargs(data, **overrides))
+        return cls(**config_to_kwargs(load_sources(config), **overrides))
 
     @property
     def qa_errors(self) -> list[QAError]:

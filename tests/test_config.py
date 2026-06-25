@@ -14,6 +14,8 @@ from pg_upsert.config import (
     config_to_kwargs,
     is_recognized_key,
     load_config,
+    load_sources,
+    merge_configs,
 )
 
 EXAMPLE_YAML = Path(__file__).resolve().parents[1] / "pg-upsert.example.yaml"
@@ -60,6 +62,76 @@ class TestLoadConfig:
         config = load_config(EXAMPLE_YAML)
         assert config["staging_schema"] == "staging"
         assert config["base_schema"] == "public"
+
+
+# ---------------------------------------------------------------------------
+# merge_configs / load_sources (layered config)
+# ---------------------------------------------------------------------------
+
+
+class TestMergeConfigs:
+    def test_later_source_wins(self):
+        assert merge_configs([{"host": "a"}, {"host": "b"}]) == {"host": "b"}
+
+    def test_keys_union_across_sources(self):
+        assert merge_configs([{"host": "a"}, {"user": "u"}]) == {"host": "a", "user": "u"}
+
+    def test_alias_collapses_across_sources(self):
+        # `commit` (file 1) and `do_commit` (file 2) are the same setting.
+        assert merge_configs([{"commit": False}, {"do_commit": True}]) == {"do_commit": True}
+
+    def test_shallow_replace_not_deep_merge_for_lists(self):
+        assert merge_configs([{"tables": ["a", "b"]}, {"tables": ["c"]}]) == {"tables": ["c"]}
+
+    def test_shallow_replace_not_deep_merge_for_dicts(self):
+        merged = merge_configs(
+            [
+                {"exclude_columns_by_table": {"books": ["x"]}},
+                {"exclude_columns_by_table": {"authors": ["y"]}},
+            ],
+        )
+        # The whole mapping is replaced, not deep-merged.
+        assert merged == {"exclude_cols_by_table": {"authors": ["y"]}}
+
+    def test_empty_sources(self):
+        assert merge_configs([]) == {}
+
+
+class TestLoadSources:
+    def test_single_dict(self):
+        assert load_sources({"host": "a"}) == {"host": "a"}
+
+    def test_single_path(self, tmp_path):
+        path = tmp_path / "c.yaml"
+        path.write_text("host: localhost\n")
+        assert load_sources(path) == {"host": "localhost"}
+
+    def test_list_of_dicts_layered(self):
+        merged = load_sources([{"host": "a", "user": "u1"}, {"user": "u2"}])
+        assert merged == {"host": "a", "user": "u2"}
+
+    def test_tuple_is_accepted(self):
+        assert load_sources(({"host": "a"}, {"host": "b"})) == {"host": "b"}
+
+    def test_mix_of_paths_and_dicts(self, tmp_path):
+        base = tmp_path / "base.yaml"
+        base.write_text("host: localhost\nuser: base\n")
+        merged = load_sources([base, {"user": "override"}])
+        assert merged == {"host": "localhost", "user": "override"}
+
+    def test_connection_parts_merge_then_build_uri(self):
+        merged = load_sources(
+            [
+                {"host": "h", "database": "dev", "user": "u1"},
+                {"user": "u2"},
+            ],
+        )
+        kwargs = config_to_kwargs(merged)
+        assert kwargs["uri"] == "postgresql://u2@h:5432/dev"
+
+    def test_missing_file_in_list_raises(self, tmp_path):
+        with pytest.raises(FileNotFoundError):
+            load_sources([{"host": "a"}, tmp_path / "missing.yaml"])
 
 
 # ---------------------------------------------------------------------------
@@ -246,3 +318,36 @@ class TestFromConfig:
         with mock.patch.object(PgUpsert, "__init__", fake_init):
             PgUpsert.from_config(str(EXAMPLE_YAML), do_commit=True)
         assert captured["do_commit"] is True
+
+    def test_layered_sources_later_wins(self):
+        captured = {}
+
+        def fake_init(self, **kwargs):
+            captured.update(kwargs)
+
+        base = {
+            "host": "localhost",
+            "database": "dev",
+            "user": "base_user",
+            "staging_schema": "staging",
+            "base_schema": "public",
+            "tables": ["books", "authors"],
+            "commit": False,
+        }
+        task = {"user": "task_user", "tables": ["books"], "commit": True}
+        with mock.patch.object(PgUpsert, "__init__", fake_init):
+            PgUpsert.from_config([base, task])
+        # task overrides base key-by-key; connection parts merge before URI build.
+        assert captured["uri"] == "postgresql://task_user@localhost:5432/dev"
+        assert captured["tables"] == ["books"]
+        assert captured["do_commit"] is True
+
+    def test_overrides_beat_all_layers(self):
+        captured = {}
+
+        def fake_init(self, **kwargs):
+            captured.update(kwargs)
+
+        with mock.patch.object(PgUpsert, "__init__", fake_init):
+            PgUpsert.from_config([{"commit": False}, {"commit": True}], do_commit=False)
+        assert captured["do_commit"] is False
