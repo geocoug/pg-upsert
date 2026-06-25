@@ -8,6 +8,14 @@ ______________________________________________________________________
 
 ## [Unreleased]
 
+### Added
+
+- **`PgUpsert.from_config()`** — construct a `PgUpsert` directly from a YAML configuration file (or a dict), the same file accepted by the CLI's `--config-file` (resolves [#14](https://github.com/geocoug/pg-upsert/issues/14)). Both CLI-style keys (`exclude_columns`, `null_columns`, `commit`) and native constructor names (`exclude_cols`, `do_commit`) are accepted; unknown keys are ignored. Connection parts (`host`, `port`, `database`, `user`) are assembled into a URI when one is not supplied, and `**overrides` (including non-YAML values like `conn` or `callback`) take precedence over the file. Example: `PgUpsert.from_config("pg-upsert.yaml", do_commit=True)`.
+
+### Changed
+
+- The CLI now builds its `PgUpsert` instance through the shared `pg_upsert.config` loader, so command-line and `from_config()` usage share a single source of truth for config-key handling and cannot drift.
+
 ______________________________________________________________________
 
 ## [1.23.0] - 2026-06-23

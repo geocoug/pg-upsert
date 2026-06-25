@@ -311,6 +311,40 @@ ups.cleanup()  # drops all ups_* temp objects; connection stays open
 # conn is still usable for other work
 ```
 
+### 8 - Configure from a YAML file
+
+The same configuration file used by the CLI's `--config-file` flag can drive `PgUpsert` directly with `PgUpsert.from_config()`, so a single file works in both contexts:
+
+```yaml
+# pg-upsert.yaml
+host: localhost
+port: 5432
+user: docker
+database: dev
+staging_schema: staging
+base_schema: public
+tables:
+  - books
+  - authors
+exclude_columns:   # CLI-style keys are accepted (also: exclude_cols)
+  - rev_user
+  - rev_time
+commit: false      # maps to do_commit
+```
+
+```python
+from pg_upsert import PgUpsert
+
+# Build straight from the file...
+result = PgUpsert.from_config("pg-upsert.yaml").run()
+
+# ...or override individual values (overrides win over the file).
+# Overrides may include things YAML can't hold, e.g. an existing connection.
+result = PgUpsert.from_config("pg-upsert.yaml", do_commit=True).run()
+```
+
+Both CLI-style keys (`exclude_columns`, `null_columns`, `commit`) and the constructor's native names (`exclude_cols`, `do_commit`) are accepted, and unknown keys are ignored. When `host`, `port`, `database`, and `user` are present they are assembled into a connection URI; the password is prompted for (or read from `PGPASSWORD`) at connect time. A dictionary may be passed in place of a file path.
+
 ## CLI examples
 
 ```sh

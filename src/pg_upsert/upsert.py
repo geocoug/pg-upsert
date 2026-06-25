@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime
+from pathlib import Path
 
 import psycopg
 from psycopg.sql import SQL, Identifier, Literal
@@ -210,6 +211,48 @@ class PgUpsert:
             exclude_null_check_cols=list(exclude_null_check_cols) if exclude_null_check_cols else None,
             interactive=interactive,
         )
+
+    @classmethod
+    def from_config(
+        cls,
+        config: str | Path | dict,
+        **overrides,
+    ) -> PgUpsert:
+        """Construct a :class:`PgUpsert` from a configuration file or mapping.
+
+        Accepts the same YAML configuration file used by the command line
+        (``--config-file``), so a single file can drive both the CLI and
+        library usage. CLI-style keys (e.g. ``exclude_columns``, ``commit``,
+        ``null_columns``) and the constructor's native names (e.g.
+        ``exclude_cols``, ``do_commit``) are both accepted; unrecognised keys
+        are ignored. Connection parts (``host``, ``port``, ``database``,
+        ``user``) are assembled into a URI when one is not supplied directly —
+        the password is prompted for (or read from ``PGPASSWORD``) at connect
+        time.
+
+        Args:
+            config: Path to a YAML configuration file, or an already-parsed
+                mapping of configuration values.
+            **overrides: Keyword arguments that take precedence over the config
+                file's values. May include values that cannot live in YAML,
+                such as an existing ``conn`` or a ``callback``.
+
+        Returns:
+            A configured :class:`PgUpsert` instance.
+
+        Raises:
+            FileNotFoundError: If ``config`` is a path that does not exist.
+            ValueError: If the configuration is not a valid mapping or required
+                arguments are missing.
+
+        Example:
+            >>> ups = PgUpsert.from_config("pg-upsert.yaml")
+            >>> ups = PgUpsert.from_config("pg-upsert.yaml", do_commit=True)
+        """
+        from .config import config_to_kwargs, load_config
+
+        data = config if isinstance(config, dict) else load_config(config)
+        return cls(**config_to_kwargs(data, **overrides))
 
     @property
     def qa_errors(self) -> list[QAError]:
