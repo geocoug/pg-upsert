@@ -16,6 +16,7 @@ ______________________________________________________________________
 ### Changed
 
 - The CLI now builds its `PgUpsert` instance through the shared `pg_upsert.config` loader, so command-line and `from_config()` usage share a single source of truth for config-key handling and cannot drift.
+- `--generate-config` now appends commented `exclude_columns_by_table` / `null_columns_by_table` examples so the config-file-only per-table options are discoverable in generated templates.
 
 ______________________________________________________________________
 

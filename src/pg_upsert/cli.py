@@ -29,6 +29,19 @@ except PackageNotFoundError:
 logger = logging.getLogger(_TITLE)
 logger.propagate = False
 
+# Config-file-only options (no CLI flag) appended to generated templates as
+# commented examples so users can discover them. See PgUpsert(exclude_cols_by_table=...).
+_PER_TABLE_CONFIG_TEMPLATE = """\
+# Per-table excludes (optional) — merged on top of the global exclude_columns /
+# null_columns lists above. Each maps a table name to its own column list.
+# exclude_columns_by_table:
+#   books:
+#     - isbn_legacy
+# null_columns_by_table:
+#   books:
+#     - reprint_date
+"""
+
 
 app = typer.Typer(add_completion=False)
 
@@ -257,7 +270,8 @@ def cli(
             del args.version, args.config_file, args.docs, args.generate_config
             if not args.logfile:
                 args.logfile = Path(f"{_TITLE}.log").as_posix()
-            yaml.dump(args.__dict__, file, sort_keys=False, indent=2, encoding="utf-8")
+            file.write(yaml.dump(args.__dict__, sort_keys=False, indent=2))
+            file.write(_PER_TABLE_CONFIG_TEMPLATE)
         rprint(
             ":file_folder: Configuration file generated: [bold green]pg-upsert.template.yaml[/bold green]",
         )

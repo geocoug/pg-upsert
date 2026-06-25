@@ -95,6 +95,13 @@ class TestCliExitZero:
         # Check the generated file includes default logfile
         raw = (tmp_path / "pg-upsert.template.yaml").read_text()
         assert "logfile" in raw
+        # Config-file-only per-table excludes are included as commented examples.
+        assert "exclude_columns_by_table" in raw
+        assert "null_columns_by_table" in raw
+        # The template must remain valid YAML (commented keys are ignored).
+        parsed = yaml.safe_load(raw)
+        assert parsed["staging_schema"] is None
+        assert "exclude_columns_by_table" not in parsed
 
     def test_generate_config_with_logfile(self, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
