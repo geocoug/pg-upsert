@@ -300,10 +300,9 @@ class QARunner:
             for c in nonnull_cols
         )
         null_counts = self.db.execute(
-            SQL("select {exprs} from {schema}.{table}").format(
+            SQL("select {exprs} from {src}").format(
                 exprs=count_exprs,
-                schema=Identifier(self.staging_schema),
-                table=Identifier(table),
+                src=self._effective_rows(table),
             ),
         ).fetchone()
 
@@ -328,10 +327,9 @@ class QARunner:
                 null_cols = [d.split(" (")[0] for d in null_details]
                 for col in null_cols:
                     q = SQL(
-                        "SELECT * FROM {schema}.{table} WHERE {col} IS NULL LIMIT {lim}",
+                        "SELECT * FROM {src} WHERE {col} IS NULL LIMIT {lim}",
                     ).format(
-                        schema=Identifier(self.staging_schema),
-                        table=Identifier(table),
+                        src=self._effective_rows(table),
                         col=Identifier(col),
                         lim=Literal(self.max_export_rows),
                     )
@@ -415,14 +413,13 @@ class QARunner:
             drop view if exists ups_pk_check cascade;
             create temporary view ups_pk_check as
             select {pkcollist}, count(*) as nrows
-            from {staging_schema}.{table} as s
+            from {src}
             group by {pkcollist}
             having count(*) > 1;
             """,
             ).format(
                 pkcollist=pk_cols,
-                staging_schema=Identifier(self.staging_schema),
-                table=Identifier(table),
+                src=self._effective_rows(table),
             ),
         )
         pk_errs, pk_headers, pk_rowcount = self.db.rowdict("select * from ups_pk_check;")
@@ -461,11 +458,9 @@ class QARunner:
             if self.capture_detail_rows:
                 # Fetch entire staging rows whose PK matches any duplicate.
                 q = SQL(
-                    "SELECT * FROM {schema}.{table} WHERE ({pk_cols}) IN"
-                    " (SELECT {pk_cols} FROM ups_pk_check) LIMIT {lim}",
+                    "SELECT * FROM {src} WHERE ({pk_cols}) IN (SELECT {pk_cols} FROM ups_pk_check) LIMIT {lim}",
                 ).format(
-                    schema=Identifier(self.staging_schema),
-                    table=Identifier(table),
+                    src=self._effective_rows(table),
                     pk_cols=pk_cols,
                     lim=Literal(self.max_export_rows),
                 )
@@ -944,12 +939,11 @@ class QARunner:
                 SQL(
                     """
             create or replace temporary view ups_ck_check_check as
-            select count(*) from {staging_schema}.{table}
+            select count(*) from {src}
             where not ({check_sql})
             """,
                 ).format(
-                    staging_schema=Identifier(self.staging_schema),
-                    table=Identifier(table),
+                    src=self._effective_rows(table),
                     check_sql=SQL(const_row["check_sql"]),
                 ),
             )
@@ -963,10 +957,9 @@ class QARunner:
                     # Fetch entire rows that violate this specific check
                     # constraint, tagging each row with the constraint name.
                     ck_detail_q = SQL(
-                        "SELECT * FROM {schema}.{table} WHERE NOT ({check_sql}) LIMIT {lim}",
+                        "SELECT * FROM {src} WHERE NOT ({check_sql}) LIMIT {lim}",
                     ).format(
-                        schema=Identifier(self.staging_schema),
-                        table=Identifier(table),
+                        src=self._effective_rows(table),
                         check_sql=SQL(const_row["check_sql"]),
                         lim=Literal(self.max_export_rows),
                     )
@@ -1264,7 +1257,11 @@ class QARunner:
         for row in missing_info:
             col = row["column_name"]
             is_pk = col in pk_cols
-            is_required = row["is_nullable"] == "NO" and row["column_default"] is None
+            # A required column only matters when rows are inserted; an
+            # UPDATE leaves a column that is missing from staging untouched.
+            is_required = (
+                row["is_nullable"] == "NO" and row["column_default"] is None and self.upsert_method != "update"
+            )
             if self.strict_columns or is_pk or is_required:
                 error_cols.append(col)
             else:
@@ -1484,10 +1481,9 @@ class QARunner:
             for index, predicate in enumerate(predicates)
         )
         counts = self.db.execute(
-            SQL("select {exprs} from {schema}.{table}").format(
+            SQL("select {exprs} from {src}").format(
                 exprs=count_exprs,
-                schema=Identifier(self.staging_schema),
-                table=Identifier(table),
+                src=self._effective_rows(table),
             ),
         ).fetchone()
 
@@ -1515,7 +1511,7 @@ class QARunner:
                         char_length(rtrim({column}::text, ' ')) as actual_length,
                         {max_length}::integer as max_length,
                         count(*) as nrows
-                    from {schema}.{table}
+                    from {src}
                     where {predicate}
                     group by {column}, char_length(rtrim({column}::text, ' '))
                     order by nrows desc, actual_length, {column}
@@ -1523,8 +1519,7 @@ class QARunner:
                 ).format(
                     column=Identifier(column),
                     max_length=Literal(max_length),
-                    schema=Identifier(self.staging_schema),
-                    table=Identifier(table),
+                    src=self._effective_rows(table),
                     predicate=predicate,
                 ),
             )
@@ -1548,9 +1543,8 @@ class QARunner:
             pk_cols = self._get_pk_columns(table)
             for column, max_length, _count, predicate in violating_columns:
                 rows, _headers, _rowcount = self.db.rowdict(
-                    SQL("select * from {schema}.{table} where {predicate} limit {limit}").format(
-                        schema=Identifier(self.staging_schema),
-                        table=Identifier(table),
+                    SQL("select * from {src} where {predicate} limit {limit}").format(
+                        src=self._effective_rows(table),
                         predicate=predicate,
                         limit=Literal(self.max_export_rows),
                     ),

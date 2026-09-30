@@ -119,3 +119,85 @@ class TestPredictedRows:
             ),
         ).fetchall()
         assert ("ZZBase", "base") in [tuple(r) for r in rows]
+
+
+# ===================================================================
+# Row-local checks
+# ===================================================================
+
+
+def flagged(errors) -> bool:
+    return any(e.severity.value == "error" for e in errors)
+
+
+class TestNullCheck:
+    @pytest.mark.parametrize(("method", "expected"), [("upsert", True), ("update", False), ("insert", True)])
+    def test_null_on_new_row(self, db, method, expected):
+        seed_base_author(db)
+        db.execute("update staging.authors set first_name = null where author_id = 'AAdams';")
+        assert flagged(make_ups(db, method)._qa.check_nulls("authors")) is expected
+
+    @pytest.mark.parametrize(("method", "expected"), [("upsert", True), ("update", True), ("insert", False)])
+    def test_null_on_existing_row(self, db, method, expected):
+        seed_base_author(db)
+        db.execute("update staging.authors set first_name = null where author_id = 'JDoe';")
+        assert flagged(make_ups(db, method)._qa.check_nulls("authors")) is expected
+
+    @pytest.mark.parametrize(("method", "expected"), [("upsert", True), ("update", False), ("insert", True)])
+    def test_excluded_required_column_is_null_on_insert(self, db, method, expected):
+        """An excluded NOT NULL column without a default is NULL in every inserted row."""
+        seed_base_author(db)
+        ups = make_ups(db, method, exclude_cols=("first_name",))
+        assert flagged(ups._qa.check_nulls("authors")) is expected
+
+
+class TestLengthCheck:
+    @pytest.mark.parametrize(("method", "expected"), [("upsert", True), ("update", True), ("insert", False)])
+    def test_overflow_on_existing_row(self, db, method, expected):
+        seed_base_author(db)
+        db.execute("update staging.authors set email = repeat('x', 101) where author_id = 'JDoe';")
+        assert flagged(make_ups(db, method)._qa.check_lengths("authors")) is expected
+
+
+class TestPrimaryKeyCheck:
+    @pytest.mark.parametrize(("method", "expected"), [("upsert", True), ("update", False), ("insert", True)])
+    def test_duplicate_new_key(self, db, method, expected):
+        seed_base_author(db)
+        db.execute("insert into staging.authors (author_id, first_name, last_name) values ('AAdams', 'Al', 'Adams');")
+        assert flagged(make_ups(db, method)._qa.check_pks("authors")) is expected
+
+    @pytest.mark.parametrize(("method", "expected"), [("upsert", True), ("update", True), ("insert", False)])
+    def test_duplicate_existing_key(self, db, method, expected):
+        seed_base_author(db)
+        db.execute("insert into staging.authors (author_id, first_name, last_name) values ('JDoe', 'Jon', 'Doe');")
+        assert flagged(make_ups(db, method)._qa.check_pks("authors")) is expected
+
+
+class TestCheckConstraintCheck:
+    @pytest.mark.parametrize(("method", "expected"), [("upsert", True), ("update", False), ("insert", True)])
+    def test_violation_on_new_row(self, db, method, expected):
+        seed_base_author(db)
+        db.execute("update staging.authors set first_name = 'Al1ce' where author_id = 'AAdams';")
+        assert flagged(make_ups(db, method)._qa.check_cks("authors")) is expected
+
+    @pytest.mark.parametrize("method", METHODS)
+    def test_excluded_column_uses_base_value(self, db, method):
+        """The UPDATE keeps the base value of an excluded column, so a bad staging value is irrelevant."""
+        seed_base_author(db)
+        db.execute("update staging.authors set first_name = 'J0hn' where author_id = 'JDoe';")
+        ups = make_ups(db, method, exclude_cols=("first_name",))
+        assert flagged(ups._qa.check_cks("authors")) is False
+
+
+class TestColumnExistenceSeverity:
+    @pytest.mark.parametrize(("method", "expected"), [("upsert", True), ("update", False), ("insert", True)])
+    def test_missing_required_column(self, db, method, expected):
+        db.execute("alter table staging.authors drop column first_name;")
+        errors = make_ups(db, method)._qa.check_column_existence("authors")
+        assert errors, "missing column should always be reported"
+        assert flagged(errors) is expected
+
+    @pytest.mark.parametrize("method", METHODS)
+    def test_missing_pk_column_is_always_error(self, db, method):
+        db.execute("alter table staging.authors drop column author_id;")
+        assert flagged(make_ups(db, method)._qa.check_column_existence("authors")) is True
