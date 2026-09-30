@@ -8,6 +8,14 @@ ______________________________________________________________________
 
 ## [Unreleased]
 
+### Added
+
+- **Character-length QA validation** — staging values that exceed bounded `varchar(n)` or `char(n)` base columns are now reported as row-level errors before upsert. Console detail tables group offending values and truncate their display to 60 characters while retaining the full measured length. The check follows PostgreSQL character and trailing-space semantics, supports fix-sheet exports, and is available through `qa_length(table)` and `qa_all_length()`.
+
+### Changed
+
+- Pinned the documentation toolchain to Zensical 0.0.28.
+
 ______________________________________________________________________
 
 ## [1.24.0] - 2026-06-26

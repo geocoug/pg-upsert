@@ -500,6 +500,9 @@ class TestCliPgUpsertCall:
             def check_type_mismatch(self, table, **kwargs):
                 return []
 
+            def check_lengths(self, table, **kwargs):
+                pytest.fail("--check-schema must remain metadata-only")
+
         class FakePgUpsert:
             def __init__(self, **kw):
                 self._qa = FakeQA()

@@ -43,6 +43,11 @@ class TestUserCancelledError:
 
 
 class TestQAError:
+    def test_length_is_error_severity_and_serializes(self):
+        err = QAError(table="authors", check_type=QACheckType.LENGTH, details="email (1; max 100)")
+        assert err.severity is QASeverity.ERROR
+        assert err.to_dict()["check_type"] == "length"
+
     def test_to_dict_structure(self):
         err = QAError(table="genres", check_type=QACheckType.NULL, details="genre (2)")
         d = err.to_dict()
@@ -90,6 +95,18 @@ class TestQAError:
 
 
 class TestRowViolation:
+    def test_length_violation_carries_actionable_row_detail(self):
+        violation = RowViolation(
+            pk_values=("A1",),
+            pk_columns=["author_id"],
+            row_data={"author_id": "A1", "email": "too-long"},
+            issue_type="length",
+            issue_column="email",
+            description="value in 'email' is 8 characters; maximum is 5",
+        )
+        assert violation.issue_type == "length"
+        assert violation.issue_column == "email"
+
     def test_defaults(self):
         v = RowViolation(
             pk_values=(1,),

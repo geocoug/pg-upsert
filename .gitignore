@@ -47,5 +47,8 @@ pg-upsert.template.yaml
 failures/
 pg_upsert_failures/
 
-# Claude
+# AI
 .claude
+.codex
+CLAUDE.md
+AGENTS.md

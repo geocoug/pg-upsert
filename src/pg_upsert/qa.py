@@ -87,6 +87,13 @@ class QARunner:
             return [c.strip() for c in spec["exclude_null_checks"].split(",") if c.strip()]
         return list(self.exclude_null_check_cols)
 
+    def _table_upsert_excludes(self, table: str) -> list[str]:
+        """Return the resolved upsert-column exclusions for *table*."""
+        spec = self.control.get_table_spec(table)
+        if spec and spec.get("exclude_cols"):
+            return [c.strip() for c in spec["exclude_cols"].split(",") if c.strip()]
+        return []
+
     def _get_pk_columns(self, table: str) -> list[str]:
         """Return the PK column names for *table* in the base schema.
 
@@ -1295,6 +1302,160 @@ class QARunner:
         )
         return errors
 
+    def check_lengths(self, table: str, ctx: CheckContext | None = None) -> list[QAError]:
+        """Check values against bounded character-column lengths.
+
+        PostgreSQL permits over-length input when the excess consists only of
+        ASCII spaces, for both ``varchar(n)`` and ``char(n)`` assignments.
+        Excluded upsert columns are not checked.
+
+        Args:
+            table: The staging table name to check.
+            ctx: Optional progress context with table counter.
+
+        Returns:
+            A list containing one :class:`QAError` when any values are too long.
+        """
+        logger.debug(f"Conducting character-length checks on table {self.staging_schema}.{table}")
+        excludes = self._table_upsert_excludes(table)
+        metadata_query = SQL(
+            """
+            select b.column_name, b.character_maximum_length as max_length
+            from information_schema.columns as b
+            inner join information_schema.columns as s
+                on s.table_schema = {staging_schema}
+                and s.table_name = {table}
+                and s.column_name = b.column_name
+            where b.table_schema = {base_schema}
+                and b.table_name = {table}
+                and b.data_type in ('character varying', 'character')
+                and b.character_maximum_length is not null
+            """,
+        ).format(
+            base_schema=Literal(self.base_schema),
+            staging_schema=Literal(self.staging_schema),
+            table=Literal(table),
+        )
+        if excludes:
+            metadata_query += SQL(" and b.column_name not in ({cols})").format(
+                cols=SQL(", ").join(Literal(col) for col in excludes),
+            )
+        metadata_query += SQL(" order by b.ordinal_position")
+        column_rows, _headers, _rowcount = self.db.rowdict(metadata_query)
+        columns = [(row["column_name"], row["max_length"]) for row in column_rows]
+        if not columns:
+            display.print_check_table_pass(self.staging_schema, table, ctx=ctx)
+            return []
+
+        predicates = [
+            SQL("char_length(rtrim({col}::text, ' ')) > {max_length}").format(
+                col=Identifier(column),
+                max_length=Literal(max_length),
+            )
+            for column, max_length in columns
+        ]
+        count_exprs = SQL(", ").join(
+            SQL("count(*) filter (where {predicate}) as {alias}").format(
+                predicate=predicate,
+                alias=Identifier(f"length_{index}"),
+            )
+            for index, predicate in enumerate(predicates)
+        )
+        counts = self.db.execute(
+            SQL("select {exprs} from {schema}.{table}").format(
+                exprs=count_exprs,
+                schema=Identifier(self.staging_schema),
+                table=Identifier(table),
+            ),
+        ).fetchone()
+
+        violating_columns: list[tuple[str, int, int, object]] = []
+        if counts:
+            for index, ((column, max_length), predicate) in enumerate(zip(columns, predicates, strict=True)):
+                count = counts[index] or 0
+                if count:
+                    violating_columns.append((column, max_length, count, predicate))
+        if not violating_columns:
+            display.print_check_table_pass(self.staging_schema, table, ctx=ctx)
+            return []
+
+        details = ", ".join(
+            f"{column} ({count}; max {max_length})" for column, max_length, count, _ in violating_columns
+        )
+        self.control.set_qa_errors(table, "length_errors", details)
+
+        for column, max_length, count, predicate in violating_columns:
+            detail_rows, detail_headers, _detail_count = self.db.rowdict(
+                SQL(
+                    """
+                    select
+                        {column},
+                        char_length(rtrim({column}::text, ' ')) as actual_length,
+                        {max_length}::integer as max_length,
+                        count(*) as nrows
+                    from {schema}.{table}
+                    where {predicate}
+                    group by {column}, char_length(rtrim({column}::text, ' '))
+                    order by nrows desc, actual_length, {column}
+                    """,
+                ).format(
+                    column=Identifier(column),
+                    max_length=Literal(max_length),
+                    schema=Identifier(self.staging_schema),
+                    table=Identifier(table),
+                    predicate=predicate,
+                ),
+            )
+            display_rows = []
+            for row in detail_rows:
+                display_row = dict(row)
+                value = str(display_row[column]).rstrip(" ")
+                display_row[column] = f"{value[:59]}…" if len(value) > 60 else value
+                display_rows.append(display_row)
+            display.print_check_table_fail(
+                self.staging_schema,
+                table,
+                f"{column} ({count}; max {max_length})",
+                detail_rows=display_rows,
+                detail_headers=detail_headers,
+                ctx=ctx,
+            )
+
+        violations: list[RowViolation] = []
+        if self.capture_detail_rows:
+            pk_cols = self._get_pk_columns(table)
+            for column, max_length, _count, predicate in violating_columns:
+                rows, _headers, _rowcount = self.db.rowdict(
+                    SQL("select * from {schema}.{table} where {predicate} limit {limit}").format(
+                        schema=Identifier(self.staging_schema),
+                        table=Identifier(table),
+                        predicate=predicate,
+                        limit=Literal(self.max_export_rows),
+                    ),
+                )
+                for row in rows:
+                    row_data = dict(row)
+                    actual_length = len(str(row_data[column]).rstrip(" "))
+                    violations.append(
+                        RowViolation(
+                            pk_values=self._extract_pk_tuple(row_data, pk_cols),
+                            pk_columns=list(pk_cols),
+                            row_data=row_data,
+                            issue_type="length",
+                            issue_column=column,
+                            description=(f"value in '{column}' is {actual_length} characters; maximum is {max_length}"),
+                        ),
+                    )
+
+        return [
+            QAError(
+                table=table,
+                check_type=QACheckType.LENGTH,
+                details=details,
+                violations=violations,
+            ),
+        ]
+
     # ------------------------------------------------------------------
     # Orchestration
     # ------------------------------------------------------------------
@@ -1329,6 +1490,7 @@ class QARunner:
         check_types: list[tuple[str, bool]] = [
             ("Column Existence", False),
             ("Column Type", False),
+            ("Character Length", False),
             ("Non-NULL", False),
             ("Primary Key", True),
             ("Unique", True),
@@ -1338,6 +1500,7 @@ class QARunner:
         check_funcs: dict[str, object] = {
             "Column Existence": self.check_column_existence,
             "Column Type": self.check_type_mismatch,
+            "Character Length": self.check_lengths,
             "Non-NULL": self.check_nulls,
             "Primary Key": self.check_pks,
             "Unique": self.check_unique,
@@ -1350,6 +1513,7 @@ class QARunner:
         check_type_map: dict[str, QACheckType] = {
             "Column Existence": QACheckType.COLUMN_EXISTENCE,
             "Column Type": QACheckType.TYPE_MISMATCH,
+            "Character Length": QACheckType.LENGTH,
             "Non-NULL": QACheckType.NULL,
             "Primary Key": QACheckType.PRIMARY_KEY,
             "Unique": QACheckType.UNIQUE,

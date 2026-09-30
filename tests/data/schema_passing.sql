@@ -108,6 +108,7 @@ create table public.authors (
     first_name varchar(60) not null,
     last_name varchar(60) not null,
     email varchar(100) null,
+    fixed_code char(5) null,
 	rev_time timestamp DEFAULT now() NULL,
 	rev_user varchar(25) DEFAULT currentuser() NULL,
     constraint chk_authors_first_name check (first_name ~ '^[a-zA-Z]+$'),
@@ -175,7 +176,8 @@ create table staging.authors (
     author_id varchar(60),
     first_name varchar(60),
     last_name varchar(60),
-    email varchar(100)
+    email text,
+    fixed_code text
 );
 
 drop table if exists staging.book_authors cascade;
@@ -232,21 +234,21 @@ insert into staging.publishers (publisher_id, publisher_name) values
     ('P020', 'Dramatic Works Publishing'),
     ('P021', 'Comedy Central Books');
 
-insert into staging.authors (author_id, first_name, last_name, email)
+insert into staging.authors (author_id, first_name, last_name, email, fixed_code)
 values
-    ('JDoe', 'John', 'Doe', 'john.doe@email.com'),
-    ('AAdams', 'Alice', 'Adams', 'alice.adams@email.com'),
-    ('BBrown', 'Bob', 'Brown', null),
-    ('CCooper', 'Cathy', 'Cooper', 'cathy_cooper2@email.com'),
-    ('DDavis', 'David', 'Davis', 'ddavis@email.com'),
-    ('EEvans', 'Emily', 'Evans', 'emilyevans@email.com'),
-    ('FFisher', 'Frank', 'Fisher', 'frankfisher@email.com'),
-    ('GGarcia', 'George', 'Garcia', 'georgegarcia@email.com'),
-    ('HHall', 'Helen', 'Hall', 'hhall@email.com'),
-    ('IIngram', 'Isaac', 'Ingram', 'i_s_a_a_c@email.com'),
-    ('JJones', 'Jack', 'Jones', 'jack_jones@email.com'),
-    ('KKing', 'Katie', 'King', 'katie_king@email.com'),
-    ('LLee', 'Larry', 'Lee', 'llee@email.com');
+    ('JDoe', 'John', 'Doe', 'john.doe@email.com', 'ABCDE'),
+    ('AAdams', 'Alice', 'Adams', 'alice.adams@email.com', null),
+    ('BBrown', 'Bob', 'Brown', null, 'XY   '),
+    ('CCooper', 'Cathy', 'Cooper', 'cathy_cooper2@email.com', null),
+    ('DDavis', 'David', 'Davis', 'ddavis@email.com', null),
+    ('EEvans', 'Emily', 'Evans', 'emilyevans@email.com', null),
+    ('FFisher', 'Frank', 'Fisher', 'frankfisher@email.com', null),
+    ('GGarcia', 'George', 'Garcia', 'georgegarcia@email.com', null),
+    ('HHall', 'Helen', 'Hall', 'hhall@email.com', null),
+    ('IIngram', 'Isaac', 'Ingram', 'i_s_a_a_c@email.com', null),
+    ('JJones', 'Jack', 'Jones', 'jack_jones@email.com', null),
+    ('KKing', 'Katie', 'King', 'katie_king@email.com', null),
+    ('LLee', 'Larry', 'Lee', 'llee@email.com', null);
 
 insert into staging.books (book_id, book_title, genre, publisher_id, notes) values
     ('B001', 'The Great Novel', 'Fiction', 'P001', 'An epic tale of love and loss'),

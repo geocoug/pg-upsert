@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 import psycopg
 from psycopg.sql import SQL, Identifier, Literal
@@ -55,7 +56,7 @@ class PgUpsert:
         do_commit (bool, optional): If True, changes will be committed to the database once the upsert process has completed successfully. If False, changes will be rolled back. Defaults to False.
         interactive (bool, optional): If True, the user will be prompted with multiple dialogs to confirm various steps during the upsert process. If False, the upsert process will run without user intervention. Defaults to False.
         upsert_method (str, optional): The method to use for upserting data. Must be one of "upsert", "update", or "insert". Defaults to "upsert".
-        exclude_cols (list or tuple or None, optional): List of column names to exclude from the upsert process. These columns will not be updated or inserted to, however, they will still be checked during the QA process.
+        exclude_cols (list or tuple or None, optional): List of column names to exclude from the upsert process. These columns will not be updated or inserted. Column-existence and character-length QA checks also skip them; other applicable QA checks still run.
         exclude_null_check_cols (list or tuple or None, optional): List of column names to exclude from the not-null check during the QA process. You may wish to exclude certain columns from null checks, such as auto-generated timestamps or serial columns as they may not be populated until after records are inserted or updated. Defaults to ().
         exclude_cols_by_table (dict or None, optional): Per-table upsert excludes, mapping a table name to a list of column names. These are merged with (added on top of) the global ``exclude_cols`` list for that table. Every key must be one of the configured ``tables``. Defaults to ``None``.
         exclude_null_check_cols_by_table (dict or None, optional): Per-table null-check excludes, mapping a table name to a list of column names. These are merged with the global ``exclude_null_check_cols`` list for that table. Every key must be one of the configured ``tables``. Defaults to ``None``.
@@ -270,7 +271,7 @@ class PgUpsert:
     def from_config(
         cls,
         config: str | Path | dict | list | tuple,
-        **overrides,
+        **overrides: Any,
     ) -> PgUpsert:
         """Construct a :class:`PgUpsert` from one or more configuration sources.
 
@@ -513,15 +514,16 @@ class PgUpsert:
         self._control.show(self.interactive)
 
     def qa_all(self: PgUpsert) -> PgUpsert:
-        """Performs QA checks for nulls in non-null columns, for duplicated
-        primary key values, for invalid foreign keys, and invalid check constraints
-        in a set of staging tables to be loaded into base tables.
+        """Perform all QA checks on staging tables before loading base tables.
+
+        Checks column existence, type compatibility, bounded character lengths,
+        non-null values, primary keys, unique constraints, foreign keys, and
+        check constraints.
         If there are failures in the QA checks, loading is not attempted.
         If the loading step is carried out, it is done within a transaction.
 
-        The `null_errors`, `pk_errors`, `fk_errors`, `ck_errors` columns of the
-        control table will be updated to identify any errors that occur,
-        so that this information is available to the caller.
+        The corresponding `*_errors` columns of the control table are updated
+        so that error details remain available to the caller.
 
         The `rows_updated` and `rows_inserted` columns of the control table
         will be updated with counts of the number of rows affected by the
@@ -532,12 +534,8 @@ class PgUpsert:
         update operation does not test to see if column contents are different,
         and so does not update only those values that are different.
 
-        This method runs [`PgUpsert`](pg_upsert.md) methods in the following order:
-
-        1. [`PgUpsert.qa_all_null`](pg_upsert.md#pg_upsert.PgUpsert.qa_all_null)
-        2. [`PgUpsert.qa_all_pk`](pg_upsert.md#pg_upsert.PgUpsert.qa_all_pk)
-        3. [`PgUpsert.qa_all_fk`](pg_upsert.md#pg_upsert.PgUpsert.qa_all_fk)
-        4. [`PgUpsert.qa_all_ck`](pg_upsert.md#pg_upsert.PgUpsert.qa_all_ck)
+        The checks run in the order documented in
+        [QA Checks Reference](qa_checks.md).
 
         **Example:**
 
@@ -696,6 +694,26 @@ class PgUpsert:
         for i, table in enumerate(self.tables, 1):
             ctx = CheckContext(table_num=i, total_tables=total)
             self._qa_findings.extend(self._qa.check_type_mismatch(table, ctx=ctx))
+        self._update_qa_passed()
+        return self
+
+    def qa_all_length(self: PgUpsert) -> PgUpsert:
+        """Check bounded character-column lengths in all selected tables."""
+        total = len(self.tables)
+        for i, table in enumerate(self.tables, 1):
+            ctx = CheckContext(table_num=i, total_tables=total)
+            self._qa_findings.extend(self._qa.check_lengths(table, ctx=ctx))
+        self._update_qa_passed()
+        return self
+
+    def qa_length(self: PgUpsert, table: str) -> PgUpsert:
+        """Check bounded character-column lengths in one staging table.
+
+        Args:
+            table: The staging table name to check.
+        """
+        self._validate_table(table)
+        self._qa_findings.extend(self._qa.check_lengths(table))
         self._update_qa_passed()
         return self
 

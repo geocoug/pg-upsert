@@ -294,6 +294,12 @@ class TestPrintQASummaryCompact:
         out = _capture(display.print_qa_summary, tables, errors, compact=True)
         assert "books" in out
 
+    def test_character_length_has_compact_column_and_failure_marker(self):
+        errors = [QAError(table="authors", check_type=QACheckType.LENGTH, details="email (1; max 100)")]
+        out = _capture(display.print_qa_summary, ["authors"], errors, compact=True)
+        assert "Len" in out
+        assert "✗" in out
+
     def test_single_table_passing(self):
         out = _capture(display.print_qa_summary, ["genres"], [], compact=True)
         assert "genres" in out

@@ -1,6 +1,6 @@
 # QA Checks Reference
 
-pg-upsert runs 7 types of quality assurance checks on staging table data before performing any upsert operations. Checks run in the order listed below — schema checks first, then data checks.
+pg-upsert runs 8 types of quality assurance checks on staging table data before performing any upsert operations. Checks run in the order listed below — metadata checks first, then data checks.
 
 ## Column Existence
 
@@ -25,6 +25,33 @@ Detects hard type incompatibilities between staging and base columns. Only flags
 - **Control table column**: `type_errors`
 - **Catalog source**: [`information_schema.columns`](https://www.postgresql.org/docs/current/infoschema-columns.html) + [`pg_cast`](https://www.postgresql.org/docs/current/catalog-pg-cast.html)
 - **Example error**: `publisher_name (integer → varchar)`
+
+## Character Length { #character-length }
+
+Checks values before loading them into bounded base-table character columns. A value that does not
+fit a `varchar(n)` or `char(n)` column produces an error and blocks the upsert.
+
+pg-upsert counts characters, not storage bytes. For example, `café` contains four characters even
+though its UTF-8 representation uses five bytes.
+
+PostgreSQL permits excess trailing ASCII spaces when assigning a value to either `varchar(n)` or
+`char(n)`. pg-upsert follows that behavior: trailing ASCII spaces beyond the declared limit do not
+produce an error, but over-limit non-space content does.
+
+The check skips:
+
+- unbounded `varchar`, `text`, and non-character columns
+- columns that are not present in both staging and base
+- columns listed in `exclude_cols`, including resolved per-table exclusions
+- NULL staging values
+
+Length errors are row-level findings. With `--export-failures`, the fix sheet includes each
+offending staging row, the affected column, and the allowed and effective character lengths
+(excluding permitted trailing ASCII spaces).
+
+- **Control table column**: `length_errors`
+- **Catalog source**: [`information_schema.columns`](https://www.postgresql.org/docs/current/infoschema-columns.html) (`character_maximum_length`)
+- **Example error**: `book_title (1; max 50)`
 
 ## NOT NULL
 
@@ -79,6 +106,7 @@ Concretely, on a table with **no constraints at all**:
 | ------------------------- | ----------------------------------------------------------------------------- |
 | Column existence          | Still runs — compares staging and base column lists regardless of constraints |
 | Column type compatibility | Still runs — compares column types regardless of constraints                  |
+| Character length          | Runs for bounded character columns; passes if none exist                      |
 | NOT NULL                  | Passes (no non-nullable columns to check)                                     |
 | Primary Key               | Passes (no PK to check)                                                       |
 | Unique Constraints        | Passes (no unique constraints)                                                |
@@ -105,10 +133,11 @@ Concretely, on a table with **no constraints at all**:
     join logic.
 
 In practice this means pg-upsert is most useful when your base schema has
-at least primary keys. Tables without constraints still benefit from the
-column existence and type compatibility checks, so `--check-schema` alone
-can be used as a lightweight schema-compatibility validator on otherwise
-unconstrained databases.
+at least primary keys. Tables without constraints still benefit from
+column existence, type compatibility, and bounded character-length checks
+during normal QA. Use `--check-schema` as a metadata-only
+schema-compatibility validator; it does not scan staging values for length
+violations.
 
 ## Configuration
 
@@ -192,7 +221,7 @@ errors = ups._qa.check_nulls("genres", ctx=ctx)
 
 ## Schema-Only Validation
 
-Run only column existence and type compatibility checks without any data checks:
+Run only column existence and type compatibility checks without scanning staging data:
 
 ```sh
 pg-upsert --check-schema -h localhost -d mydb -u user -s staging -b public -t books
@@ -204,6 +233,14 @@ pg-upsert --check-schema -h localhost -d mydb -u user -s staging -b public -t bo
 ```
 
 Exit code 0 means compatible, exit code 1 means issues found. Combine with `--output json` for machine-parseable results.
+
+`--check-schema` is intentionally metadata-only. It does not run the character-length check because
+length validation depends on staging row values. Run normal QA or use the public length methods:
+
+```python
+ups.qa_all_length()      # Check every configured table
+ups.qa_length("books")   # Check one configured table
+```
 
 Via the Python API:
 
@@ -258,6 +295,9 @@ dedicated `_schema` output: `pg_upsert_failures_schema.csv` (CSV mode),
 the `_schema` key (JSON), or the `_schema` sheet (XLSX). They are kept
 separate from the row-level fix sheets because they require a different
 remediation path (fix the staging loader, not the data).
+
+Character-length failures are data problems, so they appear in the
+per-table row-level fix sheet rather than the `_schema` output.
 
 The row cap per check per table is controlled by `--export-max-rows`
 (default 1000).

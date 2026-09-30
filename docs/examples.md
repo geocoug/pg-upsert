@@ -2,7 +2,7 @@
 
 ## Detailed example
 
-This example demonstrates how to use [PgUpsert](./pg_upsert.md#pgupsert) to upsert data from staging tables to base tables.
+This example demonstrates how to use [PgUpsert](./pg_upsert.md#pg_upsert.PgUpsert) to upsert data from staging tables to base tables.
 
 ### 1 - Initialize a PostgreSQL database
 
@@ -59,6 +59,13 @@ With all QA checks passing, pg-upsert shows pass indicators for each check and t
   ✓ staging.book_authors
 
 ────────────── Column Type checks ───────────────
+  ✓ staging.genres
+  ✓ staging.publishers
+  ✓ staging.books
+  ✓ staging.authors
+  ✓ staging.book_authors
+
+──────────── Character Length checks ────────────
   ✓ staging.genres
   ✓ staging.publishers
   ✓ staging.books
@@ -395,6 +402,56 @@ result = PgUpsert(
 ```
 
 Every key in a per-table mapping must be one of the configured `tables`, otherwise a `ValueError` is raised.
+
+### 10 - Check bounded character lengths
+
+Define the staging column wide enough to hold incoming values and let pg-upsert validate them
+against the narrower base column:
+
+```sql
+CREATE TABLE public.books (
+    book_id integer PRIMARY KEY,
+    title varchar(10)
+);
+
+CREATE TABLE staging.books (
+    book_id integer,
+    title text
+);
+
+INSERT INTO staging.books VALUES
+    (1, 'short'),
+    (2, 'too long for title');
+```
+
+Run all eight QA phases with `qa_all()`, run only character-length QA across the configured tables
+with `qa_all_length()`, or check one configured table with `qa_length(table)`:
+
+```python
+from pg_upsert import PgUpsert
+
+ups = PgUpsert(
+    uri="postgresql://user@localhost:5432/dev",
+    tables=("books",),
+    staging_schema="staging",
+    base_schema="public",
+)
+
+ups.qa_length("books")
+
+if not ups.qa_passed:
+    for error in ups.qa_errors:
+        print(error.details)
+```
+
+The second row fails because its title contains more than 10 characters. NULL values, unbounded
+base columns, columns missing from either table, and columns excluded from the upsert are skipped.
+Multibyte text is measured in characters rather than bytes. Excess trailing ASCII spaces are
+permitted for both `varchar(n)` and `char(n)`, matching PostgreSQL assignment behavior.
+
+Use `--export-failures` during a normal CLI run to write each offending row and its length issue to
+the table's fix sheet. Do not use `--check-schema` for this validation: that option checks only
+column existence and type compatibility and never scans staging rows.
 
 ## CLI examples
 

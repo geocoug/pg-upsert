@@ -147,6 +147,24 @@ def _unique_error(table: str = "books") -> QAError:
     )
 
 
+def _length_error(table: str = "books") -> QAError:
+    return QAError(
+        table=table,
+        check_type=QACheckType.LENGTH,
+        details="title (1; max 4)",
+        violations=[
+            RowViolation(
+                pk_values=(205,),
+                pk_columns=["book_id"],
+                row_data={"book_id": 205, "title": "Oversized", "genre": "sci-fi", "price": 14.99},
+                issue_type="length",
+                issue_column="title",
+                description="value in 'title' is 9 characters; maximum is 4",
+            ),
+        ],
+    )
+
+
 def _column_missing_error(table: str = "genres") -> QAError:
     return QAError(
         table=table,
@@ -208,6 +226,14 @@ class TestEmpty:
 
 
 class TestExportCsv:
+    def test_length_failure_merges_with_other_issues_for_same_row(self, tmp_path: Path):
+        out = tmp_path / "failures"
+        export_failures([_length_error(), _null_error_book_205()], out, fmt="csv")
+        rows = _read_csv(out / "pg_upsert_failures_books.csv")
+        assert len(rows) == 1
+        assert rows[0]["_issue_types"] == "length,null"
+        assert "maximum is 4" in rows[0]["_issues"]
+
     def test_single_table_file(self, tmp_path: Path):
         out = tmp_path / "failures"
         export_failures([_pk_dup_error()], out, fmt="csv")
@@ -362,6 +388,14 @@ class TestExportCsv:
 
 
 class TestExportJson:
+    def test_length_failure_is_row_data_not_schema_issue(self, tmp_path: Path):
+        out = tmp_path / "failures"
+        export_failures([_length_error()], out, fmt="json")
+        with open(out / "pg_upsert_failures.json") as f:
+            data = json.load(f)
+        assert data["books"][0]["_issue_types"] == "length"
+        assert "_schema" not in data
+
     def test_single_table(self, tmp_path: Path):
         out = tmp_path / "failures"
         export_failures([_pk_dup_error()], out, fmt="json")
@@ -412,6 +446,18 @@ class TestExportJson:
 
 
 class TestExportXlsx:
+    def test_length_failure_appears_in_table_fix_sheet(self, tmp_path: Path):
+        pytest.importorskip("openpyxl")
+        from openpyxl import load_workbook
+
+        out = tmp_path / "failures"
+        export_failures([_length_error()], out, fmt="xlsx")
+        workbook = load_workbook(out / "pg_upsert_failures.xlsx")
+        sheet = workbook["books"]
+        headers = [cell.value for cell in sheet[1]]
+        issue_type_col = headers.index("_issue_types") + 1
+        assert sheet.cell(2, issue_type_col).value == "length"
+
     def test_sheets_per_table(self, tmp_path: Path):
         pytest.importorskip("openpyxl")
         from openpyxl import load_workbook

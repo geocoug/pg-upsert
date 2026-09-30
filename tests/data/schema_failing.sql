@@ -108,6 +108,7 @@ create table public.authors (
     first_name varchar(60) not null,
     last_name varchar(60) not null,
     email varchar(100) null,
+    fixed_code char(5) null,
 	rev_time timestamp DEFAULT now() NULL,
 	rev_user varchar(25) DEFAULT currentuser() NULL,
     constraint chk_authors_first_name check (first_name ~ '^[a-zA-Z]+$'),
@@ -178,7 +179,8 @@ create table staging.authors (
     author_id varchar(60),
     first_name varchar(60),
     last_name varchar(60),
-    email varchar(100)
+    email text,
+    fixed_code text
 );
 
 drop table if exists staging.book_authors cascade;
@@ -239,26 +241,26 @@ insert into staging.publishers (publisher_id, publisher_name) values
     ('P020', null),
     ('P021', null);
 
-insert into staging.authors (author_id, first_name, last_name, email)
+insert into staging.authors (author_id, first_name, last_name, email, fixed_code)
 values
-    ('JDoe', 'John', 'Doe', 'john.doe@email.com'), -- This row will fail due to duplicate author_id
-    ('JDoe', 'John', 'Doe', 'johndoe@email.com'), -- This row will fail due to duplicate author_id
-    ('AAdams', 'Alice', 'Adams', 'alice.adams@email.com'),
-    ('BBrown', 'Bob', 'Brown', null), -- This row will fail due to duplicate author_id
-    ('BBrown', 'Bob', 'Brown', null), -- This row will fail due to duplicate author_id
-    ('CCooper', 'Cathy', 'Cooper', 'alice.adams@email.com'), -- This row will fail due to duplicate email (unique constraint)
-    ('DDavis', 'David', 'Davis', 'ddavis@email.com'),
-    ('EEvans', null, 'Evans', 'emilyevans@email.com'), -- This row will fail due to NULL first_name
-    ('FFisher', 'Frank', 'Fisher', 'frankfisher@email.com'),
-    ('GGarcia', 'George', null, 'georgegarcia@email.com'), -- This row will fail due to NULL last_name
-    ('HHall', 'Helen', 'Hall', 'hhall@email.com'),
-    ('IIngram', 'Isaac', 'Ingram', 'i_s_a_a_c@email.com'),
-    ('MMike', 'M*', 'Mike', 'mikeandmike@email.com'), -- This row will fail due to check constraint on first_name
-    ('1White', '1White', '1', 'mwhite@email.com'), -- This row will fail due to check constraint on first_name and last_name
-    ('JJones', 'Jack', 'Jones', 'jack jones'), -- This row will fail due to check constraint on email
-    ('KKing', 'Katie', 'King', 'katie_king@email.com'),
-    (null, 'Mary', 'Moore', 'mmoore@email.com'), -- This row will fail due to NULL author_id
-    ('LLee', 'Larry', 'Lee', 'llee@email.com');
+    ('JDoe', 'John', 'Doe', 'john.doe@email.com', null), -- This row will fail due to duplicate author_id
+    ('JDoe', 'John', 'Doe', 'johndoe@email.com', null), -- This row will fail due to duplicate author_id
+    ('AAdams', 'Alice', 'Adams', 'alice.adams@email.com', null),
+    ('BBrown', 'Bob', 'Brown', null, null), -- This row will fail due to duplicate author_id
+    ('BBrown', 'Bob', 'Brown', null, null), -- This row will fail due to duplicate author_id
+    ('CCooper', 'Cathy', 'Cooper', 'alice.adams@email.com', null), -- This row will fail due to duplicate email (unique constraint)
+    ('DDavis', 'David', 'Davis', 'ddavis@email.com', null),
+    ('EEvans', null, 'Evans', 'emilyevans@email.com', null), -- This row will fail due to NULL first_name
+    ('FFisher', 'Frank', 'Fisher', 'frankfisher@email.com', null),
+    ('GGarcia', 'George', null, 'georgegarcia@email.com', null), -- This row will fail due to NULL last_name
+    ('HHall', 'Helen', 'Hall', 'hhall@email.com', null),
+    ('IIngram', 'Isaac', 'Ingram', 'i_s_a_a_c@email.com', null),
+    ('MMike', 'M*', 'Mike', 'mikeandmike@email.com', null), -- This row will fail due to check constraint on first_name
+    ('1White', '1White', '1', 'mwhite@email.com', null), -- This row will fail due to check constraint on first_name and last_name
+    ('JJones', 'Jack', 'Jones', 'jack jones', null), -- This row will fail due to check constraint on email
+    ('KKing', 'Katie', 'King', 'katie_king@email.com', null),
+    (null, 'Mary', 'Moore', 'mmoore@email.com', null), -- This row will fail due to NULL author_id
+    ('LLee', 'Larry', 'Lee', repeat('x', 101), 'TOO-LONG'); -- Intentionally fails character-length QA: email exceeds varchar(100) and fixed_code exceeds char(5).
 
 -- NOTE: 'notes' column intentionally omitted from staging.books to test column existence check.
 insert into staging.books (book_id, book_title, genre, publisher_id) values

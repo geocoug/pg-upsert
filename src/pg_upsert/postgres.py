@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import getpass
 import logging
+from typing import Any
 from urllib.parse import urlparse, urlunparse
 
 import psycopg
@@ -21,9 +22,6 @@ class PostgresDB:
         encoding (str, optional): The encoding to use for the database connection.
         **kwargs: Additional keyword arguments passed to `psycopg.connect()`.
 
-    Returns:
-        PostgresDB: A new PostgresDB object for connecting to a PostgreSQL database and executing queries.
-
     Raises:
         AttributeError: If neither a connection URI nor an existing connection object is provided.
         psycopg.Error: If an error occurs while connecting to the database or executing a query.
@@ -34,8 +32,8 @@ class PostgresDB:
         uri: None | str = None,
         conn: None | psycopg.Connection = None,
         encoding: str = "utf-8",
-        **kwargs,
-    ):
+        **kwargs: Any,
+    ) -> None:
         if conn is None and uri is None:
             raise AttributeError(
                 "Either a connection URI or an existing connection object must be provided.",
