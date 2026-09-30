@@ -11,6 +11,7 @@ ______________________________________________________________________
 ### Added
 
 - **Character-length QA validation** — staging values that exceed bounded `varchar(n)` or `char(n)` base columns are now reported as row-level errors before upsert. Console detail tables group offending values and truncate their display to 60 characters while retaining the full measured length. The check follows PostgreSQL character and trailing-space semantics, supports fix-sheet exports, and is available through `qa_length(table)` and `qa_all_length()`.
+- **Comprehensive test suite for method-aware QA** — new tests verify that QA checks correctly handle different upsert methods (`upsert`, `update`, `insert`) by only considering rows that will actually be written. Includes tests for effective rows, predicted rows, and excluded column handling.
 
 ### Changed
 

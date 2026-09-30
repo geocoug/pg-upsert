@@ -212,6 +212,7 @@ class PgUpsert:
             capture_detail_rows=capture_detail_rows,
             max_export_rows=max_export_rows,
             strict_columns=strict_columns,
+            upsert_method=upsert_method,
         )
         self._executor = UpsertExecutor(
             db=self.db,

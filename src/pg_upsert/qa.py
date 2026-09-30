@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import re
 
-from psycopg.sql import SQL, Identifier, Literal
+from psycopg.sql import SQL, Composable, Identifier, Literal
 
 from .control import ControlTable
 from .models import (
@@ -39,6 +39,9 @@ class QARunner:
         staging_schema: Name of the staging schema.
         base_schema: Name of the base schema.
         exclude_null_check_cols: Column names to skip during null checks.
+        upsert_method: The method ``upsert_all()`` will use (``"upsert"``,
+            ``"update"``, or ``"insert"``).  Data checks only consider the rows
+            that method will write.
     """
 
     def __init__(
@@ -52,6 +55,7 @@ class QARunner:
         capture_detail_rows: bool = False,
         max_export_rows: int = 1000,
         strict_columns: bool = False,
+        upsert_method: str = "upsert",
     ) -> None:
         self.db = db
         self.control = control
@@ -61,6 +65,7 @@ class QARunner:
         self.capture_detail_rows = capture_detail_rows
         self.max_export_rows = max_export_rows
         self.strict_columns = strict_columns
+        self.upsert_method = upsert_method
         # Cached PK columns per base table for use during row capture.
         self._pk_cols_cache: dict[str, list[str]] = {}
         if ui is None:
@@ -130,6 +135,123 @@ class QARunner:
         if not pk_cols:
             return tuple(row.values())
         return tuple(row.get(c) for c in pk_cols)
+
+    def _selected_tables(self) -> set[str]:
+        """Return the names of the tables selected for this run."""
+        return {spec["table_name"] for spec in self.control.get_all_specs()}
+
+    def _effective_rows(self, table: str, alias: str = "s") -> Composable:
+        """Return a FROM-clause item for the rows ``upsert_all()`` will write to *table*.
+
+        Mirrors the executor: ``update`` writes staging rows whose PK already
+        exists in the base table, ``insert`` writes the rest, and ``upsert``
+        writes both.  Excluded columns are never written, so they carry the
+        base value in rows that will be updated and NULL in rows that will be
+        inserted (a column default cannot be evaluated here; NULL makes every
+        check treat the value as unknown rather than wrong).
+
+        The result has the staging table's columns.  When nothing needs to be
+        filtered or overridden, it is the staging table itself.
+
+        Args:
+            table: The staging table name.
+            alias: Alias given to the FROM-clause item.
+        """
+        staging = SQL("{schema}.{table} as {alias}").format(
+            schema=Identifier(self.staging_schema),
+            table=Identifier(table),
+            alias=Identifier(alias),
+        )
+        pk_cols = self._get_pk_columns(table)
+        if not pk_cols:
+            # Tables without a PK are skipped by the executor; keep checking
+            # every staging row as before.
+            return staging
+        col_rows, _h, _rc = self.db.rowdict(
+            SQL(
+                """
+                select s.column_name, b.column_name is not null as in_base
+                from information_schema.columns as s
+                left join information_schema.columns as b
+                    on b.table_schema = {base_schema}
+                    and b.table_name = {table}
+                    and b.column_name = s.column_name
+                where s.table_schema = {staging_schema}
+                    and s.table_name = {table}
+                order by s.ordinal_position
+                """,
+            ).format(
+                base_schema=Literal(self.base_schema),
+                staging_schema=Literal(self.staging_schema),
+                table=Literal(table),
+            ),
+        )
+        excludes = set(self._table_upsert_excludes(table))
+        columns = [(row["column_name"], row["column_name"] in excludes and row["in_base"]) for row in col_rows]
+        if self.upsert_method == "upsert" and not any(overridden for _col, overridden in columns):
+            return staging
+
+        matched = SQL("b.{col} is not null").format(col=Identifier(pk_cols[0]))
+        select_list = SQL(", ").join(
+            SQL("case when {matched} then b.{col} end as {col}").format(matched=matched, col=Identifier(col))
+            if overridden
+            else SQL("s.{col}").format(col=Identifier(col))
+            for col, overridden in columns
+        )
+        join_on = SQL(" and ").join(SQL("s.{col} = b.{col}").format(col=Identifier(col)) for col in pk_cols)
+        where = {
+            "upsert": SQL(""),
+            "update": SQL(" where {matched}").format(matched=matched),
+            "insert": SQL(" where not ({matched})").format(matched=matched),
+        }[self.upsert_method]
+        return SQL(
+            "(select {select_list} from {staging_schema}.{table} as s"
+            " left join {base_schema}.{table} as b on {join_on}{where}) as {alias}",
+        ).format(
+            select_list=select_list,
+            staging_schema=Identifier(self.staging_schema),
+            base_schema=Identifier(self.base_schema),
+            table=Identifier(table),
+            join_on=join_on,
+            where=where,
+            alias=Identifier(alias),
+        )
+
+    def _predicted_rows(self, table: str, cols: list[str], alias: str = "p") -> Composable:
+        """Return a FROM-clause item for *cols* of the base table after the load.
+
+        The rows are the effective staging rows (see :meth:`_effective_rows`)
+        plus the base rows the load leaves untouched.  Output columns are
+        *cols*, then any PK columns not already in *cols*, then ``_ups_src``
+        (``'staging'`` or ``'base'``).
+
+        Args:
+            table: The table name (same in staging and base).
+            cols: Base-table columns to project.
+            alias: Alias given to the FROM-clause item.
+        """
+        pk_cols = self._get_pk_columns(table)
+        out_cols = list(cols) + [c for c in pk_cols if c not in cols]
+        e_cols = SQL(", ").join(SQL("e.{col}").format(col=Identifier(c)) for c in out_cols)
+        staging_part = SQL("select {cols}, 'staging'::text as _ups_src from {effective}").format(
+            cols=e_cols,
+            effective=self._effective_rows(table, "e"),
+        )
+        if not pk_cols:
+            return SQL("({staging_part}) as {alias}").format(staging_part=staging_part, alias=Identifier(alias))
+        return SQL(
+            "({staging_part} union all"
+            " select {b_cols}, 'base'::text from {base_schema}.{table} as b"
+            " where not exists (select 1 from {effective} where {pk_match})) as {alias}",
+        ).format(
+            staging_part=staging_part,
+            b_cols=SQL(", ").join(SQL("b.{col}").format(col=Identifier(c)) for c in out_cols),
+            base_schema=Identifier(self.base_schema),
+            table=Identifier(table),
+            effective=self._effective_rows(table, "e"),
+            pk_match=SQL(" and ").join(SQL("e.{col} = b.{col}").format(col=Identifier(c)) for c in pk_cols),
+            alias=Identifier(alias),
+        )
 
     # ------------------------------------------------------------------
     # Check methods
