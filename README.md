@@ -276,8 +276,8 @@ pg-upsert runs 8 types of QA checks on staging data before upserting:
 | **Character Length** | Values fit bounded base `varchar(n)` and `char(n)` columns; excluded columns and NULL values are skipped                                            |
 | **NOT NULL**         | Non-nullable base columns have no NULL values in staging                                                                                            |
 | **Primary Key**      | No duplicate values in PK columns                                                                                                                   |
-| **Unique**           | No duplicate values in UNIQUE-constrained columns (NULLs allowed per PostgreSQL semantics)                                                          |
-| **Foreign Key**      | All FK references point to existing rows in the referenced table                                                                                    |
+| **Unique**           | No duplicate keys in UNIQUE constraints or unique indexes, within staging or against existing base rows (NULLs allowed)                             |
+| **Foreign Key**      | All FK references point to rows that will exist in the referenced table after the load                                                              |
 | **Check Constraint** | All CHECK constraint expressions evaluate to true                                                                                                   |
 
 > [!NOTE]
@@ -287,6 +287,10 @@ pg-upsert runs 8 types of QA checks on staging data before upserting:
 > printed). To upsert against a table, make sure the base table has a
 > PK. See [Running Without Constraints](https://pg-upsert.readthedocs.io/en/latest/qa_checks/#running-without-constraints)
 > for details.
+
+Data checks only look at the rows your `upsert_method` will actually write, and use base values
+for `exclude_cols` in updated rows. See
+[How QA Models the Load](https://pg-upsert.readthedocs.io/en/latest/qa_checks/#how-qa-models-the-load).
 
 See the [QA Checks Reference](https://pg-upsert.readthedocs.io/en/latest/qa_checks/) for detailed documentation.
 

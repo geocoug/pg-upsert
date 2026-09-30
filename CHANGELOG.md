@@ -11,11 +11,19 @@ ______________________________________________________________________
 ### Added
 
 - **Character-length QA validation** — staging values that exceed bounded `varchar(n)` or `char(n)` base columns are now reported as row-level errors before upsert. Console detail tables group offending values and truncate their display to 60 characters while retaining the full measured length. The check follows PostgreSQL character and trailing-space semantics, supports fix-sheet exports, and is available through `qa_length(table)` and `qa_all_length()`.
-- **Comprehensive test suite for method-aware QA** — new tests verify that QA checks correctly handle different upsert methods (`upsert`, `update`, `insert`) by only considering rows that will actually be written. Includes tests for effective rows, predicted rows, and excluded column handling.
+- **UNIQUE check catches collisions with existing base rows** — duplicates are now counted across the base table as it will look after the load, so a new staging row whose unique key already belongs to a base row is reported before upsert. Fix-sheet descriptions name the conflicting base row.
+- **UNIQUE check covers unique indexes** — keys enforced by `CREATE UNIQUE INDEX` (not just `UNIQUE` constraints) are now checked. Expression and partial indexes are skipped.
 
 ### Changed
 
+- **QA follows `upsert_method` and `exclude_cols`** — data checks now consider only the staging rows `upsert_all()` will write: every row for `upsert`, rows with an existing primary key for `update`, and rows with a new primary key for `insert`. Excluded columns are checked with their base value in updated rows. This removes false failures for `update`/`insert` loads, and can surface new failures, so `qa_passed` may change for existing workflows that use those methods or `exclude_cols`. See [How QA Models the Load](https://pg-upsert.readthedocs.io/en/latest/qa_checks/#how-qa-models-the-load).
+- **Missing required columns are warnings in `update` mode** — a missing `NOT NULL` column without a default no longer blocks an `update` load, since no rows are inserted.
+- **NOT NULL check covers excluded columns on insert** — a `NOT NULL` column without a default that is listed in `exclude_cols` is now reported for rows that would be inserted, instead of failing at INSERT time.
 - Pinned the documentation toolchain to Zensical 0.0.28.
+
+### Fixed
+
+- **Foreign key check trusted unloaded staging parents** — a staging copy of the referenced table was accepted as a valid parent even when it was not among the `tables` being loaded, so orphaned child rows passed QA and failed at INSERT. Only parent tables selected for the run now count.
 
 ______________________________________________________________________
 
