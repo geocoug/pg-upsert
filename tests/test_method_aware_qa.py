@@ -257,3 +257,45 @@ class TestUniqueCheck:
         seed_base_author(db, author_id="JDoe", email="alice.adams@email.com")
         seed_base_author(db, author_id="AAdams", email="john.doe@email.com")
         assert make_ups(db, "upsert")._qa.check_unique("authors") == []
+
+
+# ===================================================================
+# Foreign key
+# ===================================================================
+
+
+def seed_base_book(db) -> None:
+    """Put book B001 (and the parents it needs) in the base tables."""
+    db.execute("insert into public.genres (genre, description) values ('Fiction', 'base');")
+    db.execute("insert into public.publishers (publisher_id) values ('P001');")
+    db.execute(
+        "insert into public.books (book_id, book_title, genre, publisher_id)"
+        " values ('B001', 'The Great Novel', 'Fiction', 'P001');",
+    )
+
+
+class TestForeignKeyCheck:
+    @pytest.mark.parametrize(("method", "expected"), [("upsert", False), ("update", True), ("insert", False)])
+    def test_child_points_at_new_staging_parent(self, db, method, expected):
+        """B001 moves to genre 'Mystery', which exists only in staging; update mode never inserts it."""
+        seed_base_book(db)
+        db.execute("update staging.books set genre = 'Mystery' where book_id = 'B001';")
+        assert flagged(make_ups(db, method)._qa.check_fks("books")) is expected
+
+    @pytest.mark.parametrize(("method", "expected"), [("upsert", True), ("update", False), ("insert", True)])
+    def test_unselected_staging_parent_is_not_trusted(self, db, method, expected):
+        """staging.genres exists but is not being loaded, so its rows never reach the base table."""
+        ups = make_ups(db, method, tables=("books",))
+        assert flagged(ups._qa.check_fks("books")) is expected
+
+    def test_selected_staging_parent_is_trusted(self, db):
+        assert make_ups(db, "upsert")._qa.check_fks("books") == []
+
+    def test_captures_orphan_rows(self, db):
+        seed_base_book(db)
+        db.execute("update staging.books set genre = 'Mystery' where book_id = 'B001';")
+        ups = make_ups(db, "update")
+        ups._qa.capture_detail_rows = True
+        [error] = ups._qa.check_fks("books")
+        assert [v.pk_values for v in error.violations] == [("B001",)]
+        assert error.violations[0].row_data["genre"] == "Mystery"

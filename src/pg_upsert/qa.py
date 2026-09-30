@@ -643,28 +643,34 @@ class QARunner:
                 )
                 for r in const_rows
             )
-            su_join = SQL(" AND ").join(
-                SQL("s.{col} = su.{uq_col}").format(
-                    col=Identifier(r["column_name"]),
-                    uq_col=Identifier(r["uq_column"]),
-                )
-                for r in const_rows
-            )
             s_not_null = SQL(" AND ").join(
                 SQL("s.{col} IS NOT NULL").format(col=Identifier(r["column_name"])) for r in const_rows
             )
 
-            su_exists = (
-                self.db.execute(
-                    SQL(
-                        """select * from information_schema.tables
-                        where table_name = {table} and table_schema = {staging_schema};""",
-                    ).format(
-                        table=Literal(const_row["uq_table"]),
-                        staging_schema=Literal(self.staging_schema),
-                    ),
-                ).rowcount
-                > 0
+            # Referenced keys as they will exist after the load.  A parent
+            # table selected for this run loads before its children
+            # (dependency order), so its staging rows count; otherwise only
+            # the existing parent rows do.
+            uq_col_names = [r["uq_column"] for r in const_rows]
+            if const_row["uq_schema"] == self.base_schema and const_row["uq_table"] in self._selected_tables():
+                parent = SQL("(select distinct {cols} from {predicted}) as u").format(
+                    cols=SQL(", ").join(Identifier(c) for c in uq_col_names),
+                    predicted=self._predicted_rows(const_row["uq_table"], uq_col_names),
+                )
+            else:
+                parent = SQL("{uq_schema}.{uq_table} as u").format(
+                    uq_schema=Identifier(const_row["uq_schema"]),
+                    uq_table=Identifier(const_row["uq_table"]),
+                )
+            # Child rows the upsert method will actually write.
+            orphans = SQL(
+                "from {child} left join {parent} on {u_join} where u.{uq_column} is null and {s_not_null}",
+            ).format(
+                child=self._effective_rows(table),
+                parent=parent,
+                u_join=u_join,
+                uq_column=Identifier(const_row["uq_column"]),
+                s_not_null=s_not_null,
             )
 
             query = SQL(
@@ -672,39 +678,10 @@ class QARunner:
                 drop view if exists ups_fk_check cascade;
                 create or replace temporary view ups_fk_check as
                 select {s_checked}, count(*) as nrows
-                from {staging_schema}.{table} as s
-                left join {uq_schema}.{uq_table} as u on {u_join}
+                {orphans}
+                group by {s_checked};
                 """,
-            ).format(
-                s_checked=s_checked,
-                staging_schema=Identifier(self.staging_schema),
-                table=Identifier(table),
-                uq_schema=Identifier(const_row["uq_schema"]),
-                uq_table=Identifier(const_row["uq_table"]),
-                u_join=u_join,
-            )
-            if su_exists:
-                query += SQL(
-                    """ left join {staging_schema}.{uq_table} as su on {su_join}""",
-                ).format(
-                    staging_schema=Identifier(self.staging_schema),
-                    uq_table=Identifier(const_row["uq_table"]),
-                    su_join=su_join,
-                )
-            query += SQL(" where u.{uq_column} is null").format(
-                uq_column=Identifier(const_row["uq_column"]),
-            )
-            if su_exists:
-                query += SQL(" and su.{uq_column} is null").format(
-                    uq_column=Identifier(const_row["uq_column"]),
-                )
-            query += SQL(
-                """ and {s_not_null}
-                    group by {s_checked};""",
-            ).format(
-                s_not_null=s_not_null,
-                s_checked=s_checked,
-            )
+            ).format(s_checked=s_checked, orphans=orphans)
             self.db.execute(query)
 
             check_sql = SQL("select * from ups_fk_check;")
@@ -765,43 +742,13 @@ class QARunner:
                         # Re-query to fetch the actual staging rows whose
                         # FK values have no match — we need full row data
                         # for the fix sheet, not the grouped ups_fk_check.
-                        full_row_q = SQL(
-                            "SELECT s.* FROM {staging_schema}.{table} AS s "
-                            "LEFT JOIN {uq_schema}.{uq_table} AS u ON {u_join} "
-                            "WHERE u.{uq_column} IS NULL AND {s_not_null}",
-                        ).format(
-                            staging_schema=Identifier(self.staging_schema),
-                            table=Identifier(table),
-                            uq_schema=Identifier(const_row["uq_schema"]),
-                            uq_table=Identifier(const_row["uq_table"]),
-                            u_join=u_join,
-                            uq_column=Identifier(const_row["uq_column"]),
-                            s_not_null=s_not_null,
-                        )
-                        if su_exists:
-                            full_row_q = SQL(
-                                "SELECT s.* FROM {staging_schema}.{table} AS s "
-                                "LEFT JOIN {uq_schema}.{uq_table} AS u ON {u_join} "
-                                "LEFT JOIN {staging_schema}.{uq_table} AS su ON {su_join} "
-                                "WHERE u.{uq_column} IS NULL AND su.{uq_column} IS NULL "
-                                "AND {s_not_null}",
-                            ).format(
-                                staging_schema=Identifier(self.staging_schema),
-                                table=Identifier(table),
-                                uq_schema=Identifier(const_row["uq_schema"]),
-                                uq_table=Identifier(const_row["uq_table"]),
-                                u_join=u_join,
-                                su_join=su_join,
-                                uq_column=Identifier(const_row["uq_column"]),
-                                s_not_null=s_not_null,
-                            )
+                        full_row_q = SQL("SELECT s.* {orphans}").format(orphans=orphans)
                         full_row_q += SQL(" LIMIT {lim}").format(
                             lim=Literal(self.max_export_rows),
                         )
                         bad_rows_iter, _h, _rc = self.db.rowdict(full_row_q)
                         pk_cols = self._get_pk_columns(table)
                         fk_col_names = [r["column_name"] for r in const_rows]
-                        uq_col_names = [r["uq_column"] for r in const_rows]
                         # Parenthesise only for composite FKs so single-column
                         # reads naturally: "FK violation: publisher_id -> ..."
                         if len(fk_col_names) > 1:
