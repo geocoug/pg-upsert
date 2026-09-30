@@ -1031,10 +1031,14 @@ class QARunner:
         return errors
 
     def check_unique(self, table: str, interactive: bool = False, ctx: CheckContext | None = None) -> list[QAError]:
-        """Check for duplicate values in UNIQUE-constrained columns of *table*.
+        """Check for UNIQUE constraint and unique index violations in *table*.
 
-        Queries ``pg_constraint`` with ``contype='u'`` to find UNIQUE constraints
-        on the base table, then checks the staging table for violations.
+        Reads the base table's unique indexes (which include the indexes
+        behind UNIQUE constraints) and looks for duplicate keys in the base
+        table as it will look after the load: the staging rows the upsert
+        method will write plus the base rows it leaves untouched.  This catches
+        duplicates within staging and staging rows that collide with existing
+        base rows.  Expression and partial unique indexes are skipped.
 
         Args:
             table: The staging table name to check.
@@ -1046,25 +1050,33 @@ class QARunner:
         errors: list[QAError] = []
         logger.debug(f"Conducting unique constraint QA checks on table {self.staging_schema}.{table}")
 
-        # Find all UNIQUE constraints on the base table (excluding PKs).
+        # Find all unique indexes on the base table (excluding the PK).  This
+        # covers UNIQUE constraints (named after the constraint) and bare
+        # CREATE UNIQUE INDEX (named after the index).
         self.db.execute(
             SQL(
                 """
             drop table if exists ups_unique_constraints cascade;
             select
-                con.conname as constraint_name,
+                coalesce(con.conname, idx.relname) as constraint_name,
                 array_agg(att.attname order by u.ord) as column_names
             into temporary table ups_unique_constraints
-            from pg_constraint con
-            cross join lateral unnest(con.conkey) with ordinality as u(attnum, ord)
-            inner join pg_attribute att
-                on att.attrelid = con.conrelid and att.attnum = u.attnum
-            inner join pg_class cls on cls.oid = con.conrelid
+            from pg_index ix
+            inner join pg_class cls on cls.oid = ix.indrelid
             inner join pg_namespace nsp on nsp.oid = cls.relnamespace
-            where con.contype = 'u'
+            inner join pg_class idx on idx.oid = ix.indexrelid
+            left join pg_constraint con on con.conindid = ix.indexrelid and con.contype = 'u'
+            cross join lateral unnest(ix.indkey::int2[]) with ordinality as u(attnum, ord)
+            inner join pg_attribute att
+                on att.attrelid = cls.oid and att.attnum = u.attnum
+            where ix.indisunique
+                and not ix.indisprimary
+                and ix.indexprs is null
+                and ix.indpred is null
+                and u.ord <= ix.indnkeyatts
                 and nsp.nspname = {base_schema}
                 and cls.relname = {table}
-            group by con.conname;
+            group by coalesce(con.conname, idx.relname);
             """,
             ).format(base_schema=Literal(self.base_schema), table=Literal(table)),
         )
@@ -1087,21 +1099,27 @@ class QARunner:
             # PostgreSQL allows multiple NULLs in UNIQUE columns, so exclude
             # rows where any constrained column is NULL.
             not_null_filter = SQL(" AND ").join(SQL("{col} IS NOT NULL").format(col=Identifier(c)) for c in col_names)
+            # ups_uq_rows: the constrained columns of the post-load table.
+            # ups_uq_check: duplicated keys involving at least one staging row;
+            # in_base counts the existing base rows each key collides with.
             self.db.execute(
                 SQL(
                     """
                 drop view if exists ups_uq_check cascade;
+                drop view if exists ups_uq_rows cascade;
+                create temporary view ups_uq_rows as
+                select * from {predicted}
+                where {not_null_filter};
                 create temporary view ups_uq_check as
-                select {cols}, count(*) as nrows
-                from {staging_schema}.{table}
-                where {not_null_filter}
+                select {cols}, count(*) as nrows,
+                    count(*) filter (where _ups_src = 'base') as in_base
+                from ups_uq_rows
                 group by {cols}
-                having count(*) > 1;
+                having count(*) > 1 and bool_or(_ups_src = 'staging');
                 """,
                 ).format(
                     cols=col_ids,
-                    staging_schema=Identifier(self.staging_schema),
-                    table=Identifier(table),
+                    predicted=self._predicted_rows(table, col_names),
                     not_null_filter=not_null_filter,
                 ),
             )
@@ -1110,7 +1128,11 @@ class QARunner:
                 uq_errs = list(uq_errs)
                 errcount = len(uq_errs)
                 total_rows = sum(row["nrows"] for row in uq_errs)
-                err_detail = f"{constraint_name} ({errcount} duplicates, {total_rows} rows)"
+                base_conflicts = sum(1 for row in uq_errs if row["in_base"])
+                err_detail = f"{constraint_name} ({errcount} duplicates, {total_rows} rows"
+                if base_conflicts:
+                    err_detail += f", {base_conflicts} with existing base rows"
+                err_detail += ")"
                 display.print_check_table_fail(
                     self.staging_schema,
                     table,
@@ -1142,28 +1164,46 @@ class QARunner:
                     # Re-query to fetch actual staging rows whose unique
                     # column values are duplicated — we need full rows
                     # for the fix sheet, not grouped aggregated values.
+                    pk_cols = self._get_pk_columns(table)
+                    base_keys = (
+                        SQL("concat_ws(', ', {pk})").format(
+                            pk=SQL(", ").join(SQL("{col}::text").format(col=Identifier(c)) for c in pk_cols),
+                        )
+                        if pk_cols
+                        else SQL("null::text")
+                    )
                     full_row_q = SQL(
-                        "SELECT * FROM {schema}.{table} WHERE ({cols}) IN"
-                        " (SELECT {cols} FROM ups_uq_check) LIMIT {lim}",
+                        "SELECT s.*, b._ups_base_keys FROM {effective}"
+                        " LEFT JOIN (SELECT {cols}, string_agg({base_keys}, '; ') AS _ups_base_keys"
+                        " FROM ups_uq_rows WHERE _ups_src = 'base' GROUP BY {cols}) AS b ON {join_on}"
+                        " WHERE ({s_cols}) IN (SELECT {cols} FROM ups_uq_check) LIMIT {lim}",
                     ).format(
-                        schema=Identifier(self.staging_schema),
-                        table=Identifier(table),
+                        effective=self._effective_rows(table),
                         cols=col_ids,
+                        base_keys=base_keys,
+                        join_on=SQL(" AND ").join(
+                            SQL("s.{col} = b.{col}").format(col=Identifier(c)) for c in col_names
+                        ),
+                        s_cols=SQL(", ").join(SQL("s.{col}").format(col=Identifier(c)) for c in col_names),
                         lim=Literal(self.max_export_rows),
                     )
                     bad_rows_iter, _h, _rc = self.db.rowdict(full_row_q)
-                    pk_cols = self._get_pk_columns(table)
                     joined_col_names = ", ".join(col_names)
                     for bad_row in bad_rows_iter:
+                        row_data = dict(bad_row)
+                        conflicting = row_data.pop("_ups_base_keys")
+                        description = f"duplicate unique ({joined_col_names})"
+                        if conflicting:
+                            description += f"; conflicts with existing base row ({conflicting})"
                         uq_violations.append(
                             RowViolation(
-                                pk_values=self._extract_pk_tuple(bad_row, pk_cols),
+                                pk_values=self._extract_pk_tuple(row_data, pk_cols),
                                 pk_columns=list(pk_cols),
-                                row_data=dict(bad_row),
+                                row_data=row_data,
                                 issue_type="unique",
                                 issue_column=joined_col_names,
                                 constraint_name=constraint_name,
-                                description=f"duplicate unique ({joined_col_names})",
+                                description=description,
                             ),
                         )
 

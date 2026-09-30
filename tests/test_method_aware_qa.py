@@ -201,3 +201,59 @@ class TestColumnExistenceSeverity:
     def test_missing_pk_column_is_always_error(self, db, method):
         db.execute("alter table staging.authors drop column author_id;")
         assert flagged(make_ups(db, method)._qa.check_column_existence("authors")) is True
+
+
+# ===================================================================
+# Unique
+# ===================================================================
+
+
+class TestUniqueCheck:
+    @pytest.mark.parametrize(("method", "expected"), [("upsert", True), ("update", False), ("insert", True)])
+    def test_new_row_collides_with_base(self, db, method, expected):
+        """Staging JDoe is new; an existing base row already holds its email."""
+        seed_base_author(db, author_id="ZZBase", email="john.doe@email.com")
+        assert flagged(make_ups(db, method)._qa.check_unique("authors")) is expected
+
+    @pytest.mark.parametrize(("method", "expected"), [("upsert", False), ("update", False), ("insert", True)])
+    def test_freed_key_is_only_freed_when_updated(self, db, method, expected):
+        """Staging moves JDoe off an email and gives it to new row AAdams; insert mode never moves JDoe."""
+        seed_base_author(db, author_id="JDoe", email="shared@email.com")
+        db.execute("update staging.authors set email = 'shared@email.com' where author_id = 'AAdams';")
+        assert flagged(make_ups(db, method)._qa.check_unique("authors")) is expected
+
+    @pytest.mark.parametrize("method", METHODS)
+    def test_updating_row_that_keeps_its_key(self, db, method):
+        seed_base_author(db, author_id="JDoe", email="john.doe@email.com")
+        assert make_ups(db, method)._qa.check_unique("authors") == []
+
+    def test_describes_base_conflict(self, db):
+        seed_base_author(db, author_id="ZZBase", email="john.doe@email.com")
+        ups = make_ups(db, "upsert")
+        ups._qa.capture_detail_rows = True
+        errors = ups._qa.check_unique("authors")
+        assert "1 with existing base rows" in errors[0].details
+        [violation] = errors[0].violations
+        assert violation.pk_values == ("JDoe",)
+        assert violation.description == "duplicate unique (email); conflicts with existing base row (ZZBase)"
+        assert "_ups_base_keys" not in violation.row_data
+
+    def test_bare_unique_index_is_checked(self, db):
+        db.execute("create unique index uq_publisher_name on public.publishers (publisher_name);")
+        db.execute("update staging.publishers set publisher_name = 'Bestseller Books' where publisher_id = 'P001';")
+        errors = make_ups(db)._qa.check_unique("publishers")
+        assert len(errors) == 1
+        assert errors[0].details.startswith("uq_publisher_name (")
+
+    def test_partial_unique_index_is_skipped(self, db):
+        db.execute(
+            "create unique index uq_publisher_name on public.publishers (publisher_name) where publisher_id <> 'P001';",
+        )
+        db.execute("update staging.publishers set publisher_name = 'Bestseller Books' where publisher_id = 'P001';")
+        assert make_ups(db)._qa.check_unique("publishers") == []
+
+    def test_key_swap_is_not_flagged(self, db):
+        """Known limit: the end state is valid, although a single UPDATE may still fail at load."""
+        seed_base_author(db, author_id="JDoe", email="alice.adams@email.com")
+        seed_base_author(db, author_id="AAdams", email="john.doe@email.com")
+        assert make_ups(db, "upsert")._qa.check_unique("authors") == []
