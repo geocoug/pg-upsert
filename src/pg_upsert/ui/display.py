@@ -26,9 +26,12 @@ if TYPE_CHECKING:
 # console (stderr) for the user, and plain-text to this logger for the
 # logfile. The logger is a child of "pg_upsert" so it inherits file handlers,
 # but propagation is disabled so messages don't also appear on the stream
-# handler (which would cause duplicate console output).
+# handler (which would cause duplicate console output). The NullHandler stops
+# Python's last-resort handler from printing its warnings to stderr when no
+# logfile handler is attached, as when pg-upsert is used as a library.
 _file_logger = logging.getLogger("pg_upsert.display")
 _file_logger.propagate = False
+_file_logger.addHandler(logging.NullHandler())
 
 # Module-level console writing to stderr so --output=json stays clean.
 console = Console(stderr=True)
