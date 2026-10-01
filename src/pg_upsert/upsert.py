@@ -338,6 +338,26 @@ class PgUpsert:
         """All QA findings (errors and warnings combined)."""
         return list(self._qa_findings)
 
+    @property
+    def upsert_method(self) -> str:
+        """The method ``upsert_all()`` uses: ``"upsert"``, ``"update"``, or ``"insert"``.
+
+        Changing it also changes which staging rows the QA checks consider.
+        """
+        return self._upsert_method
+
+    @upsert_method.setter
+    def upsert_method(self, value: str) -> None:
+        if value not in self._upsert_methods():
+            raise ValueError(
+                f"Invalid upsert method: {value}. Must be one of {self._upsert_methods()}",
+            )
+        self._upsert_method = value
+        # Keep QA and the executor in step with runtime changes.
+        for component in (getattr(self, "_qa", None), getattr(self, "_executor", None)):
+            if component is not None:
+                component.upsert_method = value
+
     @staticmethod
     def _upsert_methods() -> tuple[str, str, str]:
         """Return a tuple of valid upsert methods.
@@ -740,8 +760,6 @@ class PgUpsert:
         commit_label = "[green]ON[/green]" if self.do_commit else "[dim]OFF[/dim]"
         display.console.print(f"  method={self.upsert_method}  commit={commit_label}")
         _file_logger.info(f"=== Upsert (method={self.upsert_method}, commit={self.do_commit}) ===")
-        # Sync any runtime change to upsert_method before delegating.
-        self._executor.upsert_method = self.upsert_method
         self._executor.upsert_all(list(self.tables), interactive=self.interactive)
         return self
 
@@ -752,8 +770,6 @@ class PgUpsert:
             table (str): The name of the table to upsert.
         """
         self._validate_table(table)
-        # Sync any runtime change to upsert_method before delegating.
-        self._executor.upsert_method = self.upsert_method
         self._executor.upsert_one(table, interactive=self.interactive)
         return self
 
@@ -787,21 +803,23 @@ class PgUpsert:
         _file_logger.info("")
         _file_logger.info("=" * 60)
         _file_logger.info(f"pg-upsert {_ver} — run started at {start_str}")
-        _file_logger.info(f"  {self.staging_schema} → {self.base_schema} ({num_tables} tables)")
+        _file_logger.info(
+            f"  {self.staging_schema} → {self.base_schema} ({num_tables} tables, method={self.upsert_method})",
+        )
         _file_logger.info(f"  PostgreSQL: {_pg_ver}")
         _file_logger.info("=" * 60)
 
         display.console.print()
         display.console.print(f"  [dim]Started at {start_str}[/dim]")
         display.console.print(
-            f"  Tables selected for upsert "
+            f"  Tables selected for {self.upsert_method} "
             f"[dim]([/dim][bold]{self.staging_schema}[/bold] [dim]→[/dim] "
             f"[bold]{self.base_schema}[/bold][dim], {num_tables} tables)[/dim]",
         )
         if self.interactive:
             btn, _return_value = self._ui.show_table(
                 "Upsert Tables",
-                "Tables selected for upsert",
+                f"Tables selected for {self.upsert_method}",
                 [
                     ("Continue", 0, "<Return>"),
                     ("Cancel", 1, "<Escape>"),

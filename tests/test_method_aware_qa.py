@@ -15,10 +15,14 @@ some staging rows are updates and others are inserts. In the passing schema:
 
 from __future__ import annotations
 
+import io
+
 import pytest
 from psycopg.sql import SQL
+from rich.console import Console
 
 from pg_upsert.models import QACheckType
+from pg_upsert.ui import display
 from pg_upsert.upsert import PgUpsert
 
 pytestmark = pytest.mark.postgres
@@ -407,3 +411,40 @@ class TestForeignKeyCheck:
         [error] = ups._qa.check_fks("books")
         assert [v.pk_values for v in error.violations] == [("B001",)]
         assert error.violations[0].row_data["genre"] == "Mystery"
+
+
+# ===================================================================
+# Changing the method at runtime
+# ===================================================================
+
+
+class TestUpsertMethodAttribute:
+    def test_change_after_init_reaches_qa_and_executor(self, db):
+        ups = make_ups(db, "upsert")
+        ups.upsert_method = "update"
+        assert ups._qa.upsert_method == "update"
+        assert ups._executor.upsert_method == "update"
+
+    def test_change_after_init_changes_qa_result(self, db):
+        """AAdams is new, so a NULL in it only matters when new rows are written."""
+        db.execute("update staging.authors set first_name = null where author_id = 'AAdams';")
+        ups = make_ups(db, "upsert")
+        ups.upsert_method = "update"
+        assert ups._qa.check_nulls("authors") == []
+
+    def test_invalid_value_rejected(self, db):
+        ups = make_ups(db, "upsert")
+        with pytest.raises(ValueError, match="Invalid upsert method"):
+            ups.upsert_method = "merge"
+        assert ups.upsert_method == "upsert"
+
+    @pytest.mark.parametrize("method", METHODS)
+    def test_run_names_method_in_table_selection(self, db, method):
+        buf = io.StringIO()
+        original = display.console
+        display.console = Console(file=buf, no_color=True, width=120)
+        try:
+            make_ups(db, method).run()
+        finally:
+            display.console = original
+        assert f"Tables selected for {method} (staging → public, 5 tables)" in buf.getvalue()

@@ -19,6 +19,8 @@ ______________________________________________________________________
 - **QA follows `upsert_method` and `exclude_cols`** — data checks now consider only the staging rows `upsert_all()` will write: every row for `upsert`, rows with an existing primary key for `update`, and rows with a new primary key for `insert`. Excluded columns are checked with their base value in updated rows. This removes false failures for `update`/`insert` loads, and can surface new failures, so `qa_passed` may change for existing workflows that use those methods or `exclude_cols`. See [How QA Models the Load](https://pg-upsert.readthedocs.io/en/latest/qa_checks/#how-qa-models-the-load).
 - **Missing required columns are warnings in `update` mode** — a missing `NOT NULL` column without a default no longer blocks an `update` load, since no rows are inserted.
 - **NOT NULL check covers excluded columns on insert** — a `NOT NULL` column without a default that is listed in `exclude_cols` is now reported for rows that would be inserted, instead of failing at INSERT time.
+- **Run header names the upsert method** — the table list now reads "Tables selected for insert" (or `update` / `upsert`) instead of always "upsert", and the logfile header records the method.
+- **`upsert_method` can be changed after construction** — setting `ups.upsert_method` now updates both the QA checks and the upsert step, and an invalid value raises `ValueError`.
 - Pinned the documentation toolchain to Zensical 0.0.28.
 
 ### Fixed
