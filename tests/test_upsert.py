@@ -17,6 +17,17 @@ from pg_upsert.upsert import PgUpsert, UserCancelledError
 
 pytestmark = pytest.mark.postgres
 
+# Genre row counts for tests/data/schema_passing.sql. The base table is seeded
+# with 3 genres; 2 of them (Fiction, Poetry) are also in staging, so an upsert
+# updates those 2 and inserts the other 17 staging genres.
+STAGING_GENRES = 19
+SEEDED_GENRES = 3
+UPDATED_GENRES = 2
+INSERTED_GENRES = STAGING_GENRES - UPDATED_GENRES
+LOADED_GENRES = SEEDED_GENRES + INSERTED_GENRES  # rows in public.genres after a full load
+# tests/data/schema_failing.sql seeds 2 base genres.
+FAILING_SEEDED_GENRES = 2
+
 
 # ===================================================================
 # UserCancelledError
@@ -463,8 +474,8 @@ class TestUpsertOne:
             ),
         )
         row = cur.fetchone()
-        assert row[0] == 19
-        assert row[1] == 0
+        assert row[0] == INSERTED_GENRES
+        assert row[1] == UPDATED_GENRES
 
     def test_update(self, ups):
         ups.upsert_one("genres")
@@ -502,7 +513,7 @@ class TestUpsertOne:
                 t=Literal("genres"),
             ),
         )
-        assert cur.fetchone()[0] == 19
+        assert cur.fetchone()[0] == INSERTED_GENRES
 
 
 class TestUpsertAll:
@@ -548,7 +559,7 @@ class TestUpsertMethods:
         )
         row = cur.fetchone()
         assert row[0] == 0  # No inserts
-        assert row[1] == 0  # No matches yet to update
+        assert row[1] == UPDATED_GENRES  # Seeded genres that are also in staging
 
     def test_insert_only(self, ups):
         """upsert_method='insert' should only insert, not update existing rows."""
@@ -561,7 +572,7 @@ class TestUpsertMethods:
             ),
         )
         row = cur.fetchone()
-        assert row[0] == 19  # All inserted
+        assert row[0] == INSERTED_GENRES  # Only genres not already in the base table
         assert row[1] == 0  # No updates
 
 
@@ -576,7 +587,7 @@ class TestCommit:
         ups.upsert_one("genres")
         ups.commit()
         cur = ups.db.execute("SELECT count(*) FROM public.genres;")
-        assert cur.fetchone()[0] == 0
+        assert cur.fetchone()[0] == SEEDED_GENRES
 
     def test_commit_when_true(self, ups):
         ups.do_commit = True
@@ -584,7 +595,7 @@ class TestCommit:
         ups.upsert_one("genres")
         ups.commit()
         cur = ups.db.execute("SELECT count(*) FROM public.genres;")
-        assert cur.fetchone()[0] == 19
+        assert cur.fetchone()[0] == LOADED_GENRES
 
     def test_commit_standalone_no_changes(self, ups):
         """Calling commit() without any upsert should not insert rows."""
@@ -606,7 +617,7 @@ class TestCommit:
             ups.commit()
         # Should have rolled back
         cur = ups.db.execute("SELECT count(*) FROM public.genres;")
-        assert cur.fetchone()[0] == 0
+        assert cur.fetchone()[0] == SEEDED_GENRES
 
     def test_commit_interactive_continue(self, ups):
         """Interactive continue during commit with do_commit=True should commit."""
@@ -618,7 +629,7 @@ class TestCommit:
             mock_show.return_value = (0, None)  # Continue
             ups.commit()
         cur = ups.db.execute("SELECT count(*) FROM public.genres;")
-        assert cur.fetchone()[0] == 19
+        assert cur.fetchone()[0] == LOADED_GENRES
 
     def test_commit_no_changes(self, ups):
         """commit() with no rows inserted/updated should rollback cleanly."""
@@ -626,7 +637,7 @@ class TestCommit:
         ups.qa_all()
         ups.commit()
         cur = ups.db.execute("SELECT count(*) FROM public.genres;")
-        assert cur.fetchone()[0] == 0
+        assert cur.fetchone()[0] == SEEDED_GENRES
 
 
 # ===================================================================
@@ -643,20 +654,20 @@ class TestRun:
         assert result.qa_passed is True
         assert result.committed is True
         cur = ups.db.execute("SELECT count(*) FROM public.genres;")
-        assert cur.fetchone()[0] == 19
+        assert cur.fetchone()[0] == LOADED_GENRES
 
     def test_run_failing_data_no_upsert(self, ups_failing):
         """run() with failing QA should not upsert."""
         ups_failing.run()
         assert ups_failing.qa_passed is False
         cur = ups_failing.db.execute("SELECT count(*) FROM public.genres;")
-        assert cur.fetchone()[0] == 0
+        assert cur.fetchone()[0] == FAILING_SEEDED_GENRES
 
     def test_run_no_commit(self, ups):
         ups.do_commit = False
         ups.run()
         cur = ups.db.execute("SELECT count(*) FROM public.genres;")
-        assert cur.fetchone()[0] == 0
+        assert cur.fetchone()[0] == SEEDED_GENRES
 
     def test_run_returns_upsert_result(self, ups):
         result = ups.run()
@@ -670,7 +681,7 @@ class TestRun:
             result = ups.run()
             assert isinstance(result, UpsertResult)
         cur = ups.db.execute("SELECT count(*) FROM public.genres;")
-        assert cur.fetchone()[0] == 0
+        assert cur.fetchone()[0] == SEEDED_GENRES
 
     def test_run_resets_qa_passed(self, ups):
         """qa_passed should be reset between run() calls."""
@@ -787,7 +798,7 @@ class TestInteractiveUpsertOne:
                 t=Literal("genres"),
             ),
         )
-        assert cur.fetchone()[0] == 19
+        assert cur.fetchone()[0] == INSERTED_GENRES
 
     def test_interactive_insert_skip(self, ups):
         """Interactive skip during insert dialog should skip inserts."""
@@ -840,7 +851,7 @@ class TestFailingData:
         ups_failing.run()
         assert ups_failing.qa_passed is False
         cur = ups_failing.db.execute("SELECT count(*) FROM public.genres;")
-        assert cur.fetchone()[0] == 0
+        assert cur.fetchone()[0] == FAILING_SEEDED_GENRES
 
     def test_failing_unique_errors(self, ups_failing):
         """The failing schema has duplicate emails violating UNIQUE constraint."""
@@ -1597,7 +1608,7 @@ class TestCallbacks:
         # Pipeline was aborted, so no upsert should have occurred.
         assert result.committed is False
         cur = ups.db.execute("SELECT count(*) FROM public.genres;")
-        assert cur.fetchone()[0] == 0
+        assert cur.fetchone()[0] == SEEDED_GENRES
 
 
 # ===================================================================
@@ -1615,7 +1626,7 @@ class TestCommitQAGuard:
         ups.commit()
         # Should have rolled back, not committed.
         cur = ups.db.execute("SELECT count(*) FROM public.genres;")
-        assert cur.fetchone()[0] == 0
+        assert cur.fetchone()[0] == SEEDED_GENRES
 
     def test_commit_proceeds_when_qa_passed(self, ups):
         """commit() should proceed when qa_passed is True."""
@@ -1625,7 +1636,7 @@ class TestCommitQAGuard:
         ups.upsert_all()
         ups.commit()
         cur = ups.db.execute("SELECT count(*) FROM public.genres;")
-        assert cur.fetchone()[0] == 19
+        assert cur.fetchone()[0] == LOADED_GENRES
 
 
 # ===================================================================
