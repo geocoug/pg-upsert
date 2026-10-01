@@ -11,7 +11,7 @@ ______________________________________________________________________
 ### Added
 
 - **Character-length QA validation** — staging values that exceed bounded `varchar(n)` or `char(n)` base columns are now reported as row-level errors before upsert. Console detail tables group offending values and truncate their display to 60 characters while retaining the full measured length. The check follows PostgreSQL character and trailing-space semantics, supports fix-sheet exports, and is available through `qa_length(table)` and `qa_all_length()`.
-- **UNIQUE check catches collisions with existing base rows** — duplicates are now counted across the base table as it will look after the load, so a new staging row whose unique key already belongs to a base row is reported before upsert. Fix-sheet descriptions name the conflicting base row.
+- **UNIQUE check catches collisions with existing base rows** — duplicates are now counted across the base table as it will look after the load, so a new staging row whose unique key already belongs to a base row is reported before upsert.
 - **UNIQUE check covers unique indexes** — keys enforced by `CREATE UNIQUE INDEX` (not just `UNIQUE` constraints) are now checked. Expression and partial indexes are skipped.
 
 ### Changed
