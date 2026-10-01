@@ -13,7 +13,7 @@ src/pg_upsert/
   upsert.py          # PgUpsert facade (orchestrates QA + upsert pipeline)
   postgres.py        # PostgresDB connection wrapper
   control.py         # ControlTable (temporary table tracking pipeline state)
-  qa.py              # QARunner (7 QA check methods)
+  qa.py              # QARunner (8 QA check methods)
   executor.py        # UpsertExecutor (INSERT/UPDATE with dependency ordering)
   utils.py           # Logging formatter, elapsed time utility
 
@@ -42,10 +42,11 @@ src/pg_upsert/
 
 ## QA Check Flow
 
-`QARunner.run_all()` iterates over 7 check types × all tables:
+`QARunner.run_all()` iterates over 8 check types × all tables:
 
 1. Column Existence → `check_column_existence()`
 1. Column Type Compatibility → `check_type_mismatch()`
+1. Character Length → `check_lengths()`
 1. NOT NULL → `check_nulls()`
 1. Primary Key → `check_pks()`
 1. Unique Constraints → `check_unique()`
@@ -54,7 +55,24 @@ src/pg_upsert/
 
 Each method returns `list[QAError]`, writes errors to the control table, and prints its own pass/fail/warn output via `display.print_check_table_pass()` / `display.print_check_table_warn()` / `display.print_check_table_fail()`. This means each method produces visible feedback whether called through `run_all()` or standalone (e.g., `qa_column_existence()`).
 
-Schema checks (1-2) run first so column/type issues are caught before data checks. Each per-table check runs inside a PostgreSQL savepoint — if a check crashes (e.g. querying a column that doesn't exist in staging), the savepoint is rolled back, a warning is emitted, and subsequent checks continue normally. Column existence findings carry a `severity` (`QASeverity.ERROR` or `QASeverity.WARNING`) — only errors block the upsert pipeline.
+Data checks (3-8) read staging through `QARunner._effective_rows()`, a FROM-clause subquery that
+mirrors the executor: it keeps only the rows the configured `upsert_method` will write and replaces
+excluded columns with the base value (updated rows) or NULL (inserted rows). For `upsert` with no
+excluded staging columns it is the staging table itself. UNIQUE and FK parents use
+`QARunner._predicted_rows()`, which adds the base rows the load leaves untouched to model the
+post-load base table.
+
+Metadata checks (1-2) run first so column/type issues are caught before data checks. Character length
+runs next and scans staging values for bounded `varchar(n)` and `char(n)` columns. It skips resolved
+excluded columns, NULL values, columns absent from either side, and unbounded character types.
+Length failures are row-level `RowViolation` records, so the exporter writes them to per-table fix
+sheets. Each per-table check runs inside a PostgreSQL savepoint — if a check crashes (e.g. querying
+a column that doesn't exist in staging), the savepoint is rolled back, a warning is emitted, and
+subsequent checks continue normally. Column existence findings carry a `severity`
+(`QASeverity.ERROR` or `QASeverity.WARNING`) — only errors block the upsert pipeline.
+
+The CLI `--check-schema` path deliberately runs only the first two metadata checks. It does not
+invoke character-length validation because that check reads staging rows.
 
 ## Upsert Flow
 
@@ -116,20 +134,21 @@ pg-upsert creates temporary tables and views (all prefixed with `ups_`) during Q
 
 #### Unique Constraint Checks
 
-| Object                   | Type  | Created by       | Description                                                                        |
-| ------------------------ | ----- | ---------------- | ---------------------------------------------------------------------------------- |
-| `ups_unique_constraints` | table | `check_unique()` | All UNIQUE constraints on the table with their column lists.                       |
-| `ups_uq_check`           | view  | `check_unique()` | Groups staging rows by unique constraint columns — count > 1 indicates duplicates. |
+| Object                   | Type  | Created by       | Description                                                                           |
+| ------------------------ | ----- | ---------------- | ------------------------------------------------------------------------------------- |
+| `ups_unique_constraints` | table | `check_unique()` | Unique indexes (including those behind UNIQUE constraints) with their key columns.    |
+| `ups_uq_rows`            | view  | `check_unique()` | Constrained columns of the predicted post-load table, tagged `staging` or `base`.     |
+| `ups_uq_check`           | view  | `check_unique()` | Keys appearing more than once that involve a staging row; `in_base` counts base rows. |
 
 #### Foreign Key Checks
 
-| Object                    | Type  | Created by    | Description                                                                         |
-| ------------------------- | ----- | ------------- | ----------------------------------------------------------------------------------- |
-| `ups_foreign_key_columns` | table | `check_fks()` | Complete map of all FK constraints in the database. Created once per session.       |
-| `ups_sel_fks`             | table | `check_fks()` | FK constraints relevant to the table being checked.                                 |
-| `ups_fk_constraints`      | table | `check_fks()` | Distinct constraints with error count and processing flag. Mutated during checks.   |
-| `ups_one_fk`              | table | `check_fks()` | Single constraint's columns, extracted for the FK currently being checked.          |
-| `ups_fk_check`            | view  | `check_fks()` | Staging rows with invalid foreign keys (referenced rows missing from base/staging). |
+| Object                    | Type  | Created by    | Description                                                                       |
+| ------------------------- | ----- | ------------- | --------------------------------------------------------------------------------- |
+| `ups_foreign_key_columns` | table | `check_fks()` | Complete map of all FK constraints in the database. Created once per session.     |
+| `ups_sel_fks`             | table | `check_fks()` | FK constraints relevant to the table being checked.                               |
+| `ups_fk_constraints`      | table | `check_fks()` | Distinct constraints with error count and processing flag. Mutated during checks. |
+| `ups_one_fk`              | table | `check_fks()` | Single constraint's columns, extracted for the FK currently being checked.        |
+| `ups_fk_check`            | view  | `check_fks()` | Written staging rows whose referenced key will not exist after the load.          |
 
 #### Check Constraint Checks
 

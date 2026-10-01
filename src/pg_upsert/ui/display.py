@@ -335,6 +335,7 @@ def _print_qa_summary_compact(
     check_types = [
         ("Col", QACheckType.COLUMN_EXISTENCE),
         ("Type", QACheckType.TYPE_MISMATCH),
+        ("Len", QACheckType.LENGTH),
         ("Null", QACheckType.NULL),
         ("PK", QACheckType.PRIMARY_KEY),
         ("UQ", QACheckType.UNIQUE),

@@ -109,6 +109,7 @@ class ControlTable:
                 unique_errors text,
                 column_errors text,
                 type_errors text,
+                length_errors text,
                 rows_updated integer,
                 rows_inserted integer
             );
@@ -349,7 +350,8 @@ class ControlTable:
             SQL(
                 """select * from {control_table}
                 where coalesce(null_errors, pk_errors, fk_errors, ck_errors,
-                              unique_errors, column_errors, type_errors) is not null;
+                              unique_errors, column_errors, type_errors,
+                              length_errors) is not null;
                 """,
             ).format(
                 control_table=Identifier(self.table_name),
@@ -374,6 +376,7 @@ class ControlTable:
                 unique_errors = null,
                 column_errors = null,
                 type_errors = null,
+                length_errors = null,
                 rows_updated = null,
                 rows_inserted = null;
             """,

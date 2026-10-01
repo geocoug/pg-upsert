@@ -10,7 +10,9 @@ Description:
 
     Sample data are inserted into the staging tables with the intention
     of UPSERTING them into the base tables using the pg-upsert Python library.
-    The sample data includes only valid records to verify passing UPSERT operations.
+    The sample data includes only valid records to verify passing UPSERT operations
+    under every upsert method. The base tables are seeded with existing rows so
+    that staging rows are a mix of updates and inserts.
 
     The schema includes the following tables:
         - genres: Contains information about book genres.
@@ -108,6 +110,7 @@ create table public.authors (
     first_name varchar(60) not null,
     last_name varchar(60) not null,
     email varchar(100) null,
+    fixed_code char(5) null,
 	rev_time timestamp DEFAULT now() NULL,
 	rev_user varchar(25) DEFAULT currentuser() NULL,
     constraint chk_authors_first_name check (first_name ~ '^[a-zA-Z]+$'),
@@ -135,6 +138,42 @@ create table public.book_authors (
 );
 create trigger revtime before insert or update
 on public.book_authors for each row execute function set_rev_time();
+
+-- A bare unique index (not a UNIQUE constraint) so QA must read pg_index.
+create unique index uq_publishers_name on public.publishers (publisher_name);
+
+
+/*---------------------------------------------
+    Seed the base tables with existing rows.
+
+    Some rows share a primary key with staging rows (they will be UPDATED
+    by the upsert/update methods and left alone by the insert method);
+    others have no staging counterpart and are never touched. All of them
+    are consistent with the staging data under every upsert method, so QA
+    passes and the load succeeds for upsert, update, and insert.
+---------------------------------------------*/
+insert into public.genres (genre, description) values
+    ('Fiction', 'Old description, replaced by staging'),
+    ('Poetry', 'Old description, replaced by staging'),
+    ('Western', 'Stories of the American frontier');
+
+insert into public.publishers (publisher_id, publisher_name) values
+    ('P001', 'Great Publishing House (old name)'),
+    ('P999', 'Legacy Press');
+
+insert into public.books (book_id, book_title, genre, publisher_id, notes) values
+    ('B001', 'The Great Novel', 'Fiction', 'P001', 'Old notes'),
+    ('B900', 'Legacy Western', 'Western', 'P999', null);
+
+-- JDoe moves to a new email in staging; in insert mode JDoe is not written
+-- and keeps the old one. Neither collides with any other row.
+insert into public.authors (author_id, first_name, last_name, email) values
+    ('JDoe', 'John', 'Doe', 'jdoe.old@email.com'),
+    ('ZOld', 'Zed', 'Old', 'zed.old@email.com');
+
+insert into public.book_authors (book_id, author_id) values
+    ('B001', 'JDoe'),
+    ('B900', 'ZOld');
 
 
 /*---------------------------------------------
@@ -175,7 +214,8 @@ create table staging.authors (
     author_id varchar(60),
     first_name varchar(60),
     last_name varchar(60),
-    email varchar(100)
+    email text,
+    fixed_code text
 );
 
 drop table if exists staging.book_authors cascade;
@@ -232,21 +272,21 @@ insert into staging.publishers (publisher_id, publisher_name) values
     ('P020', 'Dramatic Works Publishing'),
     ('P021', 'Comedy Central Books');
 
-insert into staging.authors (author_id, first_name, last_name, email)
+insert into staging.authors (author_id, first_name, last_name, email, fixed_code)
 values
-    ('JDoe', 'John', 'Doe', 'john.doe@email.com'),
-    ('AAdams', 'Alice', 'Adams', 'alice.adams@email.com'),
-    ('BBrown', 'Bob', 'Brown', null),
-    ('CCooper', 'Cathy', 'Cooper', 'cathy_cooper2@email.com'),
-    ('DDavis', 'David', 'Davis', 'ddavis@email.com'),
-    ('EEvans', 'Emily', 'Evans', 'emilyevans@email.com'),
-    ('FFisher', 'Frank', 'Fisher', 'frankfisher@email.com'),
-    ('GGarcia', 'George', 'Garcia', 'georgegarcia@email.com'),
-    ('HHall', 'Helen', 'Hall', 'hhall@email.com'),
-    ('IIngram', 'Isaac', 'Ingram', 'i_s_a_a_c@email.com'),
-    ('JJones', 'Jack', 'Jones', 'jack_jones@email.com'),
-    ('KKing', 'Katie', 'King', 'katie_king@email.com'),
-    ('LLee', 'Larry', 'Lee', 'llee@email.com');
+    ('JDoe', 'John', 'Doe', 'john.doe@email.com', 'ABCDE'),
+    ('AAdams', 'Alice', 'Adams', 'alice.adams@email.com', null),
+    ('BBrown', 'Bob', 'Brown', null, 'XY   '),
+    ('CCooper', 'Cathy', 'Cooper', 'cathy_cooper2@email.com', null),
+    ('DDavis', 'David', 'Davis', 'ddavis@email.com', null),
+    ('EEvans', 'Emily', 'Evans', 'emilyevans@email.com', null),
+    ('FFisher', 'Frank', 'Fisher', 'frankfisher@email.com', null),
+    ('GGarcia', 'George', 'Garcia', 'georgegarcia@email.com', null),
+    ('HHall', 'Helen', 'Hall', 'hhall@email.com', null),
+    ('IIngram', 'Isaac', 'Ingram', 'i_s_a_a_c@email.com', null),
+    ('JJones', 'Jack', 'Jones', 'jack_jones@email.com', null),
+    ('KKing', 'Katie', 'King', 'katie_king@email.com', null),
+    ('LLee', 'Larry', 'Lee', 'llee@email.com', null);
 
 insert into staging.books (book_id, book_title, genre, publisher_id, notes) values
     ('B001', 'The Great Novel', 'Fiction', 'P001', 'An epic tale of love and loss'),

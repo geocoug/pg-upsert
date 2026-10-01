@@ -23,8 +23,15 @@ statistics, and are JSON-serialisable via `to_dict()` / `to_json()`.
 
 Every QA check produces `QAError` instances. When `--export-failures`
 is active, each error is also populated with per-row `RowViolation`
-objects (for data checks) or `SchemaIssue` objects (for column
-existence and type mismatch checks). These feed the fix-sheet exporter.
+objects (for data checks, including character length) or `SchemaIssue`
+objects (for column existence and type mismatch checks). These feed the
+fix-sheet exporter.
+
+Use `PgUpsert.qa_all_length()` to check every configured table, or
+`PgUpsert.qa_length(table)` to check one configured table. Both methods
+return the same `PgUpsert` instance for method chaining and update
+`qa_passed`. Character-length validation scans staging data and is not
+part of the metadata-only `--check-schema` CLI path.
 
 ::: pg_upsert.QASeverity
 

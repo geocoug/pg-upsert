@@ -17,6 +17,17 @@ from pg_upsert.upsert import PgUpsert, UserCancelledError
 
 pytestmark = pytest.mark.postgres
 
+# Genre row counts for tests/data/schema_passing.sql. The base table is seeded
+# with 3 genres; 2 of them (Fiction, Poetry) are also in staging, so an upsert
+# updates those 2 and inserts the other 17 staging genres.
+STAGING_GENRES = 19
+SEEDED_GENRES = 3
+UPDATED_GENRES = 2
+INSERTED_GENRES = STAGING_GENRES - UPDATED_GENRES
+LOADED_GENRES = SEEDED_GENRES + INSERTED_GENRES  # rows in public.genres after a full load
+# tests/data/schema_failing.sql seeds 2 base genres.
+FAILING_SEEDED_GENRES = 2
+
 
 # ===================================================================
 # UserCancelledError
@@ -146,6 +157,7 @@ class TestControlTable:
             "unique_errors",
             "column_errors",
             "type_errors",
+            "length_errors",
             "fk_errors",
             "ck_errors",
             "rows_updated",
@@ -162,13 +174,20 @@ class TestControlTable:
             SQL("""
                 SELECT * FROM {ct}
                 WHERE coalesce(null_errors, pk_errors, fk_errors, ck_errors,
-                               unique_errors, column_errors, type_errors) IS NOT NULL
+                               unique_errors, column_errors, type_errors,
+                               length_errors) IS NOT NULL
                    OR interactive
                    OR rows_updated != 0
                    OR rows_inserted != 0
             """).format(ct=Identifier(ups.control_table)),
         )
         assert cur.rowcount == 0
+
+    def test_length_errors_participate_in_error_detection_and_reset(self, ups):
+        ups._control.set_qa_errors("authors", "length_errors", "email (1; max 100)")
+        assert ups._control.has_errors() is True
+        ups._control.clear_results()
+        assert ups._control.has_errors() is False
 
     def test_init_ups_control_populates_tables(self, ups):
         ups._init_ups_control()
@@ -455,8 +474,8 @@ class TestUpsertOne:
             ),
         )
         row = cur.fetchone()
-        assert row[0] == 19
-        assert row[1] == 0
+        assert row[0] == INSERTED_GENRES
+        assert row[1] == UPDATED_GENRES
 
     def test_update(self, ups):
         ups.upsert_one("genres")
@@ -494,7 +513,7 @@ class TestUpsertOne:
                 t=Literal("genres"),
             ),
         )
-        assert cur.fetchone()[0] == 19
+        assert cur.fetchone()[0] == INSERTED_GENRES
 
 
 class TestUpsertAll:
@@ -540,7 +559,7 @@ class TestUpsertMethods:
         )
         row = cur.fetchone()
         assert row[0] == 0  # No inserts
-        assert row[1] == 0  # No matches yet to update
+        assert row[1] == UPDATED_GENRES  # Seeded genres that are also in staging
 
     def test_insert_only(self, ups):
         """upsert_method='insert' should only insert, not update existing rows."""
@@ -553,7 +572,7 @@ class TestUpsertMethods:
             ),
         )
         row = cur.fetchone()
-        assert row[0] == 19  # All inserted
+        assert row[0] == INSERTED_GENRES  # Only genres not already in the base table
         assert row[1] == 0  # No updates
 
 
@@ -568,7 +587,7 @@ class TestCommit:
         ups.upsert_one("genres")
         ups.commit()
         cur = ups.db.execute("SELECT count(*) FROM public.genres;")
-        assert cur.fetchone()[0] == 0
+        assert cur.fetchone()[0] == SEEDED_GENRES
 
     def test_commit_when_true(self, ups):
         ups.do_commit = True
@@ -576,7 +595,7 @@ class TestCommit:
         ups.upsert_one("genres")
         ups.commit()
         cur = ups.db.execute("SELECT count(*) FROM public.genres;")
-        assert cur.fetchone()[0] == 19
+        assert cur.fetchone()[0] == LOADED_GENRES
 
     def test_commit_standalone_no_changes(self, ups):
         """Calling commit() without any upsert should not insert rows."""
@@ -598,7 +617,7 @@ class TestCommit:
             ups.commit()
         # Should have rolled back
         cur = ups.db.execute("SELECT count(*) FROM public.genres;")
-        assert cur.fetchone()[0] == 0
+        assert cur.fetchone()[0] == SEEDED_GENRES
 
     def test_commit_interactive_continue(self, ups):
         """Interactive continue during commit with do_commit=True should commit."""
@@ -610,7 +629,7 @@ class TestCommit:
             mock_show.return_value = (0, None)  # Continue
             ups.commit()
         cur = ups.db.execute("SELECT count(*) FROM public.genres;")
-        assert cur.fetchone()[0] == 19
+        assert cur.fetchone()[0] == LOADED_GENRES
 
     def test_commit_no_changes(self, ups):
         """commit() with no rows inserted/updated should rollback cleanly."""
@@ -618,7 +637,7 @@ class TestCommit:
         ups.qa_all()
         ups.commit()
         cur = ups.db.execute("SELECT count(*) FROM public.genres;")
-        assert cur.fetchone()[0] == 0
+        assert cur.fetchone()[0] == SEEDED_GENRES
 
 
 # ===================================================================
@@ -635,20 +654,20 @@ class TestRun:
         assert result.qa_passed is True
         assert result.committed is True
         cur = ups.db.execute("SELECT count(*) FROM public.genres;")
-        assert cur.fetchone()[0] == 19
+        assert cur.fetchone()[0] == LOADED_GENRES
 
     def test_run_failing_data_no_upsert(self, ups_failing):
         """run() with failing QA should not upsert."""
         ups_failing.run()
         assert ups_failing.qa_passed is False
         cur = ups_failing.db.execute("SELECT count(*) FROM public.genres;")
-        assert cur.fetchone()[0] == 0
+        assert cur.fetchone()[0] == FAILING_SEEDED_GENRES
 
     def test_run_no_commit(self, ups):
         ups.do_commit = False
         ups.run()
         cur = ups.db.execute("SELECT count(*) FROM public.genres;")
-        assert cur.fetchone()[0] == 0
+        assert cur.fetchone()[0] == SEEDED_GENRES
 
     def test_run_returns_upsert_result(self, ups):
         result = ups.run()
@@ -662,7 +681,7 @@ class TestRun:
             result = ups.run()
             assert isinstance(result, UpsertResult)
         cur = ups.db.execute("SELECT count(*) FROM public.genres;")
-        assert cur.fetchone()[0] == 0
+        assert cur.fetchone()[0] == SEEDED_GENRES
 
     def test_run_resets_qa_passed(self, ups):
         """qa_passed should be reset between run() calls."""
@@ -779,7 +798,7 @@ class TestInteractiveUpsertOne:
                 t=Literal("genres"),
             ),
         )
-        assert cur.fetchone()[0] == 19
+        assert cur.fetchone()[0] == INSERTED_GENRES
 
     def test_interactive_insert_skip(self, ups):
         """Interactive skip during insert dialog should skip inserts."""
@@ -832,7 +851,7 @@ class TestFailingData:
         ups_failing.run()
         assert ups_failing.qa_passed is False
         cur = ups_failing.db.execute("SELECT count(*) FROM public.genres;")
-        assert cur.fetchone()[0] == 0
+        assert cur.fetchone()[0] == FAILING_SEEDED_GENRES
 
     def test_failing_unique_errors(self, ups_failing):
         """The failing schema has duplicate emails violating UNIQUE constraint."""
@@ -993,6 +1012,239 @@ class TestQATypeMismatch:
         for table in ups.tables:
             errors = ups._qa.check_type_mismatch(table)
             assert errors == [], f"Unexpected type mismatch in {table}: {errors}"
+
+
+# ===================================================================
+# QA: Character length
+# ===================================================================
+
+
+class TestQALength:
+    def test_failure_detail_groups_identical_values_and_lists_distinct_values(self, ups):
+        repeated_value = "r" * 101
+        distinct_value = "d" * 102
+        ups.db.execute(
+            SQL(
+                """
+                UPDATE staging.authors
+                SET email = CASE
+                    WHEN author_id IN ('JDoe', 'AAdams') THEN {repeated_value}
+                    ELSE {distinct_value}
+                END
+                WHERE author_id IN ('JDoe', 'AAdams', 'BBrown')
+                """,
+            ).format(
+                repeated_value=Literal(repeated_value),
+                distinct_value=Literal(distinct_value),
+            ),
+        )
+
+        with patch("pg_upsert.qa.display.print_check_table_fail") as mock_fail:
+            errors = ups._qa.check_lengths("authors")
+
+        assert errors[0].details == "email (3; max 100)"
+        mock_fail.assert_called_once()
+        call = mock_fail.call_args
+        assert call.kwargs["detail_headers"] == ["email", "actual_length", "max_length", "nrows"]
+        repeated_preview = ("r" * 59) + "…"
+        distinct_preview = ("d" * 59) + "…"
+        rows_by_value = {row["email"]: row for row in call.kwargs["detail_rows"]}
+        assert rows_by_value == {
+            repeated_preview: {
+                "email": repeated_preview,
+                "actual_length": 101,
+                "max_length": 100,
+                "nrows": 2,
+            },
+            distinct_preview: {
+                "email": distinct_preview,
+                "actual_length": 102,
+                "max_length": 100,
+                "nrows": 1,
+            },
+        }
+        assert all(len(row["email"]) == 60 for row in call.kwargs["detail_rows"])
+
+    def test_failure_detail_truncates_only_values_over_60_characters(self, ups):
+        value_60 = "a" * 60
+        value_61 = "b" * 61
+        ups.db.execute(
+            SQL(
+                """
+                UPDATE staging.authors
+                SET fixed_code = CASE
+                    WHEN author_id = 'JDoe' THEN {value_60}
+                    ELSE {value_61}
+                END
+                WHERE author_id IN ('JDoe', 'AAdams')
+                """,
+            ).format(value_60=Literal(value_60), value_61=Literal(value_61)),
+        )
+
+        with patch("pg_upsert.qa.display.print_check_table_fail") as mock_fail:
+            ups._qa.check_lengths("authors")
+
+        detail_rows = mock_fail.call_args.kwargs["detail_rows"]
+        assert detail_rows[0]["fixed_code"] == value_60
+        assert detail_rows[0]["actual_length"] == 60
+        assert detail_rows[1]["fixed_code"] == ("b" * 59) + "…"
+        assert detail_rows[1]["actual_length"] == 61
+
+    def test_multiple_overflowing_columns_render_separate_detail_blocks(self, ups):
+        ups.db.execute(
+            "UPDATE staging.authors SET email = repeat('e', 101), fixed_code = 'ABCDEF' WHERE author_id = 'JDoe'",
+        )
+
+        with patch("pg_upsert.qa.display.print_check_table_fail") as mock_fail:
+            errors = ups._qa.check_lengths("authors")
+
+        assert errors[0].details == "email (1; max 100), fixed_code (1; max 5)"
+        assert mock_fail.call_count == 2
+        calls_by_column = {call.kwargs["detail_headers"][0]: call for call in mock_fail.call_args_list}
+        assert set(calls_by_column) == {"email", "fixed_code"}
+        assert calls_by_column["email"].kwargs["detail_headers"] == [
+            "email",
+            "actual_length",
+            "max_length",
+            "nrows",
+        ]
+        assert calls_by_column["email"].kwargs["detail_rows"] == [
+            {
+                "email": ("e" * 59) + "…",
+                "actual_length": 101,
+                "max_length": 100,
+                "nrows": 1,
+            },
+        ]
+        assert calls_by_column["fixed_code"].kwargs["detail_headers"] == [
+            "fixed_code",
+            "actual_length",
+            "max_length",
+            "nrows",
+        ]
+        assert calls_by_column["fixed_code"].kwargs["detail_rows"] == [
+            {
+                "fixed_code": "ABCDEF",
+                "actual_length": 6,
+                "max_length": 5,
+                "nrows": 1,
+            },
+        ]
+
+    def test_over_limit_value_populates_control_and_blocks_qa(self, ups):
+        ups.db.execute("UPDATE staging.authors SET email = repeat('x', 101) WHERE author_id = 'JDoe'")
+        result = ups.qa_length("authors")
+        row = ups.db.execute(
+            SQL("SELECT length_errors FROM {ct} WHERE table_name = {table}").format(
+                ct=Identifier(ups.control_table),
+                table=Literal("authors"),
+            ),
+        ).fetchone()
+        assert result is ups
+        assert row[0] == "email (1; max 100)"
+        assert ups.qa_passed is False
+
+    @pytest.mark.parametrize(
+        ("column", "value"),
+        [
+            ("email", "x" * 100),
+            ("email", None),
+            ("email", "é" * 100),
+            ("email", "x" * 100 + "   "),
+            ("fixed_code", "ABCDE"),
+            ("fixed_code", "ABCDE   "),
+        ],
+    )
+    def test_permitted_boundary_null_multibyte_and_trailing_spaces(self, ups, column, value):
+        ups.db.execute(
+            SQL("UPDATE staging.authors SET {column} = {value} WHERE author_id = 'JDoe'").format(
+                column=Identifier(column),
+                value=Literal(value),
+            ),
+        )
+        assert ups._qa.check_lengths("authors") == []
+
+    def test_non_space_overflow_is_detected_for_varchar_and_char(self, ups):
+        ups.db.execute(
+            "UPDATE staging.authors SET email = repeat('v', 101), fixed_code = 'ABCDEF' "
+            "WHERE author_id IN ('JDoe', 'AAdams')",
+        )
+        errors = ups._qa.check_lengths("authors")
+        assert len(errors) == 1
+        assert "email (2; max 100)" in errors[0].details
+        assert "fixed_code (2; max 5)" in errors[0].details
+
+    def test_excluded_oversized_column_does_not_block(self, db):
+        excluded = PgUpsert(
+            conn=db.conn,
+            tables=("authors",),
+            staging_schema="staging",
+            base_schema="public",
+            interactive=False,
+            exclude_cols=("email",),
+        )
+        excluded.db.execute("UPDATE staging.authors SET email = repeat('x', 101)")
+        assert excluded._qa.check_lengths("authors") == []
+
+    def test_per_table_excluded_oversized_column_is_skipped(self, db):
+        excluded = PgUpsert(
+            conn=db.conn,
+            tables=("authors",),
+            staging_schema="staging",
+            base_schema="public",
+            interactive=False,
+            exclude_cols_by_table={"authors": ("email",)},
+        )
+        excluded.db.execute(
+            "UPDATE staging.authors SET email = repeat('x', 101), fixed_code = 'ABCDEF' WHERE author_id = 'JDoe'",
+        )
+        errors = excluded._qa.check_lengths("authors")
+        assert len(errors) == 1
+        assert errors[0].details == "fixed_code (1; max 5)"
+
+    def test_quoted_identifier_is_checked_safely(self, ups):
+        ups.db.execute('ALTER TABLE public.authors ADD COLUMN "Display Name" varchar(3)')
+        ups.db.execute('ALTER TABLE staging.authors ADD COLUMN "Display Name" text')
+        ups.db.execute("""UPDATE staging.authors SET "Display Name" = 'four' WHERE author_id = 'JDoe'""")
+        errors = ups._qa.check_lengths("authors")
+        assert errors[0].details == "Display Name (1; max 3)"
+
+    def test_detail_capture_uses_row_violations(self, ups_failing_capture):
+        errors = ups_failing_capture._qa.check_lengths("authors")
+        violations = errors[0].violations
+        assert {v.issue_column for v in violations} == {"email", "fixed_code"}
+        assert all(v.issue_type == "length" for v in violations)
+        assert all(v.pk_columns == ["author_id"] for v in violations)
+        assert all(v.pk_values == ("LLee",) for v in violations)
+        assert all("maximum is" in v.description for v in violations)
+
+    def test_detail_capture_reports_effective_length_without_trailing_spaces(self, db):
+        captured = PgUpsert(
+            conn=db.conn,
+            tables=("authors",),
+            staging_schema="staging",
+            base_schema="public",
+            interactive=False,
+            capture_detail_rows=True,
+        )
+        captured.db.execute(
+            "UPDATE staging.authors SET fixed_code = 'ABCDEF   ' WHERE author_id = 'JDoe'",
+        )
+        errors = captured._qa.check_lengths("authors")
+        assert errors[0].violations[0].description == ("value in 'fixed_code' is 6 characters; maximum is 5")
+
+    def test_qa_all_length_checks_all_tables_and_returns_self(self, ups):
+        assert ups.qa_all_length() is ups
+        assert ups.qa_passed is True
+
+    def test_qa_length_rejects_unselected_table(self, ups):
+        with pytest.raises(ValueError, match="Table not found"):
+            ups.qa_length("not_selected")
+
+    def test_run_all_includes_length_findings(self, ups):
+        ups.db.execute("UPDATE staging.authors SET email = repeat('x', 101) WHERE author_id = 'JDoe'")
+        ups.qa_all()
+        assert any(error.check_type.value == "length" for error in ups.qa_errors)
 
 
 # ===================================================================
@@ -1356,7 +1608,7 @@ class TestCallbacks:
         # Pipeline was aborted, so no upsert should have occurred.
         assert result.committed is False
         cur = ups.db.execute("SELECT count(*) FROM public.genres;")
-        assert cur.fetchone()[0] == 0
+        assert cur.fetchone()[0] == SEEDED_GENRES
 
 
 # ===================================================================
@@ -1374,7 +1626,7 @@ class TestCommitQAGuard:
         ups.commit()
         # Should have rolled back, not committed.
         cur = ups.db.execute("SELECT count(*) FROM public.genres;")
-        assert cur.fetchone()[0] == 0
+        assert cur.fetchone()[0] == SEEDED_GENRES
 
     def test_commit_proceeds_when_qa_passed(self, ups):
         """commit() should proceed when qa_passed is True."""
@@ -1384,7 +1636,7 @@ class TestCommitQAGuard:
         ups.upsert_all()
         ups.commit()
         cur = ups.db.execute("SELECT count(*) FROM public.genres;")
-        assert cur.fetchone()[0] == 19
+        assert cur.fetchone()[0] == LOADED_GENRES
 
 
 # ===================================================================

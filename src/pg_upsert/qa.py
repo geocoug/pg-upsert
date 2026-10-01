@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import re
 
-from psycopg.sql import SQL, Identifier, Literal
+from psycopg.sql import SQL, Composable, Identifier, Literal
 
 from .control import ControlTable
 from .models import (
@@ -39,6 +39,9 @@ class QARunner:
         staging_schema: Name of the staging schema.
         base_schema: Name of the base schema.
         exclude_null_check_cols: Column names to skip during null checks.
+        upsert_method: The method ``upsert_all()`` will use (``"upsert"``,
+            ``"update"``, or ``"insert"``).  Data checks only consider the rows
+            that method will write.
     """
 
     def __init__(
@@ -52,6 +55,7 @@ class QARunner:
         capture_detail_rows: bool = False,
         max_export_rows: int = 1000,
         strict_columns: bool = False,
+        upsert_method: str = "upsert",
     ) -> None:
         self.db = db
         self.control = control
@@ -61,6 +65,7 @@ class QARunner:
         self.capture_detail_rows = capture_detail_rows
         self.max_export_rows = max_export_rows
         self.strict_columns = strict_columns
+        self.upsert_method = upsert_method
         # Cached PK columns per base table for use during row capture.
         self._pk_cols_cache: dict[str, list[str]] = {}
         if ui is None:
@@ -86,6 +91,13 @@ class QARunner:
         if spec and spec.get("exclude_null_checks"):
             return [c.strip() for c in spec["exclude_null_checks"].split(",") if c.strip()]
         return list(self.exclude_null_check_cols)
+
+    def _table_upsert_excludes(self, table: str) -> list[str]:
+        """Return the resolved upsert-column exclusions for *table*."""
+        spec = self.control.get_table_spec(table)
+        if spec and spec.get("exclude_cols"):
+            return [c.strip() for c in spec["exclude_cols"].split(",") if c.strip()]
+        return []
 
     def _get_pk_columns(self, table: str) -> list[str]:
         """Return the PK column names for *table* in the base schema.
@@ -123,6 +135,123 @@ class QARunner:
         if not pk_cols:
             return tuple(row.values())
         return tuple(row.get(c) for c in pk_cols)
+
+    def _selected_tables(self) -> set[str]:
+        """Return the names of the tables selected for this run."""
+        return {spec["table_name"] for spec in self.control.get_all_specs()}
+
+    def _effective_rows(self, table: str, alias: str = "s") -> Composable:
+        """Return a FROM-clause item for the rows ``upsert_all()`` will write to *table*.
+
+        Mirrors the executor: ``update`` writes staging rows whose PK already
+        exists in the base table, ``insert`` writes the rest, and ``upsert``
+        writes both.  Excluded columns are never written, so they carry the
+        base value in rows that will be updated and NULL in rows that will be
+        inserted (a column default cannot be evaluated here; NULL makes every
+        check treat the value as unknown rather than wrong).
+
+        The result has the staging table's columns.  When nothing needs to be
+        filtered or overridden, it is the staging table itself.
+
+        Args:
+            table: The staging table name.
+            alias: Alias given to the FROM-clause item.
+        """
+        staging = SQL("{schema}.{table} as {alias}").format(
+            schema=Identifier(self.staging_schema),
+            table=Identifier(table),
+            alias=Identifier(alias),
+        )
+        pk_cols = self._get_pk_columns(table)
+        if not pk_cols:
+            # Tables without a PK are skipped by the executor; keep checking
+            # every staging row as before.
+            return staging
+        col_rows, _h, _rc = self.db.rowdict(
+            SQL(
+                """
+                select s.column_name, b.column_name is not null as in_base
+                from information_schema.columns as s
+                left join information_schema.columns as b
+                    on b.table_schema = {base_schema}
+                    and b.table_name = {table}
+                    and b.column_name = s.column_name
+                where s.table_schema = {staging_schema}
+                    and s.table_name = {table}
+                order by s.ordinal_position
+                """,
+            ).format(
+                base_schema=Literal(self.base_schema),
+                staging_schema=Literal(self.staging_schema),
+                table=Literal(table),
+            ),
+        )
+        excludes = set(self._table_upsert_excludes(table))
+        columns = [(row["column_name"], row["column_name"] in excludes and row["in_base"]) for row in col_rows]
+        if self.upsert_method == "upsert" and not any(overridden for _col, overridden in columns):
+            return staging
+
+        matched = SQL("b.{col} is not null").format(col=Identifier(pk_cols[0]))
+        select_list = SQL(", ").join(
+            SQL("case when {matched} then b.{col} end as {col}").format(matched=matched, col=Identifier(col))
+            if overridden
+            else SQL("s.{col}").format(col=Identifier(col))
+            for col, overridden in columns
+        )
+        join_on = SQL(" and ").join(SQL("s.{col} = b.{col}").format(col=Identifier(col)) for col in pk_cols)
+        where = {
+            "upsert": SQL(""),
+            "update": SQL(" where {matched}").format(matched=matched),
+            "insert": SQL(" where not ({matched})").format(matched=matched),
+        }[self.upsert_method]
+        return SQL(
+            "(select {select_list} from {staging_schema}.{table} as s"
+            " left join {base_schema}.{table} as b on {join_on}{where}) as {alias}",
+        ).format(
+            select_list=select_list,
+            staging_schema=Identifier(self.staging_schema),
+            base_schema=Identifier(self.base_schema),
+            table=Identifier(table),
+            join_on=join_on,
+            where=where,
+            alias=Identifier(alias),
+        )
+
+    def _predicted_rows(self, table: str, cols: list[str], alias: str = "p") -> Composable:
+        """Return a FROM-clause item for *cols* of the base table after the load.
+
+        The rows are the effective staging rows (see :meth:`_effective_rows`)
+        plus the base rows the load leaves untouched.  Output columns are
+        *cols*, then any PK columns not already in *cols*, then ``_ups_src``
+        (``'staging'`` or ``'base'``).
+
+        Args:
+            table: The table name (same in staging and base).
+            cols: Base-table columns to project.
+            alias: Alias given to the FROM-clause item.
+        """
+        pk_cols = self._get_pk_columns(table)
+        out_cols = list(cols) + [c for c in pk_cols if c not in cols]
+        e_cols = SQL(", ").join(SQL("e.{col}").format(col=Identifier(c)) for c in out_cols)
+        staging_part = SQL("select {cols}, 'staging'::text as _ups_src from {effective}").format(
+            cols=e_cols,
+            effective=self._effective_rows(table, "e"),
+        )
+        if not pk_cols:
+            return SQL("({staging_part}) as {alias}").format(staging_part=staging_part, alias=Identifier(alias))
+        return SQL(
+            "({staging_part} union all"
+            " select {b_cols}, 'base'::text from {base_schema}.{table} as b"
+            " where not exists (select 1 from {effective} where {pk_match})) as {alias}",
+        ).format(
+            staging_part=staging_part,
+            b_cols=SQL(", ").join(SQL("b.{col}").format(col=Identifier(c)) for c in out_cols),
+            base_schema=Identifier(self.base_schema),
+            table=Identifier(table),
+            effective=self._effective_rows(table, "e"),
+            pk_match=SQL(" and ").join(SQL("e.{col} = b.{col}").format(col=Identifier(c)) for c in pk_cols),
+            alias=Identifier(alias),
+        )
 
     # ------------------------------------------------------------------
     # Check methods
@@ -171,10 +300,9 @@ class QARunner:
             for c in nonnull_cols
         )
         null_counts = self.db.execute(
-            SQL("select {exprs} from {schema}.{table}").format(
+            SQL("select {exprs} from {src}").format(
                 exprs=count_exprs,
-                schema=Identifier(self.staging_schema),
-                table=Identifier(table),
+                src=self._effective_rows(table),
             ),
         ).fetchone()
 
@@ -199,10 +327,9 @@ class QARunner:
                 null_cols = [d.split(" (")[0] for d in null_details]
                 for col in null_cols:
                     q = SQL(
-                        "SELECT * FROM {schema}.{table} WHERE {col} IS NULL LIMIT {lim}",
+                        "SELECT * FROM {src} WHERE {col} IS NULL LIMIT {lim}",
                     ).format(
-                        schema=Identifier(self.staging_schema),
-                        table=Identifier(table),
+                        src=self._effective_rows(table),
                         col=Identifier(col),
                         lim=Literal(self.max_export_rows),
                     )
@@ -286,14 +413,13 @@ class QARunner:
             drop view if exists ups_pk_check cascade;
             create temporary view ups_pk_check as
             select {pkcollist}, count(*) as nrows
-            from {staging_schema}.{table} as s
+            from {src}
             group by {pkcollist}
             having count(*) > 1;
             """,
             ).format(
                 pkcollist=pk_cols,
-                staging_schema=Identifier(self.staging_schema),
-                table=Identifier(table),
+                src=self._effective_rows(table),
             ),
         )
         pk_errs, pk_headers, pk_rowcount = self.db.rowdict("select * from ups_pk_check;")
@@ -332,11 +458,9 @@ class QARunner:
             if self.capture_detail_rows:
                 # Fetch entire staging rows whose PK matches any duplicate.
                 q = SQL(
-                    "SELECT * FROM {schema}.{table} WHERE ({pk_cols}) IN"
-                    " (SELECT {pk_cols} FROM ups_pk_check) LIMIT {lim}",
+                    "SELECT * FROM {src} WHERE ({pk_cols}) IN (SELECT {pk_cols} FROM ups_pk_check) LIMIT {lim}",
                 ).format(
-                    schema=Identifier(self.staging_schema),
-                    table=Identifier(table),
+                    src=self._effective_rows(table),
                     pk_cols=pk_cols,
                     lim=Literal(self.max_export_rows),
                 )
@@ -519,28 +643,34 @@ class QARunner:
                 )
                 for r in const_rows
             )
-            su_join = SQL(" AND ").join(
-                SQL("s.{col} = su.{uq_col}").format(
-                    col=Identifier(r["column_name"]),
-                    uq_col=Identifier(r["uq_column"]),
-                )
-                for r in const_rows
-            )
             s_not_null = SQL(" AND ").join(
                 SQL("s.{col} IS NOT NULL").format(col=Identifier(r["column_name"])) for r in const_rows
             )
 
-            su_exists = (
-                self.db.execute(
-                    SQL(
-                        """select * from information_schema.tables
-                        where table_name = {table} and table_schema = {staging_schema};""",
-                    ).format(
-                        table=Literal(const_row["uq_table"]),
-                        staging_schema=Literal(self.staging_schema),
-                    ),
-                ).rowcount
-                > 0
+            # Referenced keys as they will exist after the load.  A parent
+            # table selected for this run loads before its children
+            # (dependency order), so its staging rows count; otherwise only
+            # the existing parent rows do.
+            uq_col_names = [r["uq_column"] for r in const_rows]
+            if const_row["uq_schema"] == self.base_schema and const_row["uq_table"] in self._selected_tables():
+                parent = SQL("(select distinct {cols} from {predicted}) as u").format(
+                    cols=SQL(", ").join(Identifier(c) for c in uq_col_names),
+                    predicted=self._predicted_rows(const_row["uq_table"], uq_col_names),
+                )
+            else:
+                parent = SQL("{uq_schema}.{uq_table} as u").format(
+                    uq_schema=Identifier(const_row["uq_schema"]),
+                    uq_table=Identifier(const_row["uq_table"]),
+                )
+            # Child rows the upsert method will actually write.
+            orphans = SQL(
+                "from {child} left join {parent} on {u_join} where u.{uq_column} is null and {s_not_null}",
+            ).format(
+                child=self._effective_rows(table),
+                parent=parent,
+                u_join=u_join,
+                uq_column=Identifier(const_row["uq_column"]),
+                s_not_null=s_not_null,
             )
 
             query = SQL(
@@ -548,39 +678,10 @@ class QARunner:
                 drop view if exists ups_fk_check cascade;
                 create or replace temporary view ups_fk_check as
                 select {s_checked}, count(*) as nrows
-                from {staging_schema}.{table} as s
-                left join {uq_schema}.{uq_table} as u on {u_join}
+                {orphans}
+                group by {s_checked};
                 """,
-            ).format(
-                s_checked=s_checked,
-                staging_schema=Identifier(self.staging_schema),
-                table=Identifier(table),
-                uq_schema=Identifier(const_row["uq_schema"]),
-                uq_table=Identifier(const_row["uq_table"]),
-                u_join=u_join,
-            )
-            if su_exists:
-                query += SQL(
-                    """ left join {staging_schema}.{uq_table} as su on {su_join}""",
-                ).format(
-                    staging_schema=Identifier(self.staging_schema),
-                    uq_table=Identifier(const_row["uq_table"]),
-                    su_join=su_join,
-                )
-            query += SQL(" where u.{uq_column} is null").format(
-                uq_column=Identifier(const_row["uq_column"]),
-            )
-            if su_exists:
-                query += SQL(" and su.{uq_column} is null").format(
-                    uq_column=Identifier(const_row["uq_column"]),
-                )
-            query += SQL(
-                """ and {s_not_null}
-                    group by {s_checked};""",
-            ).format(
-                s_not_null=s_not_null,
-                s_checked=s_checked,
-            )
+            ).format(s_checked=s_checked, orphans=orphans)
             self.db.execute(query)
 
             check_sql = SQL("select * from ups_fk_check;")
@@ -641,43 +742,13 @@ class QARunner:
                         # Re-query to fetch the actual staging rows whose
                         # FK values have no match — we need full row data
                         # for the fix sheet, not the grouped ups_fk_check.
-                        full_row_q = SQL(
-                            "SELECT s.* FROM {staging_schema}.{table} AS s "
-                            "LEFT JOIN {uq_schema}.{uq_table} AS u ON {u_join} "
-                            "WHERE u.{uq_column} IS NULL AND {s_not_null}",
-                        ).format(
-                            staging_schema=Identifier(self.staging_schema),
-                            table=Identifier(table),
-                            uq_schema=Identifier(const_row["uq_schema"]),
-                            uq_table=Identifier(const_row["uq_table"]),
-                            u_join=u_join,
-                            uq_column=Identifier(const_row["uq_column"]),
-                            s_not_null=s_not_null,
-                        )
-                        if su_exists:
-                            full_row_q = SQL(
-                                "SELECT s.* FROM {staging_schema}.{table} AS s "
-                                "LEFT JOIN {uq_schema}.{uq_table} AS u ON {u_join} "
-                                "LEFT JOIN {staging_schema}.{uq_table} AS su ON {su_join} "
-                                "WHERE u.{uq_column} IS NULL AND su.{uq_column} IS NULL "
-                                "AND {s_not_null}",
-                            ).format(
-                                staging_schema=Identifier(self.staging_schema),
-                                table=Identifier(table),
-                                uq_schema=Identifier(const_row["uq_schema"]),
-                                uq_table=Identifier(const_row["uq_table"]),
-                                u_join=u_join,
-                                su_join=su_join,
-                                uq_column=Identifier(const_row["uq_column"]),
-                                s_not_null=s_not_null,
-                            )
+                        full_row_q = SQL("SELECT s.* {orphans}").format(orphans=orphans)
                         full_row_q += SQL(" LIMIT {lim}").format(
                             lim=Literal(self.max_export_rows),
                         )
                         bad_rows_iter, _h, _rc = self.db.rowdict(full_row_q)
                         pk_cols = self._get_pk_columns(table)
                         fk_col_names = [r["column_name"] for r in const_rows]
-                        uq_col_names = [r["uq_column"] for r in const_rows]
                         # Parenthesise only for composite FKs so single-column
                         # reads naturally: "FK violation: publisher_id -> ..."
                         if len(fk_col_names) > 1:
@@ -815,12 +886,11 @@ class QARunner:
                 SQL(
                     """
             create or replace temporary view ups_ck_check_check as
-            select count(*) from {staging_schema}.{table}
+            select count(*) from {src}
             where not ({check_sql})
             """,
                 ).format(
-                    staging_schema=Identifier(self.staging_schema),
-                    table=Identifier(table),
+                    src=self._effective_rows(table),
                     check_sql=SQL(const_row["check_sql"]),
                 ),
             )
@@ -834,10 +904,9 @@ class QARunner:
                     # Fetch entire rows that violate this specific check
                     # constraint, tagging each row with the constraint name.
                     ck_detail_q = SQL(
-                        "SELECT * FROM {schema}.{table} WHERE NOT ({check_sql}) LIMIT {lim}",
+                        "SELECT * FROM {src} WHERE NOT ({check_sql}) LIMIT {lim}",
                     ).format(
-                        schema=Identifier(self.staging_schema),
-                        table=Identifier(table),
+                        src=self._effective_rows(table),
                         check_sql=SQL(const_row["check_sql"]),
                         lim=Literal(self.max_export_rows),
                     )
@@ -909,10 +978,14 @@ class QARunner:
         return errors
 
     def check_unique(self, table: str, interactive: bool = False, ctx: CheckContext | None = None) -> list[QAError]:
-        """Check for duplicate values in UNIQUE-constrained columns of *table*.
+        """Check for UNIQUE constraint and unique index violations in *table*.
 
-        Queries ``pg_constraint`` with ``contype='u'`` to find UNIQUE constraints
-        on the base table, then checks the staging table for violations.
+        Reads the base table's unique indexes (which include the indexes
+        behind UNIQUE constraints) and looks for duplicate keys in the base
+        table as it will look after the load: the staging rows the upsert
+        method will write plus the base rows it leaves untouched.  This catches
+        duplicates within staging and staging rows that collide with existing
+        base rows.  Expression and partial unique indexes are skipped.
 
         Args:
             table: The staging table name to check.
@@ -924,25 +997,33 @@ class QARunner:
         errors: list[QAError] = []
         logger.debug(f"Conducting unique constraint QA checks on table {self.staging_schema}.{table}")
 
-        # Find all UNIQUE constraints on the base table (excluding PKs).
+        # Find all unique indexes on the base table (excluding the PK).  This
+        # covers UNIQUE constraints (named after the constraint) and bare
+        # CREATE UNIQUE INDEX (named after the index).
         self.db.execute(
             SQL(
                 """
             drop table if exists ups_unique_constraints cascade;
             select
-                con.conname as constraint_name,
+                coalesce(con.conname, idx.relname) as constraint_name,
                 array_agg(att.attname order by u.ord) as column_names
             into temporary table ups_unique_constraints
-            from pg_constraint con
-            cross join lateral unnest(con.conkey) with ordinality as u(attnum, ord)
-            inner join pg_attribute att
-                on att.attrelid = con.conrelid and att.attnum = u.attnum
-            inner join pg_class cls on cls.oid = con.conrelid
+            from pg_index ix
+            inner join pg_class cls on cls.oid = ix.indrelid
             inner join pg_namespace nsp on nsp.oid = cls.relnamespace
-            where con.contype = 'u'
+            inner join pg_class idx on idx.oid = ix.indexrelid
+            left join pg_constraint con on con.conindid = ix.indexrelid and con.contype = 'u'
+            cross join lateral unnest(ix.indkey::int2[]) with ordinality as u(attnum, ord)
+            inner join pg_attribute att
+                on att.attrelid = cls.oid and att.attnum = u.attnum
+            where ix.indisunique
+                and not ix.indisprimary
+                and ix.indexprs is null
+                and ix.indpred is null
+                and u.ord <= ix.indnkeyatts
                 and nsp.nspname = {base_schema}
                 and cls.relname = {table}
-            group by con.conname;
+            group by coalesce(con.conname, idx.relname);
             """,
             ).format(base_schema=Literal(self.base_schema), table=Literal(table)),
         )
@@ -965,21 +1046,27 @@ class QARunner:
             # PostgreSQL allows multiple NULLs in UNIQUE columns, so exclude
             # rows where any constrained column is NULL.
             not_null_filter = SQL(" AND ").join(SQL("{col} IS NOT NULL").format(col=Identifier(c)) for c in col_names)
+            # ups_uq_rows: the constrained columns of the post-load table.
+            # ups_uq_check: duplicated keys involving at least one staging row;
+            # in_base counts the existing base rows each key collides with.
             self.db.execute(
                 SQL(
                     """
                 drop view if exists ups_uq_check cascade;
+                drop view if exists ups_uq_rows cascade;
+                create temporary view ups_uq_rows as
+                select * from {predicted}
+                where {not_null_filter};
                 create temporary view ups_uq_check as
-                select {cols}, count(*) as nrows
-                from {staging_schema}.{table}
-                where {not_null_filter}
+                select {cols}, count(*) as nrows,
+                    count(*) filter (where _ups_src = 'base') as in_base
+                from ups_uq_rows
                 group by {cols}
-                having count(*) > 1;
+                having count(*) > 1 and bool_or(_ups_src = 'staging');
                 """,
                 ).format(
                     cols=col_ids,
-                    staging_schema=Identifier(self.staging_schema),
-                    table=Identifier(table),
+                    predicted=self._predicted_rows(table, col_names),
                     not_null_filter=not_null_filter,
                 ),
             )
@@ -988,7 +1075,11 @@ class QARunner:
                 uq_errs = list(uq_errs)
                 errcount = len(uq_errs)
                 total_rows = sum(row["nrows"] for row in uq_errs)
-                err_detail = f"{constraint_name} ({errcount} duplicates, {total_rows} rows)"
+                base_conflicts = sum(1 for row in uq_errs if row["in_base"])
+                err_detail = f"{constraint_name} ({errcount} duplicates, {total_rows} rows"
+                if base_conflicts:
+                    err_detail += f", {base_conflicts} with existing base rows"
+                err_detail += ")"
                 display.print_check_table_fail(
                     self.staging_schema,
                     table,
@@ -1020,28 +1111,46 @@ class QARunner:
                     # Re-query to fetch actual staging rows whose unique
                     # column values are duplicated — we need full rows
                     # for the fix sheet, not grouped aggregated values.
+                    pk_cols = self._get_pk_columns(table)
+                    base_keys = (
+                        SQL("concat_ws(', ', {pk})").format(
+                            pk=SQL(", ").join(SQL("{col}::text").format(col=Identifier(c)) for c in pk_cols),
+                        )
+                        if pk_cols
+                        else SQL("null::text")
+                    )
                     full_row_q = SQL(
-                        "SELECT * FROM {schema}.{table} WHERE ({cols}) IN"
-                        " (SELECT {cols} FROM ups_uq_check) LIMIT {lim}",
+                        "SELECT s.*, b._ups_base_keys FROM {effective}"
+                        " LEFT JOIN (SELECT {cols}, string_agg({base_keys}, '; ') AS _ups_base_keys"
+                        " FROM ups_uq_rows WHERE _ups_src = 'base' GROUP BY {cols}) AS b ON {join_on}"
+                        " WHERE ({s_cols}) IN (SELECT {cols} FROM ups_uq_check) LIMIT {lim}",
                     ).format(
-                        schema=Identifier(self.staging_schema),
-                        table=Identifier(table),
+                        effective=self._effective_rows(table),
                         cols=col_ids,
+                        base_keys=base_keys,
+                        join_on=SQL(" AND ").join(
+                            SQL("s.{col} = b.{col}").format(col=Identifier(c)) for c in col_names
+                        ),
+                        s_cols=SQL(", ").join(SQL("s.{col}").format(col=Identifier(c)) for c in col_names),
                         lim=Literal(self.max_export_rows),
                     )
                     bad_rows_iter, _h, _rc = self.db.rowdict(full_row_q)
-                    pk_cols = self._get_pk_columns(table)
                     joined_col_names = ", ".join(col_names)
                     for bad_row in bad_rows_iter:
+                        row_data = dict(bad_row)
+                        conflicting = row_data.pop("_ups_base_keys")
+                        description = f"duplicate unique ({joined_col_names})"
+                        if conflicting:
+                            description += f"; conflicts with existing base row ({conflicting})"
                         uq_violations.append(
                             RowViolation(
-                                pk_values=self._extract_pk_tuple(bad_row, pk_cols),
+                                pk_values=self._extract_pk_tuple(row_data, pk_cols),
                                 pk_columns=list(pk_cols),
-                                row_data=dict(bad_row),
+                                row_data=row_data,
                                 issue_type="unique",
                                 issue_column=joined_col_names,
                                 constraint_name=constraint_name,
-                                description=f"duplicate unique ({joined_col_names})",
+                                description=description,
                             ),
                         )
 
@@ -1135,7 +1244,11 @@ class QARunner:
         for row in missing_info:
             col = row["column_name"]
             is_pk = col in pk_cols
-            is_required = row["is_nullable"] == "NO" and row["column_default"] is None
+            # A required column only matters when rows are inserted; an
+            # UPDATE leaves a column that is missing from staging untouched.
+            is_required = (
+                row["is_nullable"] == "NO" and row["column_default"] is None and self.upsert_method != "update"
+            )
             if self.strict_columns or is_pk or is_required:
                 error_cols.append(col)
             else:
@@ -1295,6 +1408,157 @@ class QARunner:
         )
         return errors
 
+    def check_lengths(self, table: str, ctx: CheckContext | None = None) -> list[QAError]:
+        """Check values against bounded character-column lengths.
+
+        PostgreSQL permits over-length input when the excess consists only of
+        ASCII spaces, for both ``varchar(n)`` and ``char(n)`` assignments.
+        Excluded upsert columns are not checked.
+
+        Args:
+            table: The staging table name to check.
+            ctx: Optional progress context with table counter.
+
+        Returns:
+            A list containing one :class:`QAError` when any values are too long.
+        """
+        logger.debug(f"Conducting character-length checks on table {self.staging_schema}.{table}")
+        excludes = self._table_upsert_excludes(table)
+        metadata_query = SQL(
+            """
+            select b.column_name, b.character_maximum_length as max_length
+            from information_schema.columns as b
+            inner join information_schema.columns as s
+                on s.table_schema = {staging_schema}
+                and s.table_name = {table}
+                and s.column_name = b.column_name
+            where b.table_schema = {base_schema}
+                and b.table_name = {table}
+                and b.data_type in ('character varying', 'character')
+                and b.character_maximum_length is not null
+            """,
+        ).format(
+            base_schema=Literal(self.base_schema),
+            staging_schema=Literal(self.staging_schema),
+            table=Literal(table),
+        )
+        if excludes:
+            metadata_query += SQL(" and b.column_name not in ({cols})").format(
+                cols=SQL(", ").join(Literal(col) for col in excludes),
+            )
+        metadata_query += SQL(" order by b.ordinal_position")
+        column_rows, _headers, _rowcount = self.db.rowdict(metadata_query)
+        columns = [(row["column_name"], row["max_length"]) for row in column_rows]
+        if not columns:
+            display.print_check_table_pass(self.staging_schema, table, ctx=ctx)
+            return []
+
+        predicates = [
+            SQL("char_length(rtrim({col}::text, ' ')) > {max_length}").format(
+                col=Identifier(column),
+                max_length=Literal(max_length),
+            )
+            for column, max_length in columns
+        ]
+        count_exprs = SQL(", ").join(
+            SQL("count(*) filter (where {predicate}) as {alias}").format(
+                predicate=predicate,
+                alias=Identifier(f"length_{index}"),
+            )
+            for index, predicate in enumerate(predicates)
+        )
+        counts = self.db.execute(
+            SQL("select {exprs} from {src}").format(
+                exprs=count_exprs,
+                src=self._effective_rows(table),
+            ),
+        ).fetchone()
+
+        violating_columns: list[tuple[str, int, int, object]] = []
+        if counts:
+            for index, ((column, max_length), predicate) in enumerate(zip(columns, predicates, strict=True)):
+                count = counts[index] or 0
+                if count:
+                    violating_columns.append((column, max_length, count, predicate))
+        if not violating_columns:
+            display.print_check_table_pass(self.staging_schema, table, ctx=ctx)
+            return []
+
+        details = ", ".join(
+            f"{column} ({count}; max {max_length})" for column, max_length, count, _ in violating_columns
+        )
+        self.control.set_qa_errors(table, "length_errors", details)
+
+        for column, max_length, count, predicate in violating_columns:
+            detail_rows, detail_headers, _detail_count = self.db.rowdict(
+                SQL(
+                    """
+                    select
+                        {column},
+                        char_length(rtrim({column}::text, ' ')) as actual_length,
+                        {max_length}::integer as max_length,
+                        count(*) as nrows
+                    from {src}
+                    where {predicate}
+                    group by {column}, char_length(rtrim({column}::text, ' '))
+                    order by nrows desc, actual_length, {column}
+                    """,
+                ).format(
+                    column=Identifier(column),
+                    max_length=Literal(max_length),
+                    src=self._effective_rows(table),
+                    predicate=predicate,
+                ),
+            )
+            display_rows = []
+            for row in detail_rows:
+                display_row = dict(row)
+                value = str(display_row[column]).rstrip(" ")
+                display_row[column] = f"{value[:59]}…" if len(value) > 60 else value
+                display_rows.append(display_row)
+            display.print_check_table_fail(
+                self.staging_schema,
+                table,
+                f"{column} ({count}; max {max_length})",
+                detail_rows=display_rows,
+                detail_headers=detail_headers,
+                ctx=ctx,
+            )
+
+        violations: list[RowViolation] = []
+        if self.capture_detail_rows:
+            pk_cols = self._get_pk_columns(table)
+            for column, max_length, _count, predicate in violating_columns:
+                rows, _headers, _rowcount = self.db.rowdict(
+                    SQL("select * from {src} where {predicate} limit {limit}").format(
+                        src=self._effective_rows(table),
+                        predicate=predicate,
+                        limit=Literal(self.max_export_rows),
+                    ),
+                )
+                for row in rows:
+                    row_data = dict(row)
+                    actual_length = len(str(row_data[column]).rstrip(" "))
+                    violations.append(
+                        RowViolation(
+                            pk_values=self._extract_pk_tuple(row_data, pk_cols),
+                            pk_columns=list(pk_cols),
+                            row_data=row_data,
+                            issue_type="length",
+                            issue_column=column,
+                            description=(f"value in '{column}' is {actual_length} characters; maximum is {max_length}"),
+                        ),
+                    )
+
+        return [
+            QAError(
+                table=table,
+                check_type=QACheckType.LENGTH,
+                details=details,
+                violations=violations,
+            ),
+        ]
+
     # ------------------------------------------------------------------
     # Orchestration
     # ------------------------------------------------------------------
@@ -1329,6 +1593,7 @@ class QARunner:
         check_types: list[tuple[str, bool]] = [
             ("Column Existence", False),
             ("Column Type", False),
+            ("Character Length", False),
             ("Non-NULL", False),
             ("Primary Key", True),
             ("Unique", True),
@@ -1338,6 +1603,7 @@ class QARunner:
         check_funcs: dict[str, object] = {
             "Column Existence": self.check_column_existence,
             "Column Type": self.check_type_mismatch,
+            "Character Length": self.check_lengths,
             "Non-NULL": self.check_nulls,
             "Primary Key": self.check_pks,
             "Unique": self.check_unique,
@@ -1350,6 +1616,7 @@ class QARunner:
         check_type_map: dict[str, QACheckType] = {
             "Column Existence": QACheckType.COLUMN_EXISTENCE,
             "Column Type": QACheckType.TYPE_MISMATCH,
+            "Character Length": QACheckType.LENGTH,
             "Non-NULL": QACheckType.NULL,
             "Primary Key": QACheckType.PRIMARY_KEY,
             "Unique": QACheckType.UNIQUE,

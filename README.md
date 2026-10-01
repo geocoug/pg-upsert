@@ -15,11 +15,11 @@ An **upsert** (a blend of *update* and *insert*, standardized in SQL as [`MERGE`
 
 ## Why Use `pg-upsert`?
 
-- **7 Automated QA Checks** – Validates [NOT NULL](https://www.postgresql.org/docs/current/ddl-constraints.html#DDL-CONSTRAINTS-NOT-NULL), [PRIMARY KEY](https://www.postgresql.org/docs/current/ddl-constraints.html#DDL-CONSTRAINTS-PRIMARY-KEYS), [UNIQUE](https://www.postgresql.org/docs/current/ddl-constraints.html#DDL-CONSTRAINTS-UNIQUE-CONSTRAINTS), [FOREIGN KEY](https://www.postgresql.org/docs/current/ddl-constraints.html#DDL-CONSTRAINTS-FK), [CHECK CONSTRAINT](https://www.postgresql.org/docs/current/ddl-constraints.html#DDL-CONSTRAINTS-CHECK-CONSTRAINTS), column existence, and column type compatibility before any modifications occur.
+- **8 Automated QA Checks** – Validates [NOT NULL](https://www.postgresql.org/docs/current/ddl-constraints.html#DDL-CONSTRAINTS-NOT-NULL), [PRIMARY KEY](https://www.postgresql.org/docs/current/ddl-constraints.html#DDL-CONSTRAINTS-PRIMARY-KEYS), [UNIQUE](https://www.postgresql.org/docs/current/ddl-constraints.html#DDL-CONSTRAINTS-UNIQUE-CONSTRAINTS), [FOREIGN KEY](https://www.postgresql.org/docs/current/ddl-constraints.html#DDL-CONSTRAINTS-FK), [CHECK CONSTRAINT](https://www.postgresql.org/docs/current/ddl-constraints.html#DDL-CONSTRAINTS-CHECK-CONSTRAINTS), bounded character length, column existence, and column type compatibility before any modifications occur.
 - **Interactive Confirmation** – Two UI backends: Textual TUI (terminal) and Tkinter (desktop). Auto-detected or choose with `--ui auto|textual|tkinter`. The compare-tables dialog includes a **Highlight Diffs** toggle that tints matching/changed rows and flags the exact cells that differ, skipping any columns excluded from the upsert.
 - **Structured Results** – `run()` returns an `UpsertResult` with per-table stats, QA errors, and JSON serialization (`--output=json` for CI/CD pipelines).
 - **Exportable Fix Sheets** – `--export-failures <dir>` writes an actionable report of failing rows: one row per unique violating staging row with an `_issues` column listing every problem (NULL in 'genre', duplicate PK, FK violation, etc.) so users can open it in Excel and fix the data. Supports CSV (file per table), JSON (nested), and XLSX (sheets per table) via `--export-format`.
-- **Schema Validation** – `--check-schema` flag validates column existence and type compatibility without running data checks or upserts.
+- **Schema Validation** – `--check-schema` validates column existence and type compatibility without scanning staging data or running upserts.
 - **Flexible Upsert Strategies** – Supports `upsert`, `update`, and `insert` methods.
 - **YAML Configuration** – One config file drives both the CLI (`--config-file`) and the Python API (`PgUpsert.from_config()`), with layered sources and per-table column excludes.
 - **Dependency-Aware Ordering** – Tables are processed in FK dependency order automatically.
@@ -267,16 +267,17 @@ docker run -it --rm \
 
 ## QA Checks
 
-pg-upsert runs 7 types of QA checks on staging data before upserting:
+pg-upsert runs 8 types of QA checks on staging data before upserting:
 
 | Check                | What it validates                                                                                                                                   |
 | -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Column Existence** | PK and NOT NULL (no default) columns must exist in staging (error); other missing columns produce warnings. Use `--strict-columns` for strict mode. |
 | **Column Type**      | No hard type incompatibilities between staging and base (uses PostgreSQL's `pg_cast` catalog)                                                       |
+| **Character Length** | Values fit bounded base `varchar(n)` and `char(n)` columns; excluded columns and NULL values are skipped                                            |
 | **NOT NULL**         | Non-nullable base columns have no NULL values in staging                                                                                            |
 | **Primary Key**      | No duplicate values in PK columns                                                                                                                   |
-| **Unique**           | No duplicate values in UNIQUE-constrained columns (NULLs allowed per PostgreSQL semantics)                                                          |
-| **Foreign Key**      | All FK references point to existing rows in the referenced table                                                                                    |
+| **Unique**           | No duplicate keys in UNIQUE constraints or unique indexes, within staging or against existing base rows (NULLs allowed)                             |
+| **Foreign Key**      | All FK references point to rows that will exist in the referenced table after the load                                                              |
 | **Check Constraint** | All CHECK constraint expressions evaluate to true                                                                                                   |
 
 > [!NOTE]
@@ -287,7 +288,15 @@ pg-upsert runs 7 types of QA checks on staging data before upserting:
 > PK. See [Running Without Constraints](https://pg-upsert.readthedocs.io/en/latest/qa_checks/#running-without-constraints)
 > for details.
 
+Data checks only look at the rows your `upsert_method` will actually write, and use base values
+for `exclude_cols` in updated rows. See
+[How QA Models the Load](https://pg-upsert.readthedocs.io/en/latest/qa_checks/#how-qa-models-the-load).
+
 See the [QA Checks Reference](https://pg-upsert.readthedocs.io/en/latest/qa_checks/) for detailed documentation.
+
+`--check-schema` remains metadata-only: it checks column existence and type compatibility but does not
+scan staging values for length violations. Run normal QA with `qa_all()` or call
+`qa_all_length()` / `qa_length(table)` when you need character-length validation.
 
 ## Authentication
 
@@ -316,7 +325,7 @@ pg-upsert also supports PostgreSQL's [`.pgpass`](https://www.postgresql.org/docs
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, available recipes, testing, and release process.
+See [CONTRIBUTING.md](https://github.com/geocoug/pg-upsert/blob/main/CONTRIBUTING.md) for development setup, available recipes, testing, and release process.
 
 ```bash
 git clone https://github.com/geocoug/pg-upsert

@@ -1,12 +1,48 @@
 # QA Checks Reference
 
-pg-upsert runs 7 types of quality assurance checks on staging table data before performing any upsert operations. Checks run in the order listed below — schema checks first, then data checks.
+pg-upsert runs 8 types of quality assurance checks on staging table data before performing any upsert operations. Checks run in the order listed below — metadata checks first, then data checks.
+
+## How QA Models the Load { #how-qa-models-the-load }
+
+QA answers one question: *will `upsert_all()` succeed with this `upsert_method` and these
+`exclude_cols`?* The data checks therefore look only at the staging rows the upsert will actually
+write, as they will be written:
+
+| `upsert_method` | Staging rows checked                                    |
+| --------------- | ------------------------------------------------------- |
+| `upsert`        | All rows                                                |
+| `update`        | Rows whose primary key already exists in the base table |
+| `insert`        | Rows whose primary key does not exist in the base table |
+
+Columns listed in `exclude_cols` are never written. In a row that will be updated, an excluded
+column keeps its current base value, so QA checks that value. In a row that will be inserted, an
+excluded column receives its default; QA cannot evaluate defaults, so it treats the value as NULL.
+
+The UNIQUE and foreign key checks also need the rows the load leaves alone. They compare against
+the base table as it will look **after** the load: the rows above plus every base row the load does
+not replace. This is how QA catches a new staging row whose unique key already belongs to an
+existing base row.
+
+For example, with `upsert_method="update"`, a staging row with a new primary key is never written,
+so a NULL or duplicate value in it is not an error. With `upsert_method="insert"`, a staging row
+whose primary key already exists is ignored and the base row keeps its values.
+
+Tables without a primary key are skipped by the upsert step, so QA checks all of their staging rows.
+
+!!! note "Known limits"
+
+    - **Interactive mode**: QA assumes you accept every update and insert.
+    - **Swapping unique keys** between existing rows passes QA because the end state is valid, but
+        PostgreSQL checks non-deferrable UNIQUE constraints row by row, so the UPDATE can still fail.
+    - **Expression and partial unique indexes** are not checked.
+    - **Base child rows** that reference a parent key the load changes are not checked; PostgreSQL
+        rejects that parent UPDATE unless the foreign key cascades.
 
 ## Column Existence
 
 Checks that base table columns exist in the staging table. Missing columns are classified by severity:
 
-- **Error** — primary key columns or `NOT NULL` columns without a default value. These would cause the upsert to fail, so they block the pipeline.
+- **Error** — primary key columns or `NOT NULL` columns without a default value. These would cause the upsert to fail, so they block the pipeline. With `upsert_method="update"`, a missing `NOT NULL` column is only a warning, because no rows are inserted and an UPDATE leaves the column unchanged.
 - **Warning** — all other missing columns. The upsert can proceed without them; they will be skipped during UPDATE/INSERT. Warnings are displayed (yellow `⚠`) but do not block the upsert.
 
 Columns listed in `exclude_cols` are not flagged at all. Use `--strict-columns` to treat all missing columns as errors (the previous default behavior).
@@ -26,9 +62,39 @@ Detects hard type incompatibilities between staging and base columns. Only flags
 - **Catalog source**: [`information_schema.columns`](https://www.postgresql.org/docs/current/infoschema-columns.html) + [`pg_cast`](https://www.postgresql.org/docs/current/catalog-pg-cast.html)
 - **Example error**: `publisher_name (integer → varchar)`
 
+## Character Length { #character-length }
+
+Checks values before loading them into bounded base-table character columns. A value that does not
+fit a `varchar(n)` or `char(n)` column produces an error and blocks the upsert.
+
+pg-upsert counts characters, not storage bytes. For example, `café` contains four characters even
+though its UTF-8 representation uses five bytes.
+
+PostgreSQL permits excess trailing ASCII spaces when assigning a value to either `varchar(n)` or
+`char(n)`. pg-upsert follows that behavior: trailing ASCII spaces beyond the declared limit do not
+produce an error, but over-limit non-space content does.
+
+The check skips:
+
+- unbounded `varchar`, `text`, and non-character columns
+- columns that are not present in both staging and base
+- columns listed in `exclude_cols`, including resolved per-table exclusions
+- NULL staging values
+
+Length errors are row-level findings. With `--export-failures`, the fix sheet includes each
+offending staging row, the affected column, and the allowed and effective character lengths
+(excluding permitted trailing ASCII spaces).
+
+- **Control table column**: `length_errors`
+- **Catalog source**: [`information_schema.columns`](https://www.postgresql.org/docs/current/infoschema-columns.html) (`character_maximum_length`)
+- **Example error**: `book_title (1; max 50)`
+
 ## NOT NULL
 
 Checks that [non-nullable columns](https://www.postgresql.org/docs/current/ddl-constraints.html#DDL-CONSTRAINTS-NOT-NULL) in the base table have no NULL values in the corresponding staging table columns. Columns listed in `exclude_null_check_cols` are skipped (useful for auto-generated columns like serials or timestamps).
+
+If a `NOT NULL` column without a default is listed in `exclude_cols`, every inserted row would
+write NULL to it, so those rows are reported.
 
 - **Control table column**: `null_errors`
 - **Catalog source**: [`information_schema.columns`](https://www.postgresql.org/docs/current/infoschema-columns.html) (`is_nullable = 'NO'`)
@@ -36,7 +102,7 @@ Checks that [non-nullable columns](https://www.postgresql.org/docs/current/ddl-c
 
 ## Primary Key
 
-Checks for duplicate values in [primary key](https://www.postgresql.org/docs/current/ddl-constraints.html#DDL-CONSTRAINTS-PRIMARY-KEYS) columns. Tables without a primary key are skipped.
+Checks for duplicate values in [primary key](https://www.postgresql.org/docs/current/ddl-constraints.html#DDL-CONSTRAINTS-PRIMARY-KEYS) columns among the staging rows that will be written. Tables without a primary key are skipped.
 
 - **Control table column**: `pk_errors`
 - **Catalog source**: [`information_schema.table_constraints`](https://www.postgresql.org/docs/current/infoschema-table-constraints.html) + [`information_schema.key_column_usage`](https://www.postgresql.org/docs/current/infoschema-key-column-usage.html)
@@ -44,15 +110,18 @@ Checks for duplicate values in [primary key](https://www.postgresql.org/docs/cur
 
 ## Unique Constraints
 
-Checks for duplicate values in columns with [UNIQUE constraints](https://www.postgresql.org/docs/current/ddl-constraints.html#DDL-CONSTRAINTS-UNIQUE-CONSTRAINTS) (excluding primary keys, which are checked separately). Multiple NULL values are allowed per PostgreSQL semantics.
+Checks for duplicate keys in [UNIQUE constraints](https://www.postgresql.org/docs/current/ddl-constraints.html#DDL-CONSTRAINTS-UNIQUE-CONSTRAINTS) and unique indexes created with `CREATE UNIQUE INDEX` (primary keys are checked separately). Duplicates are counted across the base table as it will look after the load, so the check reports both duplicates within staging and staging rows that collide with an existing base row. Multiple NULL values are allowed per PostgreSQL semantics. Expression and partial unique indexes are skipped.
+
+In the fix sheet, a collision with an existing row is described as
+`duplicate unique (email); conflicts with existing base row (JDoe)`.
 
 - **Control table column**: `unique_errors`
-- **Catalog source**: [`pg_constraint`](https://www.postgresql.org/docs/current/catalog-pg-constraint.html) (`contype = 'u'`)
-- **Example error**: `uq_authors_email (1 duplicates, 2 rows)`
+- **Catalog source**: [`pg_index`](https://www.postgresql.org/docs/current/catalog-pg-index.html) (`indisunique`, excluding the primary key) + [`pg_constraint`](https://www.postgresql.org/docs/current/catalog-pg-constraint.html) for constraint names
+- **Example error**: `uq_authors_email (1 duplicates, 2 rows)`, or `uq_authors_email (1 duplicates, 2 rows, 1 with existing base rows)` when staging collides with the base table
 
 ## Foreign Key
 
-Validates that all [foreign key](https://www.postgresql.org/docs/current/ddl-constraints.html#DDL-CONSTRAINTS-FK) references in the staging table point to existing rows in the referenced table. If the referenced table also has a staging version, both the base and staging versions are checked.
+Validates that all [foreign key](https://www.postgresql.org/docs/current/ddl-constraints.html#DDL-CONSTRAINTS-FK) references in the staging rows that will be written point to rows that will exist in the referenced table after the load. When the referenced table is also one of the `tables` being loaded, its staging rows count too, because tables load in dependency order. A staging copy of the referenced table that is **not** being loaded is ignored, since its rows never reach the base table.
 
 - **Control table column**: `fk_errors`
 - **Catalog source**: [`pg_constraint`](https://www.postgresql.org/docs/current/catalog-pg-constraint.html) (`contype = 'f'`) + [`pg_attribute`](https://www.postgresql.org/docs/current/catalog-pg-attribute.html)
@@ -60,7 +129,7 @@ Validates that all [foreign key](https://www.postgresql.org/docs/current/ddl-con
 
 ## Check Constraints
 
-Evaluates [CHECK constraint](https://www.postgresql.org/docs/current/ddl-constraints.html#DDL-CONSTRAINTS-CHECK-CONSTRAINTS) expressions from the base table against staging data. The constraint SQL is extracted from [`pg_constraint`](https://www.postgresql.org/docs/current/catalog-pg-constraint.html) and applied as a `WHERE NOT (...)` filter.
+Evaluates [CHECK constraint](https://www.postgresql.org/docs/current/ddl-constraints.html#DDL-CONSTRAINTS-CHECK-CONSTRAINTS) expressions from the base table against the staging rows that will be written, using base values for excluded columns in updated rows. The constraint SQL is extracted from [`pg_constraint`](https://www.postgresql.org/docs/current/catalog-pg-constraint.html) and applied as a `WHERE NOT (...)` filter.
 
 - **Control table column**: `ck_errors`
 - **Catalog source**: [`pg_constraint`](https://www.postgresql.org/docs/current/catalog-pg-constraint.html) (`contype = 'c'`)
@@ -79,6 +148,7 @@ Concretely, on a table with **no constraints at all**:
 | ------------------------- | ----------------------------------------------------------------------------- |
 | Column existence          | Still runs — compares staging and base column lists regardless of constraints |
 | Column type compatibility | Still runs — compares column types regardless of constraints                  |
+| Character length          | Runs for bounded character columns; passes if none exist                      |
 | NOT NULL                  | Passes (no non-nullable columns to check)                                     |
 | Primary Key               | Passes (no PK to check)                                                       |
 | Unique Constraints        | Passes (no unique constraints)                                                |
@@ -105,10 +175,11 @@ Concretely, on a table with **no constraints at all**:
     join logic.
 
 In practice this means pg-upsert is most useful when your base schema has
-at least primary keys. Tables without constraints still benefit from the
-column existence and type compatibility checks, so `--check-schema` alone
-can be used as a lightweight schema-compatibility validator on otherwise
-unconstrained databases.
+at least primary keys. Tables without constraints still benefit from
+column existence, type compatibility, and bounded character-length checks
+during normal QA. Use `--check-schema` as a metadata-only
+schema-compatibility validator; it does not scan staging values for length
+violations.
 
 ## Configuration
 
@@ -192,7 +263,7 @@ errors = ups._qa.check_nulls("genres", ctx=ctx)
 
 ## Schema-Only Validation
 
-Run only column existence and type compatibility checks without any data checks:
+Run only column existence and type compatibility checks without scanning staging data:
 
 ```sh
 pg-upsert --check-schema -h localhost -d mydb -u user -s staging -b public -t books
@@ -204,6 +275,14 @@ pg-upsert --check-schema -h localhost -d mydb -u user -s staging -b public -t bo
 ```
 
 Exit code 0 means compatible, exit code 1 means issues found. Combine with `--output json` for machine-parseable results.
+
+`--check-schema` is intentionally metadata-only. It does not run the character-length check because
+length validation depends on staging row values. Run normal QA or use the public length methods:
+
+```python
+ups.qa_all_length()      # Check every configured table
+ups.qa_length("books")   # Check one configured table
+```
 
 Via the Python API:
 
@@ -258,6 +337,9 @@ dedicated `_schema` output: `pg_upsert_failures_schema.csv` (CSV mode),
 the `_schema` key (JSON), or the `_schema` sheet (XLSX). They are kept
 separate from the row-level fix sheets because they require a different
 remediation path (fix the staging loader, not the data).
+
+Character-length failures are data problems, so they appear in the
+per-table row-level fix sheet rather than the `_schema` output.
 
 The row cap per check per table is controlled by `--export-max-rows`
 (default 1000).

@@ -39,6 +39,7 @@ class QACheckType(Enum):
     FOREIGN_KEY = "fk"
     CHECK_CONSTRAINT = "ck"
     TYPE_MISMATCH = "type"
+    LENGTH = "length"
     COLUMN_EXISTENCE = "column"
 
 
@@ -59,8 +60,8 @@ class RowViolation:
             by the export layer to sort the fix sheet by PK.
         row_data: Full staging row contents as a column -> value dict.
         issue_type: Short identifier — ``"null"``, ``"pk"``, ``"fk"``,
-            ``"unique"``, or ``"ck"``.
-        issue_column: For NULL/FK/UNIQUE, the column (or comma-joined
+            ``"unique"``, ``"ck"``, or ``"length"``.
+        issue_column: For NULL/FK/UNIQUE/length, the column (or comma-joined
             columns) responsible for the violation.
         constraint_name: For PK/FK/UNIQUE/CK, the constraint that failed.
         description: Human-readable phrase used in the fix sheet's
