@@ -7,6 +7,7 @@ so tests can assert on content without needing a real terminal.
 from __future__ import annotations
 
 import io
+import logging
 
 import pytest
 from rich.console import Console
@@ -325,3 +326,55 @@ class TestCaptureHelper:
         with pytest.raises(RuntimeError):
             _capture(bad)
         assert display.console is original
+
+
+# ---------------------------------------------------------------------------
+# File-only logger: no second copy on stderr
+# ---------------------------------------------------------------------------
+
+
+class TestFileLoggerStaysOffTheConsole:
+    """``pg_upsert.display`` mirrors console output for logfiles only.
+
+    Used as a library with no logfile handler attached, its warnings must not
+    fall through to Python's last-resort stderr handler, which printed every
+    failure and warning line a second time.
+    """
+
+    def _print_warnings(self):
+        display.print_check_table_warn("staging", "books", "skipped (example)")
+        display.print_check_table_fail(
+            "staging",
+            "authors",
+            "email (1; max 100)",
+            detail_rows=[{"email": "x" * 101, "actual_length": 101}],
+            detail_headers=["email", "actual_length"],
+        )
+
+    def test_warnings_print_once(self, capsys, monkeypatch):
+        # pytest attaches its log handlers to this logger; strip them so it
+        # looks as it does inside an application that set up no logging.
+        logger = logging.getLogger("pg_upsert.display")
+        monkeypatch.setattr(logger, "handlers", [h for h in logger.handlers if isinstance(h, logging.NullHandler)])
+        out = _capture(self._print_warnings)
+        assert out.count("staging.books") == 1
+        assert out.count("staging.authors") == 1
+        assert capsys.readouterr().err == ""
+
+    def test_logfile_handler_still_receives_every_line(self):
+        records: list[str] = []
+
+        class _Collect(logging.Handler):
+            def emit(self, record):
+                records.append(record.getMessage())
+
+        handler = _Collect()
+        logger = logging.getLogger("pg_upsert.display")
+        logger.addHandler(handler)
+        try:
+            _capture(self._print_warnings)
+        finally:
+            logger.removeHandler(handler)
+        assert any("staging.books — skipped (example)" in r for r in records)
+        assert any("staging.authors — email (1; max 100)" in r for r in records)
+        assert any("actual_length" in r for r in records)

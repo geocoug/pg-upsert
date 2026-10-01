@@ -8,6 +8,10 @@ ______________________________________________________________________
 
 ## [Unreleased]
 
+### Fixed
+
+- **QA failure and warning lines printed twice** — used as a library (for example from execsql2's `PG_UPSERT`) without a logfile, every `✗` and `⚠` line and its detail table also printed a second, unformatted copy to stderr. The `pg-upsert` command was not affected.
+
 ______________________________________________________________________
 
 ## [1.25.0] - 2026-10-01
