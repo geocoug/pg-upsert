@@ -9,10 +9,11 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
+import psycopg
 import pytest
 from psycopg.sql import SQL, Identifier, Literal
 
-from pg_upsert.models import UpsertResult
+from pg_upsert.models import PgUpsertError, RunStatus, UpsertResult
 from pg_upsert.upsert import PgUpsert, UserCancelledError
 
 pytestmark = pytest.mark.postgres
@@ -1953,3 +1954,99 @@ class TestPropertySeparation:
         assert ups.qa_errors == []
         assert ups.qa_warnings == []
         assert ups.qa_findings == []
+
+
+# ===================================================================
+# run() status and database-error handling
+# ===================================================================
+
+
+class TestRunStatus:
+    def test_committed(self, ups):
+        ups.do_commit = True
+        result = ups.run()
+        assert result.status is RunStatus.COMMITTED
+        assert result.committed is True
+        assert result.error is None
+
+    def test_dry_run(self, ups):
+        result = ups.run()
+        assert result.status is RunStatus.DRY_RUN
+        assert result.committed is False
+
+    def test_no_changes(self, ups):
+        """An insert-only run after a full load has nothing to insert."""
+        ups.do_commit = True
+        ups.run()
+        ups.upsert_method = "insert"
+        result = ups.run()
+        assert result.status is RunStatus.NO_CHANGES
+        assert result.committed is False
+
+    def test_qa_failed(self, ups_failing):
+        result = ups_failing.run()
+        assert result.status is RunStatus.QA_FAILED
+        assert result.qa_passed is False
+
+    def test_cancelled_at_table_selection(self, ups):
+        ups.interactive = True
+        with patch.object(ups._ui, "show_table", return_value=(1, None)):
+            result = ups.run()
+        assert result.status is RunStatus.CANCELLED
+        assert result.qa_passed is False
+
+    def test_cancelled_during_qa(self, ups):
+        with patch.object(ups._qa, "run_all", side_effect=UserCancelledError("cancelled")):
+            result = ups.run()
+        assert result.status is RunStatus.CANCELLED
+        assert result.qa_completed is False
+        assert result.qa_passed is False
+
+
+class TestRunDatabaseError:
+    def test_upsert_error_raises_with_result(self, ups):
+        """A psycopg.Error during the upsert raises PgUpsertError after rolling back."""
+        ups.do_commit = True
+        original = psycopg.errors.DeadlockDetected("deadlock detected")
+        with (
+            patch.object(ups._executor, "upsert_all", side_effect=original),
+            pytest.raises(PgUpsertError) as excinfo,
+        ):
+            ups.run()
+        err = excinfo.value
+        assert isinstance(err, psycopg.Error)
+        assert err.original is original
+        assert err.__cause__ is original
+        assert err.sqlstate == "40P01"
+        assert err.result.status is RunStatus.DB_ERROR
+        assert err.result.error == "deadlock detected"
+        assert err.result.committed is False
+        # QA finished and passed before the error; the result says so.
+        assert err.result.qa_completed is True
+        assert err.result.qa_passed is True
+        assert ups.qa_passed is False
+        cur = ups.db.execute("SELECT count(*) FROM public.genres;")
+        assert cur.fetchone()[0] == SEEDED_GENRES
+
+    def test_qa_error_does_not_report_qa_passed(self, ups):
+        """A psycopg.Error escaping QA leaves qa_passed False on the result."""
+        with (
+            patch.object(ups._qa, "run_all", side_effect=psycopg.OperationalError("server closed the connection")),
+            pytest.raises(PgUpsertError) as excinfo,
+        ):
+            ups.run()
+        result = excinfo.value.result
+        assert result.qa_completed is False
+        assert result.qa_passed is False
+        assert result.to_dict()["status"] == "db_error"
+
+    def test_failed_rollback_still_raises_original(self, ups):
+        """If the rollback itself fails, the original error is still the one raised."""
+        original = psycopg.errors.DeadlockDetected("deadlock detected")
+        with (
+            patch.object(ups._executor, "upsert_all", side_effect=original),
+            patch.object(ups.db, "rollback", side_effect=psycopg.OperationalError("connection lost")),
+            pytest.raises(PgUpsertError) as excinfo,
+        ):
+            ups.run()
+        assert excinfo.value.original is original

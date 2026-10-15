@@ -15,6 +15,7 @@ import yaml
 from rich import print as rprint
 
 from .config import is_recognized_key
+from .models import PgUpsertError
 from .upsert import PgUpsert, UserCancelledError
 from .utils import CustomLogFormatter
 
@@ -512,6 +513,14 @@ def cli(
             sys.exit(1)
     except UserCancelledError:
         sys.exit(0)
+    except PgUpsertError as e:
+        from .ui import display
+
+        if args.output == "json":
+            print(e.result.to_json())
+        display.console.print(f"  [bold red]Upsert failed — no changes were made:[/bold red] {e.result.error}")
+        logging.getLogger("pg_upsert.display").error(f"Upsert failed — no changes were made: {e.result.error}")
+        sys.exit(1)
     except (ValueError, psycopg.Error, OSError, yaml.YAMLError) as e:
         from .ui import display
 

@@ -619,3 +619,59 @@ class TestCliPgUpsertCall:
         )
         assert result.exit_code == 0
         assert captured_args["encoding"] == "latin1"
+
+
+# ---------------------------------------------------------------------------
+# Database errors during run()
+# ---------------------------------------------------------------------------
+
+
+class TestCliDatabaseError:
+    @staticmethod
+    def _fake_failing_pgupsert():
+        import psycopg
+
+        from pg_upsert.models import PgUpsertError, RunStatus, UpsertResult
+
+        class FakePgUpsert:
+            def __init__(self, **kw):
+                pass
+
+            def run(self):
+                result = UpsertResult(status=RunStatus.DB_ERROR, error="deadlock detected")
+                raise PgUpsertError(
+                    "Database error — run rolled back: deadlock detected",
+                    result=result,
+                    original=psycopg.errors.DeadlockDetected("deadlock detected"),
+                )
+
+        return FakePgUpsert
+
+    def test_db_error_exits_1_and_names_error(self, monkeypatch):
+        monkeypatch.setattr(pg_upsert.postgres.getpass, "getpass", "password")
+        monkeypatch.setattr("pg_upsert.cli.PgUpsert", self._fake_failing_pgupsert())
+        with mock.patch("pg_upsert.ui.display.console.print") as mock_print:
+            result = runner.invoke(
+                app,
+                shlex.split("-h h -p 5432 -d dev -u u -s stg -b pub -t t1"),
+            )
+        assert result.exit_code == 1
+        printed = " ".join(str(c.args[0]) for c in mock_print.call_args_list if c.args)
+        assert "Upsert failed" in printed
+        assert "deadlock detected" in printed
+
+    def test_db_error_json_output(self, monkeypatch):
+        import json
+
+        monkeypatch.setattr(pg_upsert.postgres.getpass, "getpass", "password")
+        monkeypatch.setattr("pg_upsert.cli.PgUpsert", self._fake_failing_pgupsert())
+        result = runner.invoke(
+            app,
+            shlex.split("-h h -p 5432 -d dev -u u -s stg -b pub -t t1 --output json"),
+        )
+        assert result.exit_code == 1
+        start = result.output.index("{")
+        end = result.output.rindex("}") + 1
+        data = json.loads(result.output[start:end])
+        assert data["status"] == "db_error"
+        assert data["error"] == "deadlock detected"

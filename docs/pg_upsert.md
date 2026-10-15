@@ -62,6 +62,15 @@ and `PipelineCallback` form the callback protocol used by
 
 ::: pg_upsert.PostgresDB
 
+## Run Status
+
+`RunStatus` indicates how a `PgUpsert.run()` call ended, encompassing
+successful commits, dry runs, QA failures, cancellations, and database errors.
+
+::: pg_upsert.RunStatus
+
 ## Exceptions
 
 ::: pg_upsert.UserCancelledError
+
+::: pg_upsert.PgUpsertError

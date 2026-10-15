@@ -4,15 +4,18 @@ from __future__ import annotations
 
 import json
 
+import psycopg
 import pytest
 
 from pg_upsert.models import (
     CallbackEvent,
+    PgUpsertError,
     PipelineEvent,
     QACheckType,
     QAError,
     QASeverity,
     RowViolation,
+    RunStatus,
     SchemaIssue,
     TableResult,
     UpsertResult,
@@ -354,3 +357,50 @@ class TestPipelineEvent:
         assert event.qa_passed is True
         assert event.qa_errors == []
         assert len(event.qa_warnings) == 1
+
+
+# ---------------------------------------------------------------------------
+# RunStatus / run outcome fields / PgUpsertError
+# ---------------------------------------------------------------------------
+
+
+class TestRunOutcome:
+    def test_status_defaults_to_none(self):
+        result = UpsertResult()
+        assert result.status is None
+        assert result.error is None
+        assert result.to_dict()["status"] is None
+
+    def test_to_dict_includes_status_and_error(self):
+        result = UpsertResult(status=RunStatus.DB_ERROR, error="boom")
+        d = result.to_dict()
+        assert d["status"] == "db_error"
+        assert d["error"] == "boom"
+
+    def test_incomplete_qa_is_not_passed(self):
+        """A run that stopped before QA finished must not report qa_passed."""
+        result = UpsertResult(tables=[TableResult(table_name="t")], qa_completed=False)
+        assert result.qa_passed is False
+        assert result.to_dict()["qa_passed"] is False
+
+    def test_status_values(self):
+        assert {s.value for s in RunStatus} == {
+            "committed",
+            "dry_run",
+            "no_changes",
+            "qa_failed",
+            "cancelled",
+            "db_error",
+        }
+
+
+class TestPgUpsertError:
+    def test_wraps_original(self):
+        original = psycopg.errors.RaiseException("boom")
+        result = UpsertResult(status=RunStatus.DB_ERROR, error="boom")
+        err = PgUpsertError("run failed", result=result, original=original)
+        assert isinstance(err, psycopg.Error)
+        assert err.result is result
+        assert err.original is original
+        assert err.sqlstate == "P0001"
+        assert str(err) == "run failed"

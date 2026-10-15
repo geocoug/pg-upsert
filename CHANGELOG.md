@@ -8,6 +8,20 @@ ______________________________________________________________________
 
 ## [Unreleased]
 
+### Added
+
+- **`RunStatus` and `UpsertResult.status`** — `run()` now says how it ended: `COMMITTED`, `DRY_RUN`, `NO_CHANGES`, `QA_FAILED`, `CANCELLED`, or `DB_ERROR`. A dry run, a run with nothing to change, a cancelled run and a failed run used to return identical results. `UpsertResult` also gains `error` (the database error message) and `qa_completed`, and `--output json` includes `status` and `error`.
+- **`PgUpsertError`** — the exception `run()` raises on a database error. It subclasses `psycopg.Error`, carries the partial result as `.result` and the driver's error as `.original`, and exposes `.sqlstate` and `.diag`.
+
+### Changed
+
+- **`run()` raises `PgUpsertError` on a database error** instead of returning a normal result. The transaction is still rolled back first. Callers that relied on `run()` never raising should catch `PgUpsertError` (or `psycopg.Error`) and read `e.result`.
+
+### Fixed
+
+- **Database errors during a run were reported as success** ([#38](https://github.com/geocoug/pg-upsert/issues/38)) — a deadlock, lock timeout, or a constraint or trigger error during QA or the upsert was printed, rolled back, and then swallowed. `run()` returned `qa_passed=True` and the `pg-upsert` command exited `0`. The command now exits `1` and its final line names the error.
+- **`qa_passed` could be `True` when QA never finished** — a run cancelled or aborted by a database error before QA completed now reports `qa_passed=False`. This includes cancelling at the interactive table-selection prompt.
+
 ______________________________________________________________________
 
 ## [1.25.1] - 2026-10-01

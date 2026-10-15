@@ -13,7 +13,7 @@ import psycopg
 import pytest
 from psycopg.sql import SQL, Identifier, Literal
 
-from pg_upsert import PostgresDB
+from pg_upsert import PgUpsertError, PostgresDB, RunStatus
 
 # ===================================================================
 # Unit tests (no database required)
@@ -250,3 +250,34 @@ class TestPostgresDBIntegration:
     def test_repr(self, db):
         r = repr(db)
         assert "PostgresDB" in r
+
+
+@pytest.mark.postgres
+class TestRunDatabaseError:
+    """A real database error during the upsert must surface, not look like a dry run."""
+
+    def test_trigger_error_raises_and_rolls_back(self, db, ups):
+        db.execute(
+            """
+            create or replace function public.boom() returns trigger language plpgsql as $$
+            begin raise exception 'boom'; end $$;
+            create trigger t_boom before insert or update on public.genres
+                for each row execute function public.boom();
+            """,
+        )
+        db.commit()
+        seeded = db.execute("select count(*) from public.genres").fetchone()[0]
+        try:
+            ups.do_commit = True
+            with pytest.raises(PgUpsertError) as excinfo:
+                ups.run()
+            err = excinfo.value
+            assert err.sqlstate == "P0001"
+            assert "boom" in err.result.error
+            assert err.result.status is RunStatus.DB_ERROR
+            assert err.result.committed is False
+            assert db.execute("select count(*) from public.genres").fetchone()[0] == seeded
+        finally:
+            db.rollback()
+            db.execute("drop trigger if exists t_boom on public.genres; drop function if exists public.boom();")
+            db.commit()

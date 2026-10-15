@@ -63,6 +63,7 @@ result = PgUpsert(
 ).run()
 
 # UpsertResult provides structured access to results
+print(result.status)          # RunStatus: COMMITTED, DRY_RUN, NO_CHANGES, QA_FAILED, CANCELLED
 print(result.qa_passed)       # True if all QA checks passed
 print(result.committed)       # True if changes were committed
 print(result.total_updated)   # Total rows updated across all tables
@@ -103,6 +104,25 @@ result = ups.run()
 # Drop all ups_* temp objects (connection stays open)
 ups.cleanup()
 ```
+
+> [!WARNING]
+> pg-upsert runs in the connection's current transaction, so any uncommitted work you have pending on that connection becomes part of the upsert. It is committed when pg-upsert commits, and rolled back when pg-upsert rolls back (a dry run with `do_commit=False`, failed QA, a cancelled run, or a database error). Commit or roll back your own work before calling `run()`. The connection must not be in autocommit mode.
+
+Handling database errors:
+
+```python
+from pg_upsert import PgUpsert, PgUpsertError
+
+try:
+    result = PgUpsert(...).run()
+except PgUpsertError as e:
+    # The transaction has already been rolled back.
+    print(e.result.error)     # The driver's error message
+    print(e.sqlstate)         # SQLSTATE code, e.g. "40P01" for a deadlock
+    print(e.result.to_json()) # Partial result, including QA findings so far
+```
+
+`PgUpsertError` subclasses `psycopg.Error`, so an existing `except psycopg.Error` handler also catches it.
 
 QA-only mode (no upsert):
 
@@ -322,6 +342,8 @@ pg-upsert also supports PostgreSQL's [`.pgpass`](https://www.postgresql.org/docs
 | ---- | -------------------------------------------------- |
 | 0    | QA passed and upsert completed (or user cancelled) |
 | 1    | QA failed, schema check failed, or error           |
+
+A database error during the run (a deadlock, lock timeout, or a constraint or trigger error) rolls back all changes and exits `1`. The final line of output names the error, and with `--output json` the JSON has `"status": "db_error"` and the message in `"error"`.
 
 ## Contributing
 

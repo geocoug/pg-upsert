@@ -174,10 +174,11 @@ pg-upsert creates temporary tables and views (all prefixed with `ups_`) during Q
 
 ## Key Design Decisions
 
-- **`run()` returns `UpsertResult`** — structured result with `.qa_passed`, `.committed`, `.to_json()`
+- **`run()` returns `UpsertResult`** — structured result with `.status`, `.qa_passed`, `.committed`, `.to_json()`
+- **Database errors raise** — `run()` rolls back and raises `PgUpsertError` (a `psycopg.Error` subclass) with the partial result attached, so a failed run can never be mistaken for a dry run
 - **SQL injection prevention** — column lists and join expressions built with `Identifier()` composition, not `SQL()` wrapping of database-derived strings
 - **Lazy imports** — tkinter and textual are never imported at module level
-- **Exit code 1 on QA failure** — CLI exits non-zero so CI pipelines detect failures
+- **Exit code 1 on QA failure or database error** — CLI exits non-zero so CI pipelines detect failures
 - **`--output json` suppresses all console output** — `display.console.quiet = True` ensures only clean JSON on stdout
 - **Password resolution** — checks URI password → `PGPASSWORD` env var → interactive prompt (in that order)
 - **Logfile append-only** — runs are separated by `====` header/footer with timestamps, version, and PostgreSQL version
