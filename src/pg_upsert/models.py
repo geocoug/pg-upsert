@@ -9,9 +9,59 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 
+import psycopg
+
 
 class UserCancelledError(Exception):
     """Raised when the user cancels an interactive operation."""
+
+
+class PgUpsertError(psycopg.Error):
+    """Raised by ``PgUpsert.run()`` when a database error aborts the run.
+
+    The transaction has already been rolled back when this is raised.
+    It subclasses ``psycopg.Error``, so existing ``except psycopg.Error``
+    handlers still catch it.
+
+    Attributes:
+        result: The partial ``UpsertResult`` for the failed run, with
+            ``status`` set to ``RunStatus.DB_ERROR`` and ``error`` set to
+            the driver's message.  QA findings gathered before the error
+            are kept.
+        original: The ``psycopg.Error`` raised by the driver (also
+            available as ``__cause__``).
+        sqlstate: The SQLSTATE code of the original error, if any.
+    """
+
+    def __init__(self, message: str, *, result: UpsertResult, original: psycopg.Error) -> None:
+        super().__init__(message)
+        self.result = result
+        self.original = original
+        self.sqlstate = original.sqlstate
+
+    @property
+    def diag(self) -> psycopg.errors.Diagnostic:
+        """Diagnostic details of the original driver error."""
+        return self.original.diag
+
+
+class RunStatus(Enum):
+    """How a ``PgUpsert.run()`` call ended.
+
+    ``COMMITTED``: changes were committed.
+    ``DRY_RUN``: changes were made, then rolled back because ``do_commit`` is ``False``.
+    ``NO_CHANGES``: QA passed but there was nothing to insert or update.
+    ``QA_FAILED``: QA found ERROR-level findings, so the upsert was skipped.
+    ``CANCELLED``: the user cancelled an interactive prompt, or a callback aborted the run.
+    ``DB_ERROR``: a database error aborted the run and it was rolled back.
+    """
+
+    COMMITTED = "committed"
+    DRY_RUN = "dry_run"
+    NO_CHANGES = "no_changes"
+    QA_FAILED = "qa_failed"
+    CANCELLED = "cancelled"
+    DB_ERROR = "db_error"
 
 
 class QASeverity(Enum):
@@ -213,6 +263,12 @@ class UpsertResult:
         started_at: ISO 8601 timestamp when the run started.
         finished_at: ISO 8601 timestamp when the run finished.
         duration_seconds: Elapsed time in seconds.
+        status: How the run ended (see ``RunStatus``). ``None`` when the
+            result was not built by ``run()``.
+        error: The database error message when ``status`` is
+            ``RunStatus.DB_ERROR``, otherwise ``None``.
+        qa_completed: Whether QA ran to completion. ``False`` when the run
+            was cancelled or failed before QA finished.
     """
 
     tables: list[TableResult] = field(default_factory=list)
@@ -223,11 +279,14 @@ class UpsertResult:
     started_at: str = ""
     finished_at: str = ""
     duration_seconds: float = 0.0
+    status: RunStatus | None = None
+    error: str | None = None
+    qa_completed: bool = True
 
     @property
     def qa_passed(self) -> bool:
-        """True if all tables passed QA checks."""
-        return all(t.qa_passed for t in self.tables)
+        """True if QA ran to completion and all tables passed QA checks."""
+        return self.qa_completed and all(t.qa_passed for t in self.tables)
 
     @property
     def total_updated(self) -> int:
@@ -245,6 +304,8 @@ class UpsertResult:
             "staging_schema": self.staging_schema,
             "base_schema": self.base_schema,
             "upsert_method": self.upsert_method,
+            "status": self.status.value if self.status else None,
+            "error": self.error,
             "qa_passed": self.qa_passed,
             "committed": self.committed,
             "total_updated": self.total_updated,

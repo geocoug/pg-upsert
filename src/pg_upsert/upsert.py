@@ -14,9 +14,11 @@ from .control import ControlTable
 from .executor import UpsertExecutor
 from .models import (
     CheckContext,
+    PgUpsertError,
     PipelineCallback,
     QAError,
     QASeverity,
+    RunStatus,
     TableResult,
     UpsertResult,
     UserCancelledError,
@@ -782,8 +784,17 @@ class PgUpsert:
         2. [`PgUpsert.upsert_all()`](pg_upsert.md#pg_upsert.PgUpsert.upsert_all)
         3. [`PgUpsert.commit()`](pg_upsert.md#pg_upsert.PgUpsert.commit)
 
+        A database error at any point rolls back the transaction and raises
+        ``PgUpsertError``.  The partial result is on the exception's
+        ``result`` attribute.  A cancelled run returns normally with
+        ``status`` set to ``RunStatus.CANCELLED``.
+
         Returns:
             UpsertResult: Structured result containing QA outcomes and row counts.
+
+        Raises:
+            PgUpsertError: A database error aborted the run.  The
+                transaction has been rolled back.
         """
         start_time = datetime.now()
         start_str = start_time.strftime("%Y-%m-%d %H:%M:%S")
@@ -830,20 +841,21 @@ class PgUpsert:
             if btn != 0:
                 display.console.print("  [dim]Upsert cancelled[/dim]")
                 _file_logger.info("Upsert cancelled")
-                return UpsertResult(tables=[], committed=False)
+                return UpsertResult(tables=[], committed=False, status=RunStatus.CANCELLED, qa_completed=False)
         for table in self.tables:
             display.console.print(f"    [dim]•[/dim] {table}")
             _file_logger.info(f"  {table}")
 
-        # Reset qa_passed and reinitialise the control table for a fresh run.
+        # Reset qa_passed for a fresh run.
         self.qa_passed = False
         self._qa_findings = []
-        self._init_ups_control()
 
-        committed = False
         table_results: list[TableResult] = []
+        qa_completed = False
+        db_error: psycopg.Error | None = None
 
         try:
+            self._init_ups_control()
             self._control.clear_results()
             self._qa_findings = self._qa.run_all(
                 list(self.tables),
@@ -851,6 +863,7 @@ class PgUpsert:
                 compact=self.compact,
                 callback=self._callback,
             )
+            qa_completed = True
             self._update_qa_passed()
             if self.qa_passed:
                 table_results = self._executor.upsert_all(
@@ -858,15 +871,26 @@ class PgUpsert:
                     interactive=self.interactive,
                     callback=self._callback,
                 )
-                committed = self._do_commit()
+                status = self._do_commit()
+            else:
+                status = RunStatus.QA_FAILED
         except UserCancelledError:
             display.console.print("  [bold yellow]Rolling back changes due to user cancellation[/bold yellow]")
             _file_logger.info("Rolling back changes due to user cancellation")
             self.db.rollback()
+            status = RunStatus.CANCELLED
         except psycopg.Error as e:
             display.console.print(f"  [bold red]Database error — rolling back:[/bold red] {e}")
             _file_logger.error(f"Database error — rolling back: {e}")
-            self.db.rollback()
+            try:
+                self.db.rollback()
+            except psycopg.Error as rollback_err:
+                # A dead connection can't roll back; the server discards the
+                # transaction anyway.  Keep the original error as the one raised.
+                _file_logger.error(f"Rollback also failed: {rollback_err}")
+            self.qa_passed = False
+            status = RunStatus.DB_ERROR
+            db_error = e
 
         end_time = datetime.now()
         end_str = end_time.strftime("%Y-%m-%d %H:%M:%S")
@@ -891,22 +915,33 @@ class PgUpsert:
             result_map[table]._qa_findings = error_map.get(table, [])
 
         duration_seconds = (end_time - start_time).total_seconds()
-        return UpsertResult(
+        result = UpsertResult(
             tables=[result_map[t] for t in self.tables if t in result_map],
-            committed=committed,
+            committed=status == RunStatus.COMMITTED,
             staging_schema=self.staging_schema,
             base_schema=self.base_schema,
             upsert_method=self.upsert_method,
             started_at=start_str,
             finished_at=end_str,
             duration_seconds=round(duration_seconds, 3),
+            status=status,
+            error=str(db_error).strip() if db_error else None,
+            qa_completed=qa_completed,
         )
+        if db_error is not None:
+            raise PgUpsertError(
+                f"Database error — run rolled back: {result.error}",
+                result=result,
+                original=db_error,
+            ) from db_error
+        return result
 
-    def _do_commit(self) -> bool:
+    def _do_commit(self) -> RunStatus:
         """Handle the commit/rollback decision and display the summary.
 
         Returns:
-            bool: Whether the transaction was actually committed.
+            RunStatus: ``COMMITTED``, ``NO_CHANGES``, ``DRY_RUN``, or
+            ``CANCELLED`` (the user chose Cancel at the summary prompt).
         """
         self._validate_control()
 
@@ -946,20 +981,20 @@ class PgUpsert:
                 display.console.print("  [dim]No changes to commit[/dim]")
                 _file_logger.info("No changes to commit")
                 self.db.rollback()
-                return False
+                return RunStatus.NO_CHANGES
             if self.do_commit:
                 self.db.commit()
                 display.console.print("  [bold green]Changes committed[/bold green]")
                 _file_logger.info("Changes committed")
-                return True
+                return RunStatus.COMMITTED
             display.console.print("  [dim]Commit flag is FALSE — rolling back changes[/dim]")
             _file_logger.info("The commit flag is set to FALSE, rolling back changes.")
             self.db.rollback()
-            return False
+            return RunStatus.DRY_RUN
         display.console.print("  [dim]Rolling back changes[/dim]")
         _file_logger.info("Rolling back changes")
         self.db.rollback()
-        return False
+        return RunStatus.CANCELLED
 
     def commit(self: PgUpsert) -> PgUpsert:
         """Commits the transaction to the database and show a summary of changes.

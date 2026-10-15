@@ -215,6 +215,7 @@ The `run()` method returns an `UpsertResult` object:
 result = PgUpsert(...).run()
 
 # Overall status
+result.status          # RunStatus — how the run ended (see below)
 result.qa_passed       # bool — did all QA checks pass?
 result.committed       # bool — were changes committed?
 
@@ -233,6 +234,32 @@ for table in result.tables:
 print(result.to_json())
 ```
 
+`result.status` tells apart runs that otherwise look alike (`committed=False`, zero row counts):
+
+| `RunStatus`  | Meaning                                                                  |
+| ------------ | ------------------------------------------------------------------------ |
+| `COMMITTED`  | Changes were committed.                                                  |
+| `DRY_RUN`    | Changes were made, then rolled back because `do_commit=False`.           |
+| `NO_CHANGES` | QA passed, but there was nothing to insert or update.                    |
+| `QA_FAILED`  | QA found errors, so the upsert was skipped.                              |
+| `CANCELLED`  | The user cancelled an interactive prompt, or a callback aborted the run. |
+
+A database error does not return a result. `run()` rolls back and raises `PgUpsertError`, which carries the partial result with `status=RunStatus.DB_ERROR`:
+
+```python
+from pg_upsert import PgUpsert, PgUpsertError
+
+try:
+    result = PgUpsert(...).run()
+except PgUpsertError as e:
+    e.result.status    # RunStatus.DB_ERROR
+    e.result.error     # str — the driver's error message
+    e.sqlstate         # str — SQLSTATE code, e.g. "P0001" for a RAISE EXCEPTION
+    e.original         # the psycopg.Error raised by the driver
+```
+
+If the error happened before QA finished, `e.result.qa_passed` is `False`.
+
 Example JSON output (`--output json`):
 
 ```json
@@ -240,6 +267,8 @@ Example JSON output (`--output json`):
   "staging_schema": "staging",
   "base_schema": "public",
   "upsert_method": "upsert",
+  "status": "committed",
+  "error": null,
   "qa_passed": true,
   "committed": true,
   "total_updated": 0,
