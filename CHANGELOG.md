@@ -8,6 +8,10 @@ ______________________________________________________________________
 
 ## [Unreleased]
 
+______________________________________________________________________
+
+## [1.26.0] - 2026-10-15
+
 ### Added
 
 - **`RunStatus` and `UpsertResult.status`** — `run()` now says how it ended: `COMMITTED`, `DRY_RUN`, `NO_CHANGES`, `QA_FAILED`, `CANCELLED`, or `DB_ERROR`. A dry run, a run with nothing to change, a cancelled run and a failed run used to return identical results. `UpsertResult` also gains `error` (the database error message) and `qa_completed`, and `--output json` includes `status` and `error`.
