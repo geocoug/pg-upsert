@@ -16,7 +16,7 @@ An **upsert** (a blend of *update* and *insert*, standardized in SQL as [`MERGE`
 ## Why Use `pg-upsert`?
 
 - **8 Automated QA Checks** – Validates [NOT NULL](https://www.postgresql.org/docs/current/ddl-constraints.html#DDL-CONSTRAINTS-NOT-NULL), [PRIMARY KEY](https://www.postgresql.org/docs/current/ddl-constraints.html#DDL-CONSTRAINTS-PRIMARY-KEYS), [UNIQUE](https://www.postgresql.org/docs/current/ddl-constraints.html#DDL-CONSTRAINTS-UNIQUE-CONSTRAINTS), [FOREIGN KEY](https://www.postgresql.org/docs/current/ddl-constraints.html#DDL-CONSTRAINTS-FK), [CHECK CONSTRAINT](https://www.postgresql.org/docs/current/ddl-constraints.html#DDL-CONSTRAINTS-CHECK-CONSTRAINTS), bounded character length, column existence, and column type compatibility before any modifications occur.
-- **Interactive Confirmation** – Two UI backends: Textual TUI (terminal) and Tkinter (desktop). Auto-detected or choose with `--ui auto|textual|tkinter`. The compare-tables dialog includes a **Highlight Diffs** toggle that tints matching/changed rows and flags the exact cells that differ, skipping any columns excluded from the upsert.
+- **Interactive Confirmation** – Two UI backends: Textual TUI (terminal) and Tkinter (desktop). Auto-detected or choose with `--ui auto|textual|tkinter`. In Textual, click a row or use the arrow keys to highlight its primary-key match in the other table, including when different types display the same key. The **Highlight Diffs** toggle tints rows and marks changed cells, skipping columns excluded from the upsert.
 - **Structured Results** – `run()` returns an `UpsertResult` with per-table stats, QA errors, and JSON serialization (`--output=json` for CI/CD pipelines).
 - **Exportable Fix Sheets** – `--export-failures <dir>` writes an actionable report of failing rows: one row per unique violating staging row with an `_issues` column listing every problem (NULL in 'genre', duplicate PK, FK violation, etc.) so users can open it in Excel and fix the data. Supports CSV (file per table), JSON (nested), and XLSX (sheets per table) via `--export-format`.
 - **Schema Validation** – `--check-schema` validates column existence and type compatibility without scanning staging data or running upserts.
@@ -311,6 +311,9 @@ pg-upsert runs 8 types of QA checks on staging data before upserting:
 Data checks only look at the rows your `upsert_method` will actually write, and use base values
 for `exclude_cols` in updated rows. See
 [How QA Models the Load](https://pg-upsert.readthedocs.io/en/latest/qa_checks/#how-qa-models-the-load).
+
+If a database error prevents a QA check from finishing, QA records a `check skipped` finding and
+continues with the remaining checks. An unexplained skip makes `qa_passed` false and blocks the upsert.
 
 See the [QA Checks Reference](https://pg-upsert.readthedocs.io/en/latest/qa_checks/) for detailed documentation.
 

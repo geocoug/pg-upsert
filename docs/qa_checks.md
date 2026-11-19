@@ -47,8 +47,6 @@ Checks that base table columns exist in the staging table. Missing columns are c
 
 Columns listed in `exclude_cols` are not flagged at all. Use `--strict-columns` to treat all missing columns as errors (the previous default behavior).
 
-If a downstream check (e.g. FK or UNIQUE) references a missing column, the check is caught via a savepoint rollback, a warning is emitted, and subsequent checks continue normally.
-
 - **Control table column**: `column_errors` (only populated for error-severity findings)
 - **Catalog source**: [`information_schema.columns`](https://www.postgresql.org/docs/current/infoschema-columns.html)
 - **Example error**: `author_id` (missing primary key column)
@@ -61,6 +59,24 @@ Detects hard type incompatibilities between staging and base columns. Only flags
 - **Control table column**: `type_errors`
 - **Catalog source**: [`information_schema.columns`](https://www.postgresql.org/docs/current/infoschema-columns.html) + [`pg_cast`](https://www.postgresql.org/docs/current/catalog-pg-cast.html)
 - **Example error**: `publisher_name (integer → varchar)`
+
+## Skipped Checks
+
+A `check skipped` finding means PostgreSQL raised an error while evaluating a check.
+pg-upsert rolls back that check to a savepoint and continues with the remaining checks.
+An unexplained database error, such as a statement timeout or a CHECK expression that raises
+division by zero, is a blocking QA error. It makes `qa_passed` false, including in QA-only runs.
+A downstream skip stays a warning when pg-upsert can identify the cause as a known missing
+staging column on the table being checked. This includes columns left out of staging and
+listed in `exclude_cols`.
+An already reported hard type mismatch can also explain a skipped UNIQUE check.
+When PostgreSQL omits the column name from its structured diagnostics, pg-upsert uses the
+English error text to identify it. The type-mismatch comparison also uses the English
+diagnostic. An unrecognized diagnostic is a blocking error.
+
+Skipped checks report the database error at the table level. Any remaining constraints of
+the same type for that table may go unchecked. The skip itself produces no row-level
+findings to include in a fix sheet.
 
 ## Character Length { #character-length }
 
