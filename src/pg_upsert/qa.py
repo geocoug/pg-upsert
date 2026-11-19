@@ -69,10 +69,10 @@ def _is_known_missing_column(
         return False
     statement, offset = location
     match = _STAGING_COLUMN.match(statement, offset)
-    # FK checks use s for the child and e for a selected staging parent.
+    # FK checks use s for the child and e for a self-reference.
     return bool(
         match
-        and (check_type != QACheckType.FOREIGN_KEY or _identifier_name(match["alias"] or "") == "s")
+        and (check_type != QACheckType.FOREIGN_KEY or match["alias"] is not None)
         and _identifier_name(match["column"]) in columns,
     )
 
@@ -291,7 +291,14 @@ class QARunner:
             alias=source_alias,
         )
 
-    def _predicted_rows(self, table: str, cols: list[str], alias: str = "p") -> Composable:
+    def _predicted_rows(
+        self,
+        table: str,
+        cols: list[str],
+        alias: str = "p",
+        *,
+        staging_alias: str = "e",
+    ) -> Composable:
         """Return a FROM-clause item for *cols* of the base table after the load.
 
         The rows are the effective staging rows (see :meth:`_effective_rows`)
@@ -303,13 +310,17 @@ class QARunner:
             table: The table name (same in staging and base).
             cols: Base-table columns to project.
             alias: Alias given to the FROM-clause item.
+            staging_alias: Alias for effective staging rows. A foreign-key
+                parent in a different table uses its own alias so missing
+                columns aren't mistaken for columns on the checked table.
         """
         pk_cols = self._get_pk_columns(table)
         out_cols = list(cols) + [c for c in pk_cols if c not in cols]
-        e_cols = SQL(", ").join(SQL("e.{col}").format(col=Identifier(c)) for c in out_cols)
+        staging_ref = Identifier(staging_alias)
+        e_cols = SQL(", ").join(SQL("{staging}.{col}").format(staging=staging_ref, col=Identifier(c)) for c in out_cols)
         staging_part = SQL("select {cols}, 'staging'::text as _ups_src from {effective}").format(
             cols=e_cols,
-            effective=self._effective_rows(table, "e"),
+            effective=self._effective_rows(table, staging_alias),
         )
         if not pk_cols:
             return SQL("({staging_part}) as {alias}").format(staging_part=staging_part, alias=Identifier(alias))
@@ -322,8 +333,10 @@ class QARunner:
             b_cols=SQL(", ").join(SQL("b.{col}").format(col=Identifier(c)) for c in out_cols),
             base_schema=Identifier(self.base_schema),
             table=Identifier(table),
-            effective=self._effective_rows(table, "e"),
-            pk_match=SQL(" and ").join(SQL("e.{col} = b.{col}").format(col=Identifier(c)) for c in pk_cols),
+            effective=self._effective_rows(table, staging_alias),
+            pk_match=SQL(" and ").join(
+                SQL("{staging}.{col} = b.{col}").format(staging=staging_ref, col=Identifier(c)) for c in pk_cols
+            ),
             alias=Identifier(alias),
         )
 
@@ -729,7 +742,11 @@ class QARunner:
             if const_row["uq_schema"] == self.base_schema and const_row["uq_table"] in self._selected_tables():
                 parent = SQL("(select distinct {cols} from {predicted}) as u").format(
                     cols=SQL(", ").join(Identifier(c) for c in uq_col_names),
-                    predicted=self._predicted_rows(const_row["uq_table"], uq_col_names),
+                    predicted=self._predicted_rows(
+                        const_row["uq_table"],
+                        uq_col_names,
+                        staging_alias="e" if const_row["uq_table"] == table else "parent_staging",
+                    ),
                 )
             else:
                 parent = SQL("{uq_schema}.{uq_table} as u").format(

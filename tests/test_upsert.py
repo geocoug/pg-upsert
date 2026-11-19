@@ -1771,6 +1771,8 @@ class TestSavepointCrashResilience:
         skips = [warning for warning in publishers.qa_warnings if warning.details.startswith("check skipped:")]
         assert {warning.check_type for warning in skips} == {QACheckType.UNIQUE, QACheckType.CHECK_CONSTRAINT}
         assert all(column in warning.details for warning in skips)
+        if message_locale == "fr_FR.utf8":
+            assert all("n'existe pas" in warning.details for warning in skips)
 
     def test_known_union_mismatch_is_a_warning(self, ups_failing, message_locale):
         """A UNION failure points to the column already reported by schema QA."""
@@ -1803,6 +1805,26 @@ class TestSavepointCrashResilience:
         assert any(
             e.table == "books" and e.check_type == QACheckType.FOREIGN_KEY and "optional_key" in e.details
             for e in ups.qa_errors
+        )
+
+    def test_self_reference_can_match_missing_column_warning(self, db, ups, message_locale):
+        db.execute(SQL("SET lc_messages TO {}").format(Literal(message_locale)))
+        db.execute(
+            """
+            ALTER TABLE public.publishers ADD COLUMN optional_key TEXT UNIQUE;
+            ALTER TABLE public.publishers
+                ADD COLUMN optional_ref TEXT REFERENCES public.publishers(optional_key);
+            ALTER TABLE staging.publishers ADD COLUMN optional_ref TEXT;
+            """,
+        )
+        ups.do_commit = True
+
+        result = ups.run()
+
+        assert result.status is RunStatus.COMMITTED
+        publishers = next(table for table in result.tables if table.table_name == "publishers")
+        assert any(
+            e.check_type == QACheckType.FOREIGN_KEY and "optional_key" in e.details for e in publishers.qa_warnings
         )
 
     @pytest.mark.skipif(
