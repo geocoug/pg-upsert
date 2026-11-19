@@ -1785,6 +1785,72 @@ class TestSavepointCrashResilience:
             for e in ups_failing.qa_warnings
         )
 
+    def test_missing_parent_column_does_not_match_child_warning(self, db, ups, message_locale):
+        db.execute(SQL("SET lc_messages TO {}").format(Literal(message_locale)))
+        db.execute(
+            """
+            ALTER TABLE public.publishers ADD COLUMN optional_key TEXT UNIQUE;
+            ALTER TABLE public.books ADD COLUMN optional_key TEXT;
+            ALTER TABLE public.books ADD COLUMN optional_ref TEXT REFERENCES public.publishers(optional_key);
+            ALTER TABLE staging.books ADD COLUMN optional_ref TEXT;
+            UPDATE staging.books SET optional_ref = 'unloaded';
+            """,
+        )
+
+        ups.qa_all()
+
+        assert not ups.qa_passed
+        assert any(
+            e.table == "books" and e.check_type == QACheckType.FOREIGN_KEY and "optional_key" in e.details
+            for e in ups.qa_errors
+        )
+
+    @pytest.mark.skipif(
+        not os.getenv("PG_UPSERT_TEST_LOCALIZED_MESSAGES"),
+        reason="requires permission to create a disposable SQL_ASCII database",
+    )
+    def test_sql_ascii_uses_byte_offsets_for_utf8_sql(self, global_variables):
+        uri = global_variables["URI"]
+        database_name = "pg_upsert_sql_ascii_test"
+        database = Identifier(database_name)
+        with psycopg.connect(uri, autocommit=True) as admin:
+            admin.execute(
+                SQL("CREATE DATABASE {} TEMPLATE template0 ENCODING 'SQL_ASCII' LC_COLLATE 'C' LC_CTYPE 'C'").format(
+                    database,
+                ),
+            )
+            try:
+                with psycopg.connect(uri, dbname=database_name, client_encoding="UTF8") as conn:
+                    conn.execute(
+                        """
+                        SET lc_messages TO 'fr_FR.utf8';
+                        CREATE SCHEMA staging;
+                        CREATE TABLE public.books (
+                            id int PRIMARY KEY,
+                            optional_label text CHECK ('préfixe'::text <> optional_label)
+                        );
+                        CREATE TABLE staging.books (id int PRIMARY KEY);
+                        INSERT INTO staging.books VALUES (1);
+                        """,
+                    )
+                    ups = PgUpsert(
+                        conn=conn,
+                        tables=("books",),
+                        staging_schema="staging",
+                        base_schema="public",
+                        do_commit=True,
+                        interactive=False,
+                    )
+                    result = ups.run()
+
+                    assert result.status is RunStatus.COMMITTED
+                    assert any(
+                        e.check_type == QACheckType.CHECK_CONSTRAINT and "optional_label" in e.details
+                        for e in result.tables[0].qa_warnings
+                    )
+            finally:
+                admin.execute(SQL("DROP DATABASE {}").format(database))
+
     def test_check_expression_error_blocks_qa(self, db, ups):
         """An unrelated column warning does not hide an error in a CHECK expression."""
         db.execute(

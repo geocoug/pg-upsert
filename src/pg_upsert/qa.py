@@ -28,20 +28,11 @@ logger = logging.getLogger(__name__)
 
 
 _QUOTED_IDENTIFIER = r'"(?:[^"]|"")*"'
-_STAGING_COLUMN = re.compile(rf'(?:[se]\.)?(?P<column>{_QUOTED_IDENTIFIER}|[^\W\d][\w$]*)(?![\w$."])')
+_STAGING_COLUMN = re.compile(
+    rf'(?:(?P<alias>[se]|"[se]")\.)?(?P<column>{_QUOTED_IDENTIFIER}|[^\W\d][\w$]*)(?![\w$."])',
+)
 _UNION_BASE_PREFIX = re.compile(rf" union all select (?:b\.{_QUOTED_IDENTIFIER}, )*\Z")
 _UNION_BASE_COLUMN = re.compile(rf"b\.(?P<column>{_QUOTED_IDENTIFIER})(?=,)")
-
-
-def _error_location(error: psycopg.Error) -> tuple[str, int] | None:
-    """Locate the failing token in the submitted SQL using PostgreSQL's diagnostic."""
-    statement = getattr(error, "_pg_upsert_statement", None)
-    position = error.diag.statement_position
-    if statement is not None and position is not None:
-        offset = int(position) - 1
-        if 0 <= offset < len(statement):
-            return statement, offset
-    return None
 
 
 def _identifier_name(token: str) -> str:
@@ -53,6 +44,7 @@ def _is_known_missing_column(
     columns: set[str],
     schema: str,
     table: str,
+    check_type: QACheckType,
 ) -> bool:
     """Identify undefined staging columns already found by schema QA."""
     if not isinstance(error, psycopg.errors.UndefinedColumn):
@@ -66,18 +58,23 @@ def _is_known_missing_column(
         or (diag.table_name and diag.table_name != table)
     ):
         return False
-    if diag.column_name is not None:
+    if diag.column_name is not None and (check_type != QACheckType.FOREIGN_KEY or diag.table_name == table):
         return diag.column_name in columns
 
     # PostgreSQL's missing-column parser error points to the start of the
     # reference even when it leaves column_name unset. The data checks use
     # unqualified references to staging data or qualify them with s or e.
-    location = _error_location(error)
+    location = getattr(error, "_pg_upsert_error_location", None)
     if diag.source_function != "errorMissingColumn" or location is None:
         return False
     statement, offset = location
     match = _STAGING_COLUMN.match(statement, offset)
-    return bool(match and _identifier_name(match["column"]) in columns)
+    # FK checks use s for the child and e for a selected staging parent.
+    return bool(
+        match
+        and (check_type != QACheckType.FOREIGN_KEY or _identifier_name(match["alias"] or "") == "s")
+        and _identifier_name(match["column"]) in columns,
+    )
 
 
 def _is_known_union_type_mismatch(error: psycopg.Error, columns: set[str]) -> bool:
@@ -88,7 +85,7 @@ def _is_known_union_type_mismatch(error: psycopg.Error, columns: set[str]) -> bo
     diag = error.diag
     if diag.source_function != "select_common_type" or diag.internal_query or diag.context:
         return False
-    location = _error_location(error)
+    location = getattr(error, "_pg_upsert_error_location", None)
     if location is None:
         return False
     statement, offset = location
@@ -266,20 +263,23 @@ class QARunner:
             return staging
 
         matched = SQL("b.{col} is not null").format(col=Identifier(pk_cols[0]))
+        source_alias = Identifier(alias)
         select_list = SQL(", ").join(
             SQL("case when {matched} then b.{col} end as {col}").format(matched=matched, col=Identifier(col))
             if overridden
-            else SQL("s.{col}").format(col=Identifier(col))
+            else SQL("{source}.{col}").format(source=source_alias, col=Identifier(col))
             for col, overridden in columns
         )
-        join_on = SQL(" and ").join(SQL("s.{col} = b.{col}").format(col=Identifier(col)) for col in pk_cols)
+        join_on = SQL(" and ").join(
+            SQL("{source}.{col} = b.{col}").format(source=source_alias, col=Identifier(col)) for col in pk_cols
+        )
         where = {
             "upsert": SQL(""),
             "update": SQL(" where {matched}").format(matched=matched),
             "insert": SQL(" where not ({matched})").format(matched=matched),
         }[self.upsert_method]
         return SQL(
-            "(select {select_list} from {staging_schema}.{table} as s"
+            "(select {select_list} from {staging_schema}.{table} as {alias}"
             " left join {base_schema}.{table} as b on {join_on}{where}) as {alias}",
         ).format(
             select_list=select_list,
@@ -288,7 +288,7 @@ class QARunner:
             table=Identifier(table),
             join_on=join_on,
             where=where,
-            alias=Identifier(alias),
+            alias=source_alias,
         )
 
     def _predicted_rows(self, table: str, cols: list[str], alias: str = "p") -> Composable:
@@ -1767,7 +1767,7 @@ class QARunner:
                     known_missing_column = (
                         columns
                         and check_type != QACheckType.TYPE_MISMATCH
-                        and _is_known_missing_column(exc, columns, self.staging_schema, table)
+                        and _is_known_missing_column(exc, columns, self.staging_schema, table, check_type)
                     )
                     mismatched_columns = known_type_mismatches.get(table)
                     known_union_mismatch = (
