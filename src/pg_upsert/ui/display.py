@@ -15,6 +15,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from rich.console import Console, Group
+from rich.markup import escape
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
@@ -165,7 +166,7 @@ def print_check_table_warn(
     """
     counter = f"[dim][{ctx.table_num}/{ctx.total_tables}][/dim] " if ctx else ""
     counter_log = f"[{ctx.table_num}/{ctx.total_tables}] " if ctx else ""
-    console.print(f"  [bold yellow]⚠[/bold yellow] {counter}{schema}.{table} — {message}")
+    console.print(f"  [bold yellow]⚠[/bold yellow] {counter}{schema}.{table} — {escape(message)}")
     _file_logger.warning(f"  ⚠ {counter_log}{schema}.{table} — {message}")
 
 
@@ -189,7 +190,7 @@ def print_check_table_fail(
     """
     counter = f"[dim][{ctx.table_num}/{ctx.total_tables}][/dim] " if ctx else ""
     counter_log = f"[{ctx.table_num}/{ctx.total_tables}] " if ctx else ""
-    console.print(f"  [bold red]✗[/bold red] {counter}{schema}.{table} — {message}")
+    console.print(f"  [bold red]✗[/bold red] {counter}{schema}.{table} — {escape(message)}")
     _file_logger.warning(f"  ✗ {counter_log}{schema}.{table} — {message}")
     if detail_rows and detail_headers:
         detail_table = format_table(detail_rows, detail_headers)
@@ -265,20 +266,19 @@ def _print_qa_summary_panel(
             line.append(table)
             rich_lines.append(line)
             log_lines.append(f"  [PASS] {table}")
-        # Separate real findings from skip-warnings (checks that crashed
-        # on missing columns and were caught by the savepoint).
-        real_errors = [e for e in table_errors if not e.details.startswith("check skipped:")]
-        skip_errors = [e for e in table_errors if e.details.startswith("check skipped:")]
-        for err in real_errors:
+        skipped_schema_checks = 0
+        for err in table_errors:
+            if err.severity == QASeverity.WARNING and err.details.startswith("check skipped:"):
+                skipped_schema_checks += 1
+                continue
             tag = err.check_type.value
             detail = Text()
             detail.append(f"      {tag}: ", style="dim")
             detail.append(err.details)
             rich_lines.append(detail)
             log_lines.append(f"    - {tag}: {err.details}")
-        if skip_errors:
-            n = len(skip_errors)
-            skip_msg = f"{n} check(s) skipped due to missing columns"
+        if skipped_schema_checks:
+            skip_msg = f"{skipped_schema_checks} check(s) skipped due to known schema issues"
             detail = Text()
             detail.append("      skipped: ", style="dim")
             detail.append(skip_msg)

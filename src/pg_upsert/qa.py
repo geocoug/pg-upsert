@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import re
 
+import psycopg
 from psycopg.sql import SQL, Composable, Identifier, Literal
 
 from .control import ControlTable
@@ -24,6 +25,48 @@ from .postgres import PostgresDB
 from .ui import UIBackend, display
 
 logger = logging.getLogger(__name__)
+
+
+def _is_known_missing_column(
+    error: psycopg.Error,
+    columns: set[str],
+    schema: str,
+    table: str,
+) -> bool:
+    """Identify undefined staging columns already found by schema QA."""
+    if not isinstance(error, psycopg.errors.UndefinedColumn):
+        return False
+
+    diag = error.diag
+    if (
+        diag.internal_query
+        or diag.context
+        or (diag.schema_name and diag.schema_name != schema)
+        or (diag.table_name and diag.table_name != table)
+    ):
+        return False
+    if diag.column_name is not None:
+        return diag.column_name in columns
+
+    # PostgreSQL's parser usually leaves column_name unset. Its primary
+    # diagnostic quotes bare column names and qualifies source references.
+    # s and e are the aliases for staging data used by the data checks.
+    match = re.fullmatch(r'column (?:"(.+)"|(?:s|e)\.(.+)) does not exist', diag.message_primary or "")
+    return bool(match and (match[1] or match[2]) in columns)
+
+
+def _is_known_union_type_mismatch(error: psycopg.Error, type_pairs: set[tuple[str, str]]) -> bool:
+    """Identify a UNION parse error explained by an existing hard type mismatch."""
+    if not isinstance(error, psycopg.errors.DatatypeMismatch):
+        return False
+
+    diag = error.diag
+    if diag.source_function != "select_common_type" or diag.internal_query or diag.context:
+        return False
+    return any(
+        diag.message_primary == f"UNION types {staging_type} and {base_type} cannot be matched"
+        for staging_type, base_type in type_pairs
+    )
 
 
 class QARunner:
@@ -1189,6 +1232,11 @@ class QARunner:
         Returns:
             A list of :class:`QAError` for any base columns missing from staging.
         """
+        errors, _missing_columns = self._check_column_existence(table, ctx)
+        return errors
+
+    def _check_column_existence(self, table: str, ctx: CheckContext | None) -> tuple[list[QAError], set[str]]:
+        """Return findings and exact missing column names, including exclusions."""
         errors: list[QAError] = []
         logger.debug(f"Conducting column existence checks on table {self.staging_schema}.{table}")
 
@@ -1224,18 +1272,15 @@ class QARunner:
             ),
         )
 
-        missing_rows, _headers, missing_count = self.db.rowdict(
-            "select * from ups_missing_cols;",
-        )
-        if missing_count == 0:
-            display.print_check_table_pass(self.staging_schema, table, ctx=ctx)
-            return errors
+        rows, _headers, _count = self.db.rowdict("select * from ups_missing_cols;")
+        missing_rows = list(rows)
+        missing_columns = {row["column_name"] for row in missing_rows}
 
         # Filter out excluded columns and build the full missing list.
         missing_info = [row for row in missing_rows if row["column_name"] not in exclude_cols]
         if not missing_info:
             display.print_check_table_pass(self.staging_schema, table, ctx=ctx)
-            return errors
+            return errors, missing_columns
 
         # Classify each missing column as ERROR or WARNING.
         pk_cols = set(self._get_pk_columns(table))
@@ -1265,12 +1310,12 @@ class QARunner:
             )
             schema_issues: list[SchemaIssue] = []
             if self.capture_detail_rows:
-                for c in warn_cols:
+                for col in warn_cols:
                     schema_issues.append(
                         SchemaIssue(
                             check_type="column",
-                            column_name=c,
-                            description=f"missing column '{c}' (skipped)",
+                            column_name=col,
+                            description=f"missing column '{col}' (skipped)",
                         ),
                     )
             errors.append(
@@ -1295,13 +1340,13 @@ class QARunner:
             self.control.set_qa_errors(table, "column_errors", err_detail)
             schema_issues_err: list[SchemaIssue] = []
             if self.capture_detail_rows:
-                for c in error_cols:
-                    reason = "primary key" if c in pk_cols else "NOT NULL, no default"
+                for col in error_cols:
+                    reason = "primary key" if col in pk_cols else "NOT NULL, no default"
                     schema_issues_err.append(
                         SchemaIssue(
                             check_type="column",
-                            column_name=c,
-                            description=f"missing column '{c}' ({reason})",
+                            column_name=col,
+                            description=f"missing column '{col}' ({reason})",
                         ),
                     )
             errors.append(
@@ -1314,7 +1359,7 @@ class QARunner:
                 ),
             )
 
-        return errors
+        return errors, missing_columns
 
     def check_type_mismatch(self, table: str, ctx: CheckContext | None = None) -> list[QAError]:
         """Check for hard type incompatibilities between staging and base columns.
@@ -1329,6 +1374,15 @@ class QARunner:
         Returns:
             A list of :class:`QAError` for any type incompatibilities found.
         """
+        errors, _type_pairs = self._check_type_mismatch(table, ctx)
+        return errors
+
+    def _check_type_mismatch(
+        self,
+        table: str,
+        ctx: CheckContext | None,
+    ) -> tuple[list[QAError], set[tuple[str, str]]]:
+        """Return findings and the type spellings PostgreSQL uses in diagnostics."""
         errors: list[QAError] = []
         logger.debug(f"Conducting column type mismatch checks on table {self.staging_schema}.{table}")
 
@@ -1342,7 +1396,9 @@ class QARunner:
             select
                 b.column_name,
                 s.udt_name as staging_type,
-                b.udt_name as base_type
+                b.udt_name as base_type,
+                format_type(to_regtype(format('%I.%I', s.udt_schema, s.udt_name)), null) as staging_sql_type,
+                format_type(to_regtype(format('%I.%I', b.udt_schema, b.udt_name)), null) as base_sql_type
             from information_schema.columns b
             inner join information_schema.columns s
                 on s.table_schema = {staging_schema}
@@ -1372,13 +1428,15 @@ class QARunner:
         )
         if mismatch_count == 0:
             display.print_check_table_pass(self.staging_schema, table, ctx=ctx)
-            return errors
+            return errors, set()
 
         mismatch_details: list[str] = []
         schema_issues: list[SchemaIssue] = []
+        type_pairs: set[tuple[str, str]] = set()
         for row in mismatch_rows:
             detail = f"{row['column_name']} ({row['staging_type']} → {row['base_type']})"
             mismatch_details.append(detail)
+            type_pairs.add((row["staging_sql_type"], row["base_sql_type"]))
             if self.capture_detail_rows:
                 schema_issues.append(
                     SchemaIssue(
@@ -1406,7 +1464,7 @@ class QARunner:
                 schema_issues=schema_issues,
             ),
         )
-        return errors
+        return errors, type_pairs
 
     def check_lengths(self, table: str, ctx: CheckContext | None = None) -> list[QAError]:
         """Check values against bounded character-column lengths.
@@ -1589,6 +1647,16 @@ class QARunner:
         from .utils import elapsed_time
 
         all_errors: list[QAError] = []
+        missing_staging_columns: dict[str, set[str]] = {}
+        known_type_mismatches: dict[str, set[tuple[str, str]]] = {}
+
+        def check_columns(table: str, ctx: CheckContext) -> list[QAError]:
+            errors, missing_staging_columns[table] = self._check_column_existence(table, ctx)
+            return errors
+
+        def check_types_for_table(table: str, ctx: CheckContext) -> list[QAError]:
+            errors, known_type_mismatches[table] = self._check_type_mismatch(table, ctx)
+            return errors
 
         check_types: list[tuple[str, bool]] = [
             ("Column Existence", False),
@@ -1601,8 +1669,8 @@ class QARunner:
             ("Check Constraint", False),
         ]
         check_funcs: dict[str, object] = {
-            "Column Existence": self.check_column_existence,
-            "Column Type": self.check_type_mismatch,
+            "Column Existence": check_columns,
+            "Column Type": check_types_for_table,
             "Character Length": self.check_lengths,
             "Non-NULL": self.check_nulls,
             "Primary Key": self.check_pks,
@@ -1610,8 +1678,6 @@ class QARunner:
             "Foreign Key": self.check_fks,
             "Check Constraint": self.check_cks,
         }
-
-        import psycopg
 
         check_type_map: dict[str, QACheckType] = {
             "Column Existence": QACheckType.COLUMN_EXISTENCE,
@@ -1632,6 +1698,7 @@ class QARunner:
             total_tables = len(tables)
             for table_num, table in enumerate(tables, 1):
                 ctx = CheckContext(table_num=table_num, total_tables=total_tables)
+                check_type = check_type_map[check_label]
                 # Use a savepoint so that a database error (e.g. querying a
                 # column that doesn't exist in staging) doesn't poison the
                 # transaction for subsequent checks.
@@ -1655,31 +1722,40 @@ class QARunner:
                     # connection cursor because the transaction is in error
                     # state and db.execute() can't run normal queries until
                     # the savepoint rollback clears the error.
-                    _raw = self.db.conn.cursor()
-                    _raw.execute("ROLLBACK TO SAVEPOINT qa_check")
-                    _raw.execute("RELEASE SAVEPOINT qa_check")
-                    _raw.close()
-                    msg = str(exc).strip().split("\n")[0]
-                    # Normalize column references in error messages:
-                    # strip SQL table aliases (e.g. "s.", "b.") and
-                    # remove quotes around column names for consistency.
-                    msg = re.sub(r"column \w+\.", "column ", msg)
-                    msg = msg.replace('"', "")
+                    with self.db.conn.cursor() as raw:
+                        raw.execute("ROLLBACK TO SAVEPOINT qa_check")
+                        raw.execute("RELEASE SAVEPOINT qa_check")
+                    self.db._in_savepoint = False
+                    msg = exc.diag.message_primary or str(exc).partition("\n")[0]
+                    details = f"check skipped: {msg}"
                     logger.debug(
                         f"{check_label} check on {self.staging_schema}.{table} failed with database error: {msg}",
                     )
-                    display.print_check_table_warn(
-                        self.staging_schema,
-                        table,
-                        f"skipped ({msg})",
-                        ctx=ctx,
+                    severity = QASeverity.ERROR
+                    columns = missing_staging_columns.get(table)
+                    known_missing_column = (
+                        columns
+                        and check_type != QACheckType.TYPE_MISMATCH
+                        and _is_known_missing_column(exc, columns, self.staging_schema, table)
                     )
+                    type_pairs = known_type_mismatches.get(table)
+                    known_union_mismatch = (
+                        type_pairs
+                        and check_type == QACheckType.UNIQUE
+                        and _is_known_union_type_mismatch(exc, type_pairs)
+                    )
+                    if known_missing_column or known_union_mismatch:
+                        severity = QASeverity.WARNING
+                        display.print_check_table_warn(self.staging_schema, table, details, ctx=ctx)
+                    else:
+                        self.control.set_qa_errors(table, f"{check_type.value}_errors", details)
+                        display.print_check_table_fail(self.staging_schema, table, details, ctx=ctx)
                     table_errors = [
                         QAError(
                             table=table,
-                            check_type=check_type_map[check_label],
-                            details=f"check skipped: {msg}",
-                            severity=QASeverity.WARNING,
+                            check_type=check_type,
+                            details=details,
+                            severity=severity,
                         ),
                     ]
                 except UserCancelledError:

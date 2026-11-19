@@ -13,7 +13,7 @@ import pytest
 from rich.console import Console
 from rich.table import Table
 
-from pg_upsert.models import CheckContext, QACheckType, QAError
+from pg_upsert.models import CheckContext, QACheckType, QAError, QASeverity
 from pg_upsert.ui import display
 
 
@@ -223,6 +223,13 @@ class TestPrintCheckTableFail:
         assert counter_pos < table_pos
 
 
+@pytest.mark.parametrize("print_status", [display.print_check_table_warn, display.print_check_table_fail])
+def test_check_status_keeps_database_messages_literal(print_status):
+    message = "check skipped: invalid value [/bold]"
+
+    assert message in _capture(print_status, "staging", "books", message)
+
+
 # ---------------------------------------------------------------------------
 # print_qa_summary (panel mode)
 # ---------------------------------------------------------------------------
@@ -241,6 +248,22 @@ class TestPrintQASummary:
         errors = [QAError(table="books", check_type=QACheckType.NULL, details="title (1)")]
         out = _capture(display.print_qa_summary, tables, errors)
         assert "books" in out
+
+    def test_skipped_check_panel_keeps_blocking_error_details(self):
+        errors = [
+            QAError(table="books", check_type=QACheckType.CHECK_CONSTRAINT, details="check skipped: division by zero"),
+            QAError(
+                table="books",
+                check_type=QACheckType.UNIQUE,
+                details="check skipped: missing notes",
+                severity=QASeverity.WARNING,
+            ),
+        ]
+
+        out = _capture(display.print_qa_summary, ["books"], errors)
+
+        assert "ck: check skipped: division by zero" in out
+        assert "1 check(s) skipped due to known schema issues" in out
 
     def test_mixed_pass_fail_panel(self):
         tables = ["genres", "books", "authors"]

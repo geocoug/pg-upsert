@@ -7,6 +7,8 @@ installed as long as :class:`TextualBackend` is never instantiated.
 
 from __future__ import annotations
 
+from collections import defaultdict
+
 from .base import UIBackend
 
 
@@ -147,6 +149,7 @@ def _run_comparison_app(
         The integer value associated with the button the user clicked.
     """
     from rich.text import Text
+    from textual import events
     from textual.app import App, ComposeResult
     from textual.containers import Horizontal, Vertical
     from textual.widgets import Button, DataTable, Footer, Header, Label, Static
@@ -204,7 +207,6 @@ def _run_comparison_app(
             color: $text;
         }
         #button-bar {
-            dock: bottom;
             height: auto;
             padding: 1 2;
             align: right middle;
@@ -215,6 +217,16 @@ def _run_comparison_app(
         DataTable:focus {
             border: tall $accent;
         }
+        DataTable.matched-counterpart > .datatable--cursor {
+            background: $accent 45%;
+            color: $text;
+            text-style: bold underline;
+        }
+        DataTable.unmatched-counterpart > .datatable--cursor {
+            background: transparent;
+            color: $text;
+            text-style: none;
+        }
         """
             + _table_css
         )
@@ -222,13 +234,7 @@ def _run_comparison_app(
         def __init__(self) -> None:
             super().__init__()
             self._result: int = _buttons[0][1] if _buttons else 0
-            self._syncing: bool = False
-            # PK column index lookups.
-            self._stg_pk_idx = [i for i, h in enumerate(_stg_headers) if h in _pk_cols]
-            self._base_pk_idx = [i for i, h in enumerate(_base_headers) if h in _pk_cols]
-            # PK-value → row-index maps, built at mount time for O(1) lookup.
-            self._stg_pk_map: dict[tuple, int] = {}
-            self._base_pk_map: dict[tuple, int] = {}
+            self._matching_rows: dict[str, dict[int, int]] = {}
             # Column keys, set at mount time.
             self._stg_col_keys: list = []
             self._base_col_keys: list = []
@@ -256,41 +262,53 @@ def _run_comparison_app(
                     )
             yield Footer()
 
-        def _add_rows_and_build_map(
-            self,
-            tbl: DataTable,
-            headers: list[str],
-            data: list,
-            pk_idx: list[int],
-        ) -> tuple[list, dict[tuple, int]]:
-            """Add rows to a DataTable and build a PK → row-index map."""
+        def _add_rows(self, tbl: DataTable, headers: list[str], data: list) -> list:
             col_keys = tbl.add_columns(*headers)
-            pk_map: dict[tuple, int] = {}
-            for row_num, row in enumerate(data):
-                cells = [str(cell) if cell is not None else "" for cell in row]
-                tbl.add_row(*cells)
-                pk_vals = tuple(cells[i] for i in pk_idx)
-                pk_map[pk_vals] = row_num
-            return list(col_keys), pk_map
+            for row in data:
+                tbl.add_row(*[str(cell) if cell is not None else "" for cell in row])
+            return list(col_keys)
+
+        def _primary_keys(self, headers: list[str], data: list) -> list[tuple]:
+            if not _pk_cols or any(col not in headers for col in _pk_cols):
+                return []
+            pk_indices = [headers.index(col) for col in _pk_cols]
+            return [tuple(row[index] for index in pk_indices) for row in data]
+
+        @staticmethod
+        def _unmatched_display_keys(keys: list[tuple], matches: dict[int, int]) -> dict[tuple, int]:
+            """Index unambiguous rendered keys that have no native match."""
+            rows_by_key: dict[tuple, list[int]] = defaultdict(list)
+            for index, key in enumerate(keys):
+                if index not in matches:
+                    rendered_key = tuple(str(value) if value is not None else None for value in key)
+                    rows_by_key[rendered_key].append(index)
+            return {key: rows[0] for key, rows in rows_by_key.items() if len(rows) == 1}
 
         def on_mount(self) -> None:
             stg_tbl = self.query_one("#stg-table", DataTable)
             stg_tbl.border_title = f"New data (staging) — PK: {', '.join(_pk_cols)}"
-            self._stg_col_keys, self._stg_pk_map = self._add_rows_and_build_map(
-                stg_tbl,
-                _stg_headers,
-                _stg_data,
-                self._stg_pk_idx,
-            )
+            self._stg_col_keys = self._add_rows(stg_tbl, _stg_headers, _stg_data)
 
             base_tbl = self.query_one("#base-table", DataTable)
             base_tbl.border_title = "Existing data (base)"
-            self._base_col_keys, self._base_pk_map = self._add_rows_and_build_map(
-                base_tbl,
-                _base_headers,
-                _base_data,
-                self._base_pk_idx,
-            )
+            self._base_col_keys = self._add_rows(base_tbl, _base_headers, _base_data)
+
+            # Use the declared PK order and prefer native equality. For keys
+            # with no native match, preserve matching by their displayed values.
+            stg_keys = self._primary_keys(_stg_headers, _stg_data)
+            base_keys = self._primary_keys(_base_headers, _base_data)
+            stg_indices = {key: index for index, key in enumerate(stg_keys)}
+            base_indices = {key: index for index, key in enumerate(base_keys)}
+            stg_matches = {index: base_indices[key] for index, key in enumerate(stg_keys) if key in base_indices}
+            base_matches = {index: stg_indices[key] for index, key in enumerate(base_keys) if key in stg_indices}
+            stg_display_keys = self._unmatched_display_keys(stg_keys, stg_matches)
+            base_display_keys = self._unmatched_display_keys(base_keys, base_matches)
+            for key in stg_display_keys.keys() & base_display_keys.keys():
+                stg_index = stg_display_keys[key]
+                base_index = base_display_keys[key]
+                stg_matches[stg_index] = base_index
+                base_matches[base_index] = stg_index
+            self._matching_rows = {"stg-table": stg_matches, "base-table": base_matches}
 
             # Compute diff eagerly and show the summary regardless of toggle.
             from .diff import compute_row_diffs
@@ -308,32 +326,29 @@ def _run_comparison_app(
             stg_tbl.focus()
 
         def on_data_table_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
-            """Sync cursor: when a row is highlighted in one table, jump to the matching PK row in the other."""
-            if self._syncing:
-                return
-            source = event.data_table
-            if source.id not in ("stg-table", "base-table"):
-                return
+            self._sync_cursor(event.data_table)
 
-            self._syncing = True
-            try:
-                stg_tbl = self.query_one("#stg-table", DataTable)
-                base_tbl = self.query_one("#base-table", DataTable)
-                row_key = event.row_key
+        def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
+            # Clicking the current row can post RowSelected without moving the cursor.
+            self._sync_cursor(event.data_table)
 
-                if source.id == "stg-table":
-                    # Extract PK values from the highlighted staging row.
-                    pk_vals = tuple(str(source.get_cell(row_key, self._stg_col_keys[i])) for i in self._stg_pk_idx)
-                    match_idx = self._base_pk_map.get(pk_vals)
-                    if match_idx is not None:
-                        base_tbl.move_cursor(row=match_idx, animate=False)
-                else:
-                    pk_vals = tuple(str(source.get_cell(row_key, self._base_col_keys[i])) for i in self._base_pk_idx)
-                    match_idx = self._stg_pk_map.get(pk_vals)
-                    if match_idx is not None:
-                        stg_tbl.move_cursor(row=match_idx, animate=False)
-            finally:
-                self._syncing = False
+        def on_descendant_focus(self, event: events.DescendantFocus) -> None:
+            if isinstance(event.widget, DataTable):
+                self._sync_cursor(event.widget)
+
+        def _sync_cursor(self, source: DataTable) -> None:
+            """Show the matching row without transferring input focus."""
+            if not source.has_focus or source.id not in self._matching_rows:
+                return
+            target_id = "#base-table" if source.id == "stg-table" else "#stg-table"
+            target = self.query_one(target_id, DataTable)
+            source.remove_class("matched-counterpart", "unmatched-counterpart")
+            match_idx = self._matching_rows[source.id].get(source.cursor_row)
+            target.set_class(match_idx is not None, "matched-counterpart")
+            target.set_class(match_idx is None, "unmatched-counterpart")
+            if match_idx is not None:
+                with target.prevent(DataTable.RowHighlighted):
+                    target.move_cursor(row=match_idx, animate=False)
 
         def on_button_pressed(self, event: Button.Pressed) -> None:
             btn_id = event.button.id or ""

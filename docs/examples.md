@@ -482,6 +482,15 @@ Use `--export-failures` during a normal CLI run to write each offending row and 
 the table's fix sheet. Do not use `--check-schema` for this validation: that option checks only
 column existence and type compatibility and never scans staging rows.
 
+## Navigate the Textual comparison dialog
+
+In the Textual comparison dialog, click a row or move with the arrow keys to highlight the
+row with the same primary key in the other table. The dialog scrolls the match into view
+while keeping focus in the table you are using. Row matching works in both layouts with
+**Highlight Diffs** on or off. A row with no match clears the highlight in the other table.
+If no match is found by value, the dialog can match a key that displays identically and occurs
+once among the remaining rows in each table.
+
 ## CLI examples
 
 ```sh

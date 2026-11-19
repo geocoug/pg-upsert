@@ -13,7 +13,7 @@ import psycopg
 import pytest
 from psycopg.sql import SQL, Identifier, Literal
 
-from pg_upsert.models import PgUpsertError, RunStatus, UpsertResult
+from pg_upsert.models import PgUpsertError, QACheckType, RunStatus, UpsertResult
 from pg_upsert.upsert import PgUpsert, UserCancelledError
 
 pytestmark = pytest.mark.postgres
@@ -1692,7 +1692,7 @@ class TestCheckSchemaLive:
 class TestSavepointCrashResilience:
     def test_missing_column_does_not_abort_pipeline(self, db):
         """When a check crashes on a missing column, other checks continue."""
-        from pg_upsert.models import QACheckType, QASeverity
+        from pg_upsert.models import QASeverity
 
         # Drop a column from staging to create a mismatch that will crash
         # downstream null/PK checks.
@@ -1736,6 +1736,100 @@ class TestSavepointCrashResilience:
         author_errors = [e for e in errors if e.table == "authors"]
         # authors has no data issues in the passing fixture — should be clean.
         assert all(not e.details.startswith("check skipped:") for e in author_errors)
+
+    @pytest.mark.parametrize("excluded", [False, True])
+    def test_missing_optional_column_does_not_block_upsert(self, db, ups, excluded):
+        """A check that references a known missing column remains a warning."""
+        column = "optional_label" if excluded else "optional, label"
+        db.execute(
+            SQL(
+                "ALTER TABLE public.publishers ADD COLUMN {column} text UNIQUE CHECK ({column} <> '')",
+            ).format(column=Identifier(column)),
+        )
+        if excluded:
+            ups.exclude_cols_by_table = {"publishers": [column]}
+
+        result = ups.run()
+
+        assert result.status is RunStatus.DRY_RUN
+        assert result.qa_passed
+        publishers = next(table for table in result.tables if table.table_name == "publishers")
+        column_warnings = [
+            warning for warning in publishers.qa_warnings if warning.check_type is QACheckType.COLUMN_EXISTENCE
+        ]
+        assert [warning.details for warning in column_warnings] == ([] if excluded else [column])
+        assert all(warning.schema_issues == [] for warning in column_warnings)
+        skips = [warning for warning in publishers.qa_warnings if warning.details.startswith("check skipped:")]
+        assert {warning.check_type for warning in skips} == {QACheckType.UNIQUE, QACheckType.CHECK_CONSTRAINT}
+        assert all(column in warning.details for warning in skips)
+
+    def test_check_expression_error_blocks_qa(self, db, ups):
+        """An unrelated column warning does not hide an error in a CHECK expression."""
+        db.execute(
+            """
+            ALTER TABLE public.publishers ADD COLUMN optional_label text;
+            ALTER TABLE public.publishers ADD COLUMN divisor integer DEFAULT 1 CHECK (10 / divisor > 0);
+            ALTER TABLE staging.publishers ADD COLUMN divisor integer DEFAULT 0;
+            """,
+        )
+
+        assert ups.qa_all() is ups
+
+        assert ups.qa_passed is False
+        (error,) = ups.qa_errors
+        assert error.table == "publishers"
+        assert error.check_type is QACheckType.CHECK_CONSTRAINT
+        assert error.details == "check skipped: division by zero"
+        assert any(warning.details == "optional_label" for warning in ups.qa_warnings)
+        publisher_control = next(row for row in ups._control.get_all_specs() if row["table_name"] == "publishers")
+        assert publisher_control["ck_errors"] == error.details
+        assert publisher_control["column_errors"] is None
+
+    def test_statement_timeout_blocks_qa_and_later_checks_run(self, ups):
+        """Recover from a real statement timeout and keep checking other tables."""
+        original_check = ups._qa.check_lengths
+
+        def check_lengths(table, *, ctx):
+            if table == "genres":
+                ups.db.execute("SET LOCAL statement_timeout = '10ms'")
+                ups.db.execute("SELECT pg_sleep(1)")
+            return original_check(table, ctx=ctx)
+
+        with (
+            patch.object(ups._qa, "check_lengths", side_effect=check_lengths),
+            patch.object(ups._qa, "check_cks", wraps=ups._qa.check_cks) as check_cks,
+        ):
+            ups.qa_all()
+
+        assert ups.qa_passed is False
+        (error,) = ups.qa_errors
+        assert error.table == "genres"
+        assert error.check_type is QACheckType.LENGTH
+        assert error.details.startswith("check skipped:")
+        assert "statement timeout" in error.details
+        assert [call.args[0] for call in check_cks.call_args_list] == list(ups.tables)
+        genre_control = next(row for row in ups._control.get_all_specs() if row["table_name"] == "genres")
+        assert genre_control["length_errors"] == error.details
+
+    def test_union_mismatch_requires_matching_schema_finding(self, ups_failing):
+        """A reported integer/varchar mismatch does not explain a boolean/text mismatch."""
+        original_check = ups_failing._qa.check_unique
+
+        def check_unique(table, *, interactive, ctx):
+            if table == "publishers":
+                ups_failing.db.execute("SELECT true UNION SELECT 'unrelated'::text")
+            return original_check(table, interactive=interactive, ctx=ctx)
+
+        with patch.object(ups_failing._qa, "check_unique", side_effect=check_unique):
+            ups_failing.qa_all()
+
+        publishers_errors = [error for error in ups_failing.qa_errors if error.table == "publishers"]
+        assert any(error.check_type == QACheckType.TYPE_MISMATCH for error in publishers_errors)
+        assert any(
+            error.check_type == QACheckType.UNIQUE
+            and error.details == "check skipped: UNION types boolean and text cannot be matched"
+            for error in publishers_errors
+        )
 
 
 # ===================================================================

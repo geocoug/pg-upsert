@@ -8,6 +8,11 @@ ______________________________________________________________________
 
 ## [Unreleased]
 
+### Fixed
+
+- In the Textual comparison dialog, mouse and keyboard navigation now visibly highlight and scroll to the matching primary-key row in the other table, including for composite keys and keys that display identically across types. Matching works in both layouts with **Highlight Diffs** on or off. ([#41](https://github.com/geocoug/pg-upsert/issues/41))
+- A QA check skipped because of an unexplained PostgreSQL error now fails QA while remaining checks continue. Skips explained by a known missing staging column or a reported type mismatch remain warnings. ([#39](https://github.com/geocoug/pg-upsert/issues/39))
+
 ______________________________________________________________________
 
 ## [1.26.0] - 2026-10-15
