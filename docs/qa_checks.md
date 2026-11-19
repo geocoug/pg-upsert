@@ -70,9 +70,9 @@ A downstream skip stays a warning when pg-upsert can identify the cause as a kno
 staging column on the table being checked. This includes columns left out of staging and
 listed in `exclude_cols`.
 An already reported hard type mismatch can also explain a skipped UNIQUE check.
-When PostgreSQL omits the column name from its structured diagnostics, pg-upsert uses the
-English error text to identify it. The type-mismatch comparison also uses the English
-diagnostic. An unrecognized diagnostic is a blocking error.
+pg-upsert identifies these cases using PostgreSQL diagnostic fields and the reported
+position in the submitted SQL. The classification works with localized server messages.
+An unrecognized diagnostic is a blocking error.
 
 Skipped checks report the database error at the table level. Any remaining constraints of
 the same type for that table may go unchecked. The skip itself produces no row-level

@@ -314,6 +314,7 @@ for `exclude_cols` in updated rows. See
 
 If a database error prevents a QA check from finishing, QA records a `check skipped` finding and
 continues with the remaining checks. An unexplained skip makes `qa_passed` false and blocks the upsert.
+Known missing-column skips remain warnings across PostgreSQL message locales.
 
 See the [QA Checks Reference](https://pg-upsert.readthedocs.io/en/latest/qa_checks/) for detailed documentation.
 

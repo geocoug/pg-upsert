@@ -202,19 +202,25 @@ class PostgresDB:
             psycopg.Cursor: A cursor object for the executed query.
         """
         self.in_transaction = True
+        statement = None
         try:
             curs = self.cursor()
             if isinstance(sql, Composable):
-                logger.debug(f"\n{sql.as_string(curs)}")
+                statement = sql.as_string(curs)
+                logger.debug(f"\n{statement}")
                 curs.execute(sql)
             else:
                 if params is None:
+                    statement = sql
                     logger.debug(f"\n{sql}")
                     curs.execute(sql.encode(self.encoding))
                 else:
                     logger.debug(f"\nSQL:\n{sql}\nParameters:\n{params}")
                     curs.execute(sql.encode(self.encoding), params)
-        except psycopg.Error:
+        except psycopg.Error as exc:
+            if self._in_savepoint and statement is not None and exc.diag.statement_position:
+                # PostgreSQL reports a character offset into the failing statement.
+                exc._pg_upsert_statement = statement
             if not self._in_savepoint:
                 self.rollback()
             raise

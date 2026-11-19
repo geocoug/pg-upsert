@@ -154,6 +154,14 @@ isolated_build = true
 [tool.tox.env_run_base]
 description = "Run tests under {base_python}"
 extras = ["dev"]
+pass_env = [
+    "PG_UPSERT_TEST_LOCALIZED_MESSAGES",
+    "POSTGRES_DB",
+    "POSTGRES_HOST",
+    "POSTGRES_PASSWORD",
+    "POSTGRES_PORT",
+    "POSTGRES_USER",
+]
 commands = [["pytest", "{posargs}"]]
 
 [tool.tox.env.build]

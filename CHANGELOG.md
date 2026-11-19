@@ -8,6 +8,10 @@ ______________________________________________________________________
 
 ## [Unreleased]
 
+### Fixed
+
+- Known missing staging columns and reported type mismatches keep their QA skip severity when PostgreSQL uses localized messages. A known missing-column warning no longer blocks an otherwise valid load.
+
 ______________________________________________________________________
 
 ## [1.27.0] - 2026-11-19

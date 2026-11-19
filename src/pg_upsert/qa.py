@@ -27,6 +27,27 @@ from .ui import UIBackend, display
 logger = logging.getLogger(__name__)
 
 
+_QUOTED_IDENTIFIER = r'"(?:[^"]|"")*"'
+_STAGING_COLUMN = re.compile(rf'(?:[se]\.)?(?P<column>{_QUOTED_IDENTIFIER}|[^\W\d][\w$]*)(?![\w$."])')
+_UNION_BASE_PREFIX = re.compile(rf" union all select (?:b\.{_QUOTED_IDENTIFIER}, )*\Z")
+_UNION_BASE_COLUMN = re.compile(rf"b\.(?P<column>{_QUOTED_IDENTIFIER})(?=,)")
+
+
+def _error_location(error: psycopg.Error) -> tuple[str, int] | None:
+    """Locate the failing token in the submitted SQL using PostgreSQL's diagnostic."""
+    statement = getattr(error, "_pg_upsert_statement", None)
+    position = error.diag.statement_position
+    if statement is not None and position is not None:
+        offset = int(position) - 1
+        if 0 <= offset < len(statement):
+            return statement, offset
+    return None
+
+
+def _identifier_name(token: str) -> str:
+    return token[1:-1].replace('""', '"') if token.startswith('"') else token
+
+
 def _is_known_missing_column(
     error: psycopg.Error,
     columns: set[str],
@@ -48,14 +69,18 @@ def _is_known_missing_column(
     if diag.column_name is not None:
         return diag.column_name in columns
 
-    # PostgreSQL's parser usually leaves column_name unset. Its primary
-    # diagnostic quotes bare column names and qualifies source references.
-    # s and e are the aliases for staging data used by the data checks.
-    match = re.fullmatch(r'column (?:"(.+)"|(?:s|e)\.(.+)) does not exist', diag.message_primary or "")
-    return bool(match and (match[1] or match[2]) in columns)
+    # PostgreSQL's missing-column parser error points to the start of the
+    # reference even when it leaves column_name unset. The data checks use
+    # unqualified references to staging data or qualify them with s or e.
+    location = _error_location(error)
+    if diag.source_function != "errorMissingColumn" or location is None:
+        return False
+    statement, offset = location
+    match = _STAGING_COLUMN.match(statement, offset)
+    return bool(match and _identifier_name(match["column"]) in columns)
 
 
-def _is_known_union_type_mismatch(error: psycopg.Error, type_pairs: set[tuple[str, str]]) -> bool:
+def _is_known_union_type_mismatch(error: psycopg.Error, columns: set[str]) -> bool:
     """Identify a UNION parse error explained by an existing hard type mismatch."""
     if not isinstance(error, psycopg.errors.DatatypeMismatch):
         return False
@@ -63,10 +88,16 @@ def _is_known_union_type_mismatch(error: psycopg.Error, type_pairs: set[tuple[st
     diag = error.diag
     if diag.source_function != "select_common_type" or diag.internal_query or diag.context:
         return False
-    return any(
-        diag.message_primary == f"UNION types {staging_type} and {base_type} cannot be matched"
-        for staging_type, base_type in type_pairs
-    )
+    location = _error_location(error)
+    if location is None:
+        return False
+    statement, offset = location
+    # select_common_type also reports CASE and other type resolution errors.
+    # The predicted-rows UNION points to the base-side projection at fault.
+    if not _UNION_BASE_PREFIX.search(statement, 0, offset):
+        return False
+    match = _UNION_BASE_COLUMN.match(statement, offset)
+    return bool(match and _identifier_name(match["column"]) in columns)
 
 
 class QARunner:
@@ -1374,15 +1405,15 @@ class QARunner:
         Returns:
             A list of :class:`QAError` for any type incompatibilities found.
         """
-        errors, _type_pairs = self._check_type_mismatch(table, ctx)
+        errors, _columns = self._check_type_mismatch(table, ctx)
         return errors
 
     def _check_type_mismatch(
         self,
         table: str,
         ctx: CheckContext | None,
-    ) -> tuple[list[QAError], set[tuple[str, str]]]:
-        """Return findings and the type spellings PostgreSQL uses in diagnostics."""
+    ) -> tuple[list[QAError], set[str]]:
+        """Return findings and the names of columns with incompatible types."""
         errors: list[QAError] = []
         logger.debug(f"Conducting column type mismatch checks on table {self.staging_schema}.{table}")
 
@@ -1424,7 +1455,7 @@ class QARunner:
         )
 
         mismatch_rows, _headers, mismatch_count = self.db.rowdict(
-            "select * from ups_type_mismatches;",
+            "select column_name, staging_type, base_type from ups_type_mismatches;",
         )
         if mismatch_count == 0:
             display.print_check_table_pass(self.staging_schema, table, ctx=ctx)
@@ -1432,11 +1463,11 @@ class QARunner:
 
         mismatch_details: list[str] = []
         schema_issues: list[SchemaIssue] = []
-        type_pairs: set[tuple[str, str]] = set()
+        mismatched_columns: set[str] = set()
         for row in mismatch_rows:
             detail = f"{row['column_name']} ({row['staging_type']} → {row['base_type']})"
             mismatch_details.append(detail)
-            type_pairs.add((row["staging_sql_type"], row["base_sql_type"]))
+            mismatched_columns.add(row["column_name"])
             if self.capture_detail_rows:
                 schema_issues.append(
                     SchemaIssue(
@@ -1464,7 +1495,7 @@ class QARunner:
                 schema_issues=schema_issues,
             ),
         )
-        return errors, type_pairs
+        return errors, mismatched_columns
 
     def check_lengths(self, table: str, ctx: CheckContext | None = None) -> list[QAError]:
         """Check values against bounded character-column lengths.
@@ -1648,7 +1679,7 @@ class QARunner:
 
         all_errors: list[QAError] = []
         missing_staging_columns: dict[str, set[str]] = {}
-        known_type_mismatches: dict[str, set[tuple[str, str]]] = {}
+        known_type_mismatches: dict[str, set[str]] = {}
 
         def check_columns(table: str, ctx: CheckContext) -> list[QAError]:
             errors, missing_staging_columns[table] = self._check_column_existence(table, ctx)
@@ -1738,11 +1769,11 @@ class QARunner:
                         and check_type != QACheckType.TYPE_MISMATCH
                         and _is_known_missing_column(exc, columns, self.staging_schema, table)
                     )
-                    type_pairs = known_type_mismatches.get(table)
+                    mismatched_columns = known_type_mismatches.get(table)
                     known_union_mismatch = (
-                        type_pairs
+                        mismatched_columns
                         and check_type == QACheckType.UNIQUE
-                        and _is_known_union_type_mismatch(exc, type_pairs)
+                        and _is_known_union_type_mismatch(exc, mismatched_columns)
                     )
                     if known_missing_column or known_union_mismatch:
                         severity = QASeverity.WARNING
