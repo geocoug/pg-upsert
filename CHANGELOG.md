@@ -8,6 +8,10 @@ ______________________________________________________________________
 
 ## [Unreleased]
 
+______________________________________________________________________
+
+## [1.27.0] - 2026-11-19
+
 ### Fixed
 
 - In the Textual comparison dialog, mouse and keyboard navigation now visibly highlight and scroll to the matching primary-key row in the other table, including for composite keys and keys that display identically across types. Matching works in both layouts with **Highlight Diffs** on or off. ([#41](https://github.com/geocoug/pg-upsert/issues/41))
