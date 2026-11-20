@@ -46,7 +46,7 @@ jobs:
             contents: read
         services:
             postgres:
-                image: postgis/postgis:16-3.4-alpine
+                image: postgres:16
                 env:
                     POSTGRES_USER: ${{ env.POSTGRES_USER }}
                     POSTGRES_PASSWORD: ${{ env.POSTGRES_PASSWORD }}
@@ -61,6 +61,13 @@ jobs:
         steps:
             - name: Check out repository code
               uses: actions/checkout@v4
+            - name: Enable French PostgreSQL diagnostics for regression tests
+              env:
+                  POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
+              run: |
+                  docker exec "$POSTGRES_CONTAINER" localedef -i fr_FR -f UTF-8 fr_FR.UTF-8
+                  docker restart "$POSTGRES_CONTAINER"
+                  timeout 60 bash -c 'until pg_isready -h "$POSTGRES_HOST" -p "$POSTGRES_PORT"; do sleep 1; done'
             - name: Import PostgreSQL data
               run: >-
                   psql -h ${{ env.POSTGRES_HOST }} -U ${{ env.POSTGRES_USER }} -d ${{ env.POSTGRES_DB }} -f tests/data/schema_passing.sql
@@ -91,6 +98,7 @@ jobs:
                   POSTGRES_USER: ${{ env.POSTGRES_USER }}
                   POSTGRES_PASSWORD: ${{ env.POSTGRES_PASSWORD }}
                   POSTGRES_DB: ${{ env.POSTGRES_DB }}
+                  PG_UPSERT_TEST_LOCALIZED_MESSAGES: "1"
             - name: Upload coverage to Codecov
               if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.13'
               uses: codecov/codecov-action@v5

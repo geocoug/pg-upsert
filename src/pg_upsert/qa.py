@@ -27,11 +27,24 @@ from .ui import UIBackend, display
 logger = logging.getLogger(__name__)
 
 
+_QUOTED_IDENTIFIER = r'"(?:[^"]|"")*"'
+_STAGING_COLUMN = re.compile(
+    rf'(?:(?P<alias>[se]|"[se]")\.)?(?P<column>{_QUOTED_IDENTIFIER}|[^\W\d][\w$]*)(?![\w$."])',
+)
+_UNION_BASE_PREFIX = re.compile(rf" union all select (?:b\.{_QUOTED_IDENTIFIER}, )*\Z")
+_UNION_BASE_COLUMN = re.compile(rf"b\.(?P<column>{_QUOTED_IDENTIFIER})(?=,)")
+
+
+def _identifier_name(token: str) -> str:
+    return token[1:-1].replace('""', '"') if token.startswith('"') else token
+
+
 def _is_known_missing_column(
     error: psycopg.Error,
     columns: set[str],
     schema: str,
     table: str,
+    check_type: QACheckType,
 ) -> bool:
     """Identify undefined staging columns already found by schema QA."""
     if not isinstance(error, psycopg.errors.UndefinedColumn):
@@ -45,17 +58,26 @@ def _is_known_missing_column(
         or (diag.table_name and diag.table_name != table)
     ):
         return False
-    if diag.column_name is not None:
+    if diag.column_name is not None and (check_type != QACheckType.FOREIGN_KEY or diag.table_name == table):
         return diag.column_name in columns
 
-    # PostgreSQL's parser usually leaves column_name unset. Its primary
-    # diagnostic quotes bare column names and qualifies source references.
-    # s and e are the aliases for staging data used by the data checks.
-    match = re.fullmatch(r'column (?:"(.+)"|(?:s|e)\.(.+)) does not exist', diag.message_primary or "")
-    return bool(match and (match[1] or match[2]) in columns)
+    # PostgreSQL's missing-column parser error points to the start of the
+    # reference even when it leaves column_name unset. The data checks use
+    # unqualified references to staging data or qualify them with s or e.
+    location = getattr(error, "_pg_upsert_error_location", None)
+    if diag.source_function != "errorMissingColumn" or location is None:
+        return False
+    statement, offset = location
+    match = _STAGING_COLUMN.match(statement, offset)
+    # FK checks use s for the child and e for a self-reference.
+    return bool(
+        match
+        and (check_type != QACheckType.FOREIGN_KEY or match["alias"] is not None)
+        and _identifier_name(match["column"]) in columns,
+    )
 
 
-def _is_known_union_type_mismatch(error: psycopg.Error, type_pairs: set[tuple[str, str]]) -> bool:
+def _is_known_union_type_mismatch(error: psycopg.Error, columns: set[str]) -> bool:
     """Identify a UNION parse error explained by an existing hard type mismatch."""
     if not isinstance(error, psycopg.errors.DatatypeMismatch):
         return False
@@ -63,10 +85,16 @@ def _is_known_union_type_mismatch(error: psycopg.Error, type_pairs: set[tuple[st
     diag = error.diag
     if diag.source_function != "select_common_type" or diag.internal_query or diag.context:
         return False
-    return any(
-        diag.message_primary == f"UNION types {staging_type} and {base_type} cannot be matched"
-        for staging_type, base_type in type_pairs
-    )
+    location = getattr(error, "_pg_upsert_error_location", None)
+    if location is None:
+        return False
+    statement, offset = location
+    # select_common_type also reports CASE and other type resolution errors.
+    # The predicted-rows UNION points to the base-side projection at fault.
+    if not _UNION_BASE_PREFIX.search(statement, 0, offset):
+        return False
+    match = _UNION_BASE_COLUMN.match(statement, offset)
+    return bool(match and _identifier_name(match["column"]) in columns)
 
 
 class QARunner:
@@ -235,20 +263,23 @@ class QARunner:
             return staging
 
         matched = SQL("b.{col} is not null").format(col=Identifier(pk_cols[0]))
+        source_alias = Identifier(alias)
         select_list = SQL(", ").join(
             SQL("case when {matched} then b.{col} end as {col}").format(matched=matched, col=Identifier(col))
             if overridden
-            else SQL("s.{col}").format(col=Identifier(col))
+            else SQL("{source}.{col}").format(source=source_alias, col=Identifier(col))
             for col, overridden in columns
         )
-        join_on = SQL(" and ").join(SQL("s.{col} = b.{col}").format(col=Identifier(col)) for col in pk_cols)
+        join_on = SQL(" and ").join(
+            SQL("{source}.{col} = b.{col}").format(source=source_alias, col=Identifier(col)) for col in pk_cols
+        )
         where = {
             "upsert": SQL(""),
             "update": SQL(" where {matched}").format(matched=matched),
             "insert": SQL(" where not ({matched})").format(matched=matched),
         }[self.upsert_method]
         return SQL(
-            "(select {select_list} from {staging_schema}.{table} as s"
+            "(select {select_list} from {staging_schema}.{table} as {alias}"
             " left join {base_schema}.{table} as b on {join_on}{where}) as {alias}",
         ).format(
             select_list=select_list,
@@ -257,10 +288,17 @@ class QARunner:
             table=Identifier(table),
             join_on=join_on,
             where=where,
-            alias=Identifier(alias),
+            alias=source_alias,
         )
 
-    def _predicted_rows(self, table: str, cols: list[str], alias: str = "p") -> Composable:
+    def _predicted_rows(
+        self,
+        table: str,
+        cols: list[str],
+        alias: str = "p",
+        *,
+        staging_alias: str = "e",
+    ) -> Composable:
         """Return a FROM-clause item for *cols* of the base table after the load.
 
         The rows are the effective staging rows (see :meth:`_effective_rows`)
@@ -272,13 +310,17 @@ class QARunner:
             table: The table name (same in staging and base).
             cols: Base-table columns to project.
             alias: Alias given to the FROM-clause item.
+            staging_alias: Alias for effective staging rows. A foreign-key
+                parent in a different table uses its own alias so missing
+                columns aren't mistaken for columns on the checked table.
         """
         pk_cols = self._get_pk_columns(table)
         out_cols = list(cols) + [c for c in pk_cols if c not in cols]
-        e_cols = SQL(", ").join(SQL("e.{col}").format(col=Identifier(c)) for c in out_cols)
+        staging_ref = Identifier(staging_alias)
+        e_cols = SQL(", ").join(SQL("{staging}.{col}").format(staging=staging_ref, col=Identifier(c)) for c in out_cols)
         staging_part = SQL("select {cols}, 'staging'::text as _ups_src from {effective}").format(
             cols=e_cols,
-            effective=self._effective_rows(table, "e"),
+            effective=self._effective_rows(table, staging_alias),
         )
         if not pk_cols:
             return SQL("({staging_part}) as {alias}").format(staging_part=staging_part, alias=Identifier(alias))
@@ -291,8 +333,10 @@ class QARunner:
             b_cols=SQL(", ").join(SQL("b.{col}").format(col=Identifier(c)) for c in out_cols),
             base_schema=Identifier(self.base_schema),
             table=Identifier(table),
-            effective=self._effective_rows(table, "e"),
-            pk_match=SQL(" and ").join(SQL("e.{col} = b.{col}").format(col=Identifier(c)) for c in pk_cols),
+            effective=self._effective_rows(table, staging_alias),
+            pk_match=SQL(" and ").join(
+                SQL("{staging}.{col} = b.{col}").format(staging=staging_ref, col=Identifier(c)) for c in pk_cols
+            ),
             alias=Identifier(alias),
         )
 
@@ -698,7 +742,11 @@ class QARunner:
             if const_row["uq_schema"] == self.base_schema and const_row["uq_table"] in self._selected_tables():
                 parent = SQL("(select distinct {cols} from {predicted}) as u").format(
                     cols=SQL(", ").join(Identifier(c) for c in uq_col_names),
-                    predicted=self._predicted_rows(const_row["uq_table"], uq_col_names),
+                    predicted=self._predicted_rows(
+                        const_row["uq_table"],
+                        uq_col_names,
+                        staging_alias="e" if const_row["uq_table"] == table else "parent_staging",
+                    ),
                 )
             else:
                 parent = SQL("{uq_schema}.{uq_table} as u").format(
@@ -1374,15 +1422,15 @@ class QARunner:
         Returns:
             A list of :class:`QAError` for any type incompatibilities found.
         """
-        errors, _type_pairs = self._check_type_mismatch(table, ctx)
+        errors, _columns = self._check_type_mismatch(table, ctx)
         return errors
 
     def _check_type_mismatch(
         self,
         table: str,
         ctx: CheckContext | None,
-    ) -> tuple[list[QAError], set[tuple[str, str]]]:
-        """Return findings and the type spellings PostgreSQL uses in diagnostics."""
+    ) -> tuple[list[QAError], set[str]]:
+        """Return findings and the names of columns with incompatible types."""
         errors: list[QAError] = []
         logger.debug(f"Conducting column type mismatch checks on table {self.staging_schema}.{table}")
 
@@ -1424,7 +1472,7 @@ class QARunner:
         )
 
         mismatch_rows, _headers, mismatch_count = self.db.rowdict(
-            "select * from ups_type_mismatches;",
+            "select column_name, staging_type, base_type from ups_type_mismatches;",
         )
         if mismatch_count == 0:
             display.print_check_table_pass(self.staging_schema, table, ctx=ctx)
@@ -1432,11 +1480,11 @@ class QARunner:
 
         mismatch_details: list[str] = []
         schema_issues: list[SchemaIssue] = []
-        type_pairs: set[tuple[str, str]] = set()
+        mismatched_columns: set[str] = set()
         for row in mismatch_rows:
             detail = f"{row['column_name']} ({row['staging_type']} → {row['base_type']})"
             mismatch_details.append(detail)
-            type_pairs.add((row["staging_sql_type"], row["base_sql_type"]))
+            mismatched_columns.add(row["column_name"])
             if self.capture_detail_rows:
                 schema_issues.append(
                     SchemaIssue(
@@ -1464,7 +1512,7 @@ class QARunner:
                 schema_issues=schema_issues,
             ),
         )
-        return errors, type_pairs
+        return errors, mismatched_columns
 
     def check_lengths(self, table: str, ctx: CheckContext | None = None) -> list[QAError]:
         """Check values against bounded character-column lengths.
@@ -1648,7 +1696,7 @@ class QARunner:
 
         all_errors: list[QAError] = []
         missing_staging_columns: dict[str, set[str]] = {}
-        known_type_mismatches: dict[str, set[tuple[str, str]]] = {}
+        known_type_mismatches: dict[str, set[str]] = {}
 
         def check_columns(table: str, ctx: CheckContext) -> list[QAError]:
             errors, missing_staging_columns[table] = self._check_column_existence(table, ctx)
@@ -1736,13 +1784,13 @@ class QARunner:
                     known_missing_column = (
                         columns
                         and check_type != QACheckType.TYPE_MISMATCH
-                        and _is_known_missing_column(exc, columns, self.staging_schema, table)
+                        and _is_known_missing_column(exc, columns, self.staging_schema, table, check_type)
                     )
-                    type_pairs = known_type_mismatches.get(table)
+                    mismatched_columns = known_type_mismatches.get(table)
                     known_union_mismatch = (
-                        type_pairs
+                        mismatched_columns
                         and check_type == QACheckType.UNIQUE
-                        and _is_known_union_type_mismatch(exc, type_pairs)
+                        and _is_known_union_type_mismatch(exc, mismatched_columns)
                     )
                     if known_missing_column or known_union_mismatch:
                         severity = QASeverity.WARNING

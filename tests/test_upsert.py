@@ -7,6 +7,7 @@ marked ``@pytest.mark.postgres`` via the class-level marker.
 
 from __future__ import annotations
 
+import os
 from unittest.mock import patch
 
 import psycopg
@@ -1690,6 +1691,12 @@ class TestCheckSchemaLive:
 
 
 class TestSavepointCrashResilience:
+    @pytest.fixture(params=["C", "fr_FR.utf8"])
+    def message_locale(self, request):
+        if request.param != "C" and not os.getenv("PG_UPSERT_TEST_LOCALIZED_MESSAGES"):
+            pytest.skip("Set PG_UPSERT_TEST_LOCALIZED_MESSAGES with fr_FR.utf8 available on PostgreSQL")
+        return request.param
+
     def test_missing_column_does_not_abort_pipeline(self, db):
         """When a check crashes on a missing column, other checks continue."""
         from pg_upsert.models import QASeverity
@@ -1738,9 +1745,10 @@ class TestSavepointCrashResilience:
         assert all(not e.details.startswith("check skipped:") for e in author_errors)
 
     @pytest.mark.parametrize("excluded", [False, True])
-    def test_missing_optional_column_does_not_block_upsert(self, db, ups, excluded):
+    def test_missing_optional_column_does_not_block_upsert(self, db, ups, excluded, message_locale):
         """A check that references a known missing column remains a warning."""
-        column = "optional_label" if excluded else "optional, label"
+        db.execute(SQL("SET lc_messages TO {}").format(Literal(message_locale)))
+        column = "optional_label" if excluded else 'étiquette, "optionnelle"'
         db.execute(
             SQL(
                 "ALTER TABLE public.publishers ADD COLUMN {column} text UNIQUE CHECK ({column} <> '')",
@@ -1748,10 +1756,11 @@ class TestSavepointCrashResilience:
         )
         if excluded:
             ups.exclude_cols_by_table = {"publishers": [column]}
+        ups.do_commit = True
 
         result = ups.run()
 
-        assert result.status is RunStatus.DRY_RUN
+        assert result.status is RunStatus.COMMITTED
         assert result.qa_passed
         publishers = next(table for table in result.tables if table.table_name == "publishers")
         column_warnings = [
@@ -1762,6 +1771,107 @@ class TestSavepointCrashResilience:
         skips = [warning for warning in publishers.qa_warnings if warning.details.startswith("check skipped:")]
         assert {warning.check_type for warning in skips} == {QACheckType.UNIQUE, QACheckType.CHECK_CONSTRAINT}
         assert all(column in warning.details for warning in skips)
+        if message_locale == "fr_FR.utf8":
+            assert all("n'existe pas" in warning.details for warning in skips)
+
+    def test_known_union_mismatch_is_a_warning(self, ups_failing, message_locale):
+        """A UNION failure points to the column already reported by schema QA."""
+        ups_failing.db.execute(SQL("SET lc_messages TO {}").format(Literal(message_locale)))
+
+        ups_failing.qa_all()
+
+        assert not ups_failing.qa_passed
+        assert any(e.table == "publishers" and e.check_type is QACheckType.TYPE_MISMATCH for e in ups_failing.qa_errors)
+        assert any(
+            e.table == "publishers" and e.check_type is QACheckType.UNIQUE and e.details.startswith("check skipped:")
+            for e in ups_failing.qa_warnings
+        )
+
+    def test_missing_parent_column_does_not_match_child_warning(self, db, ups, message_locale):
+        db.execute(SQL("SET lc_messages TO {}").format(Literal(message_locale)))
+        db.execute(
+            """
+            ALTER TABLE public.publishers ADD COLUMN optional_key TEXT UNIQUE;
+            ALTER TABLE public.books ADD COLUMN optional_key TEXT;
+            ALTER TABLE public.books ADD COLUMN optional_ref TEXT REFERENCES public.publishers(optional_key);
+            ALTER TABLE staging.books ADD COLUMN optional_ref TEXT;
+            UPDATE staging.books SET optional_ref = 'unloaded';
+            """,
+        )
+
+        ups.qa_all()
+
+        assert not ups.qa_passed
+        assert any(
+            e.table == "books" and e.check_type == QACheckType.FOREIGN_KEY and "optional_key" in e.details
+            for e in ups.qa_errors
+        )
+
+    def test_self_reference_can_match_missing_column_warning(self, db, ups, message_locale):
+        db.execute(SQL("SET lc_messages TO {}").format(Literal(message_locale)))
+        db.execute(
+            """
+            ALTER TABLE public.publishers ADD COLUMN optional_key TEXT UNIQUE;
+            ALTER TABLE public.publishers
+                ADD COLUMN optional_ref TEXT REFERENCES public.publishers(optional_key);
+            ALTER TABLE staging.publishers ADD COLUMN optional_ref TEXT;
+            """,
+        )
+        ups.do_commit = True
+
+        result = ups.run()
+
+        assert result.status is RunStatus.COMMITTED
+        publishers = next(table for table in result.tables if table.table_name == "publishers")
+        assert any(
+            e.check_type == QACheckType.FOREIGN_KEY and "optional_key" in e.details for e in publishers.qa_warnings
+        )
+
+    @pytest.mark.skipif(
+        not os.getenv("PG_UPSERT_TEST_LOCALIZED_MESSAGES"),
+        reason="requires permission to create a disposable SQL_ASCII database",
+    )
+    def test_sql_ascii_uses_byte_offsets_for_utf8_sql(self, global_variables):
+        uri = global_variables["URI"]
+        database_name = "pg_upsert_sql_ascii_test"
+        database = Identifier(database_name)
+        with psycopg.connect(uri, autocommit=True) as admin:
+            admin.execute(
+                SQL("CREATE DATABASE {} TEMPLATE template0 ENCODING 'SQL_ASCII' LC_COLLATE 'C' LC_CTYPE 'C'").format(
+                    database,
+                ),
+            )
+            try:
+                with psycopg.connect(uri, dbname=database_name, client_encoding="UTF8") as conn:
+                    conn.execute(
+                        """
+                        SET lc_messages TO 'fr_FR.utf8';
+                        CREATE SCHEMA staging;
+                        CREATE TABLE public.books (
+                            id int PRIMARY KEY,
+                            optional_label text CHECK ('préfixe'::text <> optional_label)
+                        );
+                        CREATE TABLE staging.books (id int PRIMARY KEY);
+                        INSERT INTO staging.books VALUES (1);
+                        """,
+                    )
+                    ups = PgUpsert(
+                        conn=conn,
+                        tables=("books",),
+                        staging_schema="staging",
+                        base_schema="public",
+                        do_commit=True,
+                        interactive=False,
+                    )
+                    result = ups.run()
+
+                    assert result.status is RunStatus.COMMITTED
+                    assert any(
+                        e.check_type == QACheckType.CHECK_CONSTRAINT and "optional_label" in e.details
+                        for e in result.tables[0].qa_warnings
+                    )
+            finally:
+                admin.execute(SQL("DROP DATABASE {}").format(database))
 
     def test_check_expression_error_blocks_qa(self, db, ups):
         """An unrelated column warning does not hide an error in a CHECK expression."""

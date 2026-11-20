@@ -202,19 +202,33 @@ class PostgresDB:
             psycopg.Cursor: A cursor object for the executed query.
         """
         self.in_transaction = True
+        statement = None
         try:
             curs = self.cursor()
             if isinstance(sql, Composable):
-                logger.debug(f"\n{sql.as_string(curs)}")
+                statement = sql.as_string(curs)
+                logger.debug(f"\n{statement}")
                 curs.execute(sql)
             else:
                 if params is None:
+                    statement = sql
                     logger.debug(f"\n{sql}")
                     curs.execute(sql.encode(self.encoding))
                 else:
                     logger.debug(f"\nSQL:\n{sql}\nParameters:\n{params}")
                     curs.execute(sql.encode(self.encoding), params)
-        except psycopg.Error:
+        except psycopg.Error as exc:
+            if self._in_savepoint and statement is not None and (position := exc.diag.statement_position):
+                offset = int(position) - 1
+                if self.conn.info.parameter_status("server_encoding") == "SQL_ASCII":
+                    # SQL_ASCII treats each byte as a character, even with a UTF-8 client.
+                    encoding = self.conn.info.encoding if isinstance(sql, Composable) else self.encoding
+                    try:
+                        offset = len(statement.encode(encoding)[:offset].decode(encoding))
+                    except UnicodeError:
+                        offset = -1
+                if 0 <= offset < len(statement):
+                    exc._pg_upsert_error_location = (statement, offset)
             if not self._in_savepoint:
                 self.rollback()
             raise
